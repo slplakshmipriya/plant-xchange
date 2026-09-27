@@ -111,6 +111,22 @@ public class PhoneAuthActivity extends AppCompatActivity {
         sendCodeButton.setOnClickListener(v -> sendCode(false));
         verifyButton.setOnClickListener(v -> verifyCode());
         resendButton.setOnClickListener(v -> sendCode(true));
+
+        if (savedInstanceState != null) {
+            verificationId = savedInstanceState.getString("verificationId");
+            if (verificationId != null) {
+                codeInput.setVisibility(View.VISIBLE);
+                verifyButton.setVisibility(View.VISIBLE);
+                resendButton.setVisibility(View.VISIBLE);
+                setStatus("Code sent. Enter the 6-digit code.");
+            }
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putString("verificationId", verificationId);
     }
 
     private void sendCode(boolean resend) {
