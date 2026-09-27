@@ -54,17 +54,19 @@ class PostgresCreditRepo:
         return d
 
     def add_entry(self, uid, delta, reason, ref_id=None, idempotency_key=None):
-        if idempotency_key:
-            existing = self.find_by_idempotency_key(idempotency_key)
-            if existing:
-                return existing
+        # Concurrent same-key inserts: exactly one wins; the loser re-reads.
         row = self._conn.execute(
             "INSERT INTO credit_ledger (id, uid, delta, reason, ref_id, idempotency_key) "
-            "VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
+            "VALUES (%s,%s,%s,%s,%s,%s) "
+            "ON CONFLICT (idempotency_key) DO NOTHING RETURNING *",
             (str(uuid.uuid4()), uid, delta, reason, ref_id, idempotency_key),
         ).fetchone()
         self._conn.commit()
-        return self._row(row)
+        if row is None and idempotency_key:
+            row = self._conn.execute(
+                "SELECT * FROM credit_ledger WHERE idempotency_key = %s", (idempotency_key,)
+            ).fetchone()
+        return self._row(row) if row else None
 
     def find_by_idempotency_key(self, key):
         row = self._conn.execute(

@@ -67,8 +67,11 @@ def claim_listing(
     if credit_repo.balance(uid) < row["credit_cost"]:
         raise HTTPException(422, {"code": "insufficient_credits",
                                   "message": "Not enough credits — give before you claim"})
-    repo.update(listing_id, {"claimer_uid": uid})
-    updated = repo.set_status(listing_id, "claimed")
+    # Atomic: concurrent claimants cannot both win; the loser gets None.
+    updated = repo.claim(listing_id, uid)
+    if updated is None:
+        raise HTTPException(422, {"code": "listing_not_live",
+                                  "message": "Someone just claimed this listing"})
     return public_listing(updated)
 
 
@@ -105,14 +108,25 @@ def confirm_exchange(
     confirmed = set(credit_repo.confirmations(data.listing_id))
     if {row["owner_uid"], row["claimer_uid"]} <= confirmed and can_transition("claimed", "completed"):
         cost = row["credit_cost"]
-        key = data.idempotency_key
+        # Balance can change between claim and confirm — recheck so a confirm
+        # can never drive a balance negative.
+        if credit_repo.balance(row["claimer_uid"]) < cost:
+            raise HTTPException(422, {"code": "insufficient_credits",
+                                      "message": "Claimer no longer has enough credits"})
+        # Deterministic server-side keys: exactly-once credit moves even when
+        # the client sends no idempotency key and two confirms race. Entries
+        # land before the status flip so a crash mid-flight is recoverable by
+        # retry (re-adds are no-ops, then the flip completes).
+        base_key = data.idempotency_key or f"exchange:{data.listing_id}"
         credit_repo.add_entry(row["claimer_uid"], -cost, "exchange_spend",
                               ref_id=data.listing_id,
-                              idempotency_key=f"{key}:spend" if key else None)
+                              idempotency_key=f"{base_key}:spend")
         credit_repo.add_entry(row["owner_uid"], cost, "exchange_earn",
                               ref_id=data.listing_id,
-                              idempotency_key=f"{key}:earn" if key else None)
-        row = repo.set_status(data.listing_id, "completed")
+                              idempotency_key=f"{base_key}:earn")
+        completed = repo.complete_if_claimed(data.listing_id)
+        if completed is not None:
+            row = completed
     return {
         "status": row["status"],
         "confirmed_by": sorted(confirmed),

@@ -220,3 +220,55 @@ def test_confirm_rules(mem_exchange):
                     json={"listing_id": "00000000-0000-0000-0000-000000000000"},
                     headers=ALICE)
     assert r.status_code == 404
+
+
+def test_atomic_claim_only_one_winner(mem_exchange):
+    """Review: two claimants racing must not both win."""
+    client, urepo, lrepo, crepo = mem_exchange
+    _profile(client, ALICE, "Alice")
+    _profile(client, BOB, "Bob")
+    _profile(client, MALLORY, "Mallory")
+    listing_id = _make_listing(client, cost=2)
+    assert client.post(f"/v1/listings/{listing_id}/claim", headers=BOB).status_code == 200
+    r = client.post(f"/v1/listings/{listing_id}/claim", headers=MALLORY)
+    assert r.status_code == 422
+    assert lrepo.get(listing_id)["claimer_uid"] == "bob"
+
+
+def test_double_confirm_moves_credits_exactly_once(mem_exchange):
+    """Review: both parties confirming twice (no idempotency key) still moves
+    credits exactly once — deterministic server-side keys + atomic flip."""
+    client, urepo, lrepo, crepo = mem_exchange
+    _profile(client, ALICE, "Alice")
+    _profile(client, BOB, "Bob")
+    listing_id = _make_listing(client, cost=2)
+    client.post(f"/v1/listings/{listing_id}/claim", headers=BOB)
+    body = {"listing_id": listing_id}
+    client.post("/v1/exchange/confirm", json=body, headers=ALICE)
+    client.post("/v1/exchange/confirm", json=body, headers=BOB)
+    # repeat the whole exchange — must be safe no-ops
+    r1 = client.post("/v1/exchange/confirm", json=body, headers=ALICE)
+    r2 = client.post("/v1/exchange/confirm", json=body, headers=BOB)
+    assert r1.json()["status"] == "completed"
+    assert r2.json()["status"] == "completed"
+    assert crepo.balance("bob") == 3 - 2  # starter 3, spent exactly 2
+    assert crepo.balance("alice") == 3 + 2
+
+
+def test_confirm_rechecks_balance_at_confirm_time(mem_exchange):
+    """Review: spending between claim and confirm must not drive a balance
+    negative — confirm rechecks."""
+    client, urepo, lrepo, crepo = mem_exchange
+    _profile(client, ALICE, "Alice")
+    _profile(client, BOB, "Bob")
+    listing_id = _make_listing(client, cost=3)
+    client.post(f"/v1/listings/{listing_id}/claim", headers=BOB)
+    # Bob spends his credits elsewhere before confirming.
+    crepo.add_entry("bob", -3, "elsewhere")
+    assert client.post("/v1/exchange/confirm", json={"listing_id": listing_id},
+                       headers=ALICE).status_code == 200  # owner first: no move yet
+    r = client.post("/v1/exchange/confirm", json={"listing_id": listing_id}, headers=BOB)
+    assert r.status_code == 422
+    assert r.json()["code"] == "insufficient_credits"
+    assert lrepo.get(listing_id)["status"] == "claimed"  # not completed
+    assert crepo.balance("bob") == 0  # never negative

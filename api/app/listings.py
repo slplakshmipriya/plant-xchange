@@ -122,6 +122,16 @@ class ListingRepo(Protocol):
     def get(self, listing_id: str) -> dict[str, Any] | None: ...
     def update(self, listing_id: str, fields: dict[str, Any]) -> dict[str, Any] | None: ...
     def set_status(self, listing_id: str, status: str) -> dict[str, Any] | None: ...
+    def claim(self, listing_id: str, claimer_uid: str) -> dict[str, Any] | None:
+        """Atomically claim a live listing (live -> claimed + claimer_uid).
+
+        Returns the updated row, or None when the listing is not live —
+        concurrent claimants cannot both win."""
+        ...
+    def complete_if_claimed(self, listing_id: str) -> dict[str, Any] | None:
+        """Atomically flip claimed -> completed. Only one caller wins; the
+        loser gets None. Guards the exactly-once credit move."""
+        ...
     def sweep_expired(self, now: datetime) -> int: ...
     def list_live(self) -> list[dict[str, Any]]: ...
     def list_by_owner(self, uid: str) -> list[dict[str, Any]]:
@@ -204,6 +214,24 @@ class PostgresListingRepo:
         self._conn.execute("UPDATE listings SET status = %s WHERE id = %s", (status, listing_id))
         self._conn.commit()
         return self.get(listing_id)
+
+    def claim(self, listing_id: str, claimer_uid: str) -> dict[str, Any] | None:
+        cur = self._conn.execute(
+            "UPDATE listings SET status = 'claimed', claimer_uid = %s "
+            "WHERE id = %s AND status = 'live'",
+            (claimer_uid, listing_id),
+        )
+        self._conn.commit()
+        return self.get(listing_id) if (cur.rowcount or 0) > 0 else None
+
+    def complete_if_claimed(self, listing_id: str) -> dict[str, Any] | None:
+        cur = self._conn.execute(
+            "UPDATE listings SET status = 'completed' "
+            "WHERE id = %s AND status = 'claimed'",
+            (listing_id,),
+        )
+        self._conn.commit()
+        return self.get(listing_id) if (cur.rowcount or 0) > 0 else None
 
     def sweep_expired(self, now: datetime) -> int:
         cur = self._conn.execute(
@@ -290,6 +318,21 @@ class MemoryListingRepo:
 
     def set_status(self, listing_id: str, status: str) -> dict[str, Any] | None:
         return self.update(listing_id, {"status": status})
+
+    def claim(self, listing_id: str, claimer_uid: str) -> dict[str, Any] | None:
+        row = self._rows.get(listing_id)
+        if row is None or row.get("status") != "live":
+            return None
+        row["status"] = "claimed"
+        row["claimer_uid"] = claimer_uid
+        return dict(row)
+
+    def complete_if_claimed(self, listing_id: str) -> dict[str, Any] | None:
+        row = self._rows.get(listing_id)
+        if row is None or row.get("status") != "claimed":
+            return None
+        row["status"] = "completed"
+        return dict(row)
 
     def sweep_expired(self, now: datetime) -> int:
         n = 0
