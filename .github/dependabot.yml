@@ -1,0 +1,15 @@
+# SEC-002: weekly dependency updates. Each PR runs .github/workflows/android.yml.
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/android"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(android)"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(ci)"

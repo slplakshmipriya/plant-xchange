@@ -1,0 +1,14 @@
+# Copy this file to `local.properties` (same directory) and fill in values.
+# `local.properties` is git-ignored — never commit the real file or any keystore.
+
+# Base URL of the Cloud Run API (API-001). Empty string is fine for UI-only work.
+API_BASE_URL=
+
+# Release signing (optional for debug builds). Generate once with:
+#   keytool -genkeypair -v -keystore gardenswap-release.keystore -alias gardenswap \
+#     -keyalg RSA -keysize 2048 -validity 10000
+# Keep the keystore outside the repo and point here with an absolute path.
+#RELEASE_KEYSTORE_PATH=/absolute/path/to/gardenswap-release.keystore
+#RELEASE_KEYSTORE_PASSWORD=
+#RELEASE_KEY_ALIAS=gardenswap
+#RELEASE_KEY_PASSWORD=
