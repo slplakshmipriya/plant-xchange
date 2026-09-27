@@ -45,3 +45,16 @@ def mem_users(client, monkeypatch):
     repo = users_mod.MemoryUserRepo()
     client.app.dependency_overrides[users_mod.get_user_repo] = lambda: repo
     return client, repo
+
+
+@pytest.fixture()
+def mem_listings(client, monkeypatch):
+    """In-memory user + listing repos. Returns (client, user_repo, listing_repo)."""
+    from app import listings as listings_mod
+    from app import users as users_mod
+
+    urepo = users_mod.MemoryUserRepo()
+    lrepo = listings_mod.MemoryListingRepo()
+    client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
+    client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
+    return client, urepo, lrepo

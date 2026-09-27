@@ -171,8 +171,6 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Idv Webhook V1 Idv Webhook Post
-      security:
-      - bearerAuth: []
   /v1/idv/stub/decide:
     post:
       tags:
@@ -204,6 +202,147 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/listings:
+    post:
+      tags:
+      - listings
+      summary: Create Listing
+      operationId: create_listing_v1_listings_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListingIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Listing V1 Listings Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}:
+    get:
+      tags:
+      - listings
+      summary: Get Listing
+      operationId: get_listing_v1_listings__listing_id__get
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Listing V1 Listings  Listing Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+    patch:
+      tags:
+      - listings
+      summary: Patch Listing
+      operationId: patch_listing_v1_listings__listing_id__patch
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListingPatch'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Patch Listing V1 Listings  Listing Id  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/cancel:
+    post:
+      tags:
+      - listings
+      summary: Cancel Listing
+      operationId: cancel_listing_v1_listings__listing_id__cancel_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Cancel Listing V1 Listings  Listing Id  Cancel Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/internal/sweep:
+    post:
+      tags:
+      - internal
+      summary: Sweep Expired
+      description: 'Idempotent expiry job. Auth: shared secret header (NOT a user
+        token).'
+      operationId: sweep_expired_v1_internal_sweep_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Sweep Expired V1 Internal Sweep Post
   /me:
     get:
       tags:
@@ -234,6 +373,142 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    ListingIn:
+      properties:
+        type:
+          type: string
+          pattern: ^(seedling|harvest|tree)$
+          title: Type
+        photos:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Photos
+        variety:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Variety
+        quantity:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Quantity
+        unit:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Unit
+        credit_cost:
+          type: integer
+          maximum: 3.0
+          minimum: 1.0
+          title: Credit Cost
+        pickup_window:
+          anyOf:
+          - $ref: '#/components/schemas/PickupWindow'
+          - type: 'null'
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        geo_lat:
+          anyOf:
+          - type: number
+            maximum: 90.0
+            minimum: -90.0
+          - type: 'null'
+          title: Geo Lat
+        geo_lon:
+          anyOf:
+          - type: number
+            maximum: 180.0
+            minimum: -180.0
+          - type: 'null'
+          title: Geo Lon
+        spray_disclosure:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Spray Disclosure
+        status:
+          type: string
+          pattern: ^(draft|live)$
+          title: Status
+          default: draft
+      type: object
+      required:
+      - type
+      - photos
+      - credit_cost
+      - spray_disclosure
+      title: ListingIn
+    ListingPatch:
+      properties:
+        photos:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            minItems: 1
+          - type: 'null'
+          title: Photos
+        variety:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Variety
+        quantity:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Quantity
+        unit:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Unit
+        credit_cost:
+          anyOf:
+          - type: integer
+            maximum: 3.0
+            minimum: 1.0
+          - type: 'null'
+          title: Credit Cost
+        pickup_window:
+          anyOf:
+          - $ref: '#/components/schemas/PickupWindow'
+          - type: 'null'
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        spray_disclosure:
+          anyOf:
+          - type: string
+            maxLength: 2000
+            minLength: 1
+          - type: 'null'
+          title: Spray Disclosure
+        status:
+          anyOf:
+          - type: string
+            pattern: ^(draft|live|claimed|completed|cancelled)$
+          - type: 'null'
+          title: Status
+      type: object
+      title: ListingPatch
     OwnerProfile:
       properties:
         uid:
@@ -270,6 +545,21 @@ components:
       - avatar_url
       - home_zip
       title: OwnerProfile
+    PickupWindow:
+      properties:
+        start:
+          type: string
+          format: date-time
+          title: Start
+        end:
+          type: string
+          format: date-time
+          title: End
+      type: object
+      required:
+      - start
+      - end
+      title: PickupWindow
     ProfileIn:
       properties:
         display_name:
