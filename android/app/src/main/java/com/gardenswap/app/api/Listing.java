@@ -28,6 +28,11 @@ public final class Listing {
     private final String sprayDisclosure;
     private final ListingStatus status;
     private final long createdAtMs;
+    /**
+     * Free listing: no credits change hands. Client-proposed (AND-040); the
+     * backend wire semantics are decided with API-040.
+     */
+    private final boolean free;
 
     private Listing(Builder builder) {
         this.id = builder.id;
@@ -46,6 +51,7 @@ public final class Listing {
         this.sprayDisclosure = builder.sprayDisclosure;
         this.status = builder.status;
         this.createdAtMs = builder.createdAtMs;
+        this.free = builder.free;
     }
 
     public String getId() {
@@ -112,6 +118,10 @@ public final class Listing {
         return createdAtMs;
     }
 
+    public boolean isFree() {
+        return free;
+    }
+
     public static Builder builder(String id) {
         return new Builder(id);
     }
@@ -133,6 +143,7 @@ public final class Listing {
         private String sprayDisclosure;
         private ListingStatus status = ListingStatus.DRAFT;
         private long createdAtMs = System.currentTimeMillis();
+        private boolean free = false;
 
         public Builder(String id) {
             this.id = id;
@@ -202,6 +213,11 @@ public final class Listing {
 
         public Builder createdAtMs(long createdAtMs) {
             this.createdAtMs = createdAtMs;
+            return this;
+        }
+
+        public Builder free(boolean free) {
+            this.free = free;
             return this;
         }
 

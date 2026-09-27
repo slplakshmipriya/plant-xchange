@@ -91,7 +91,14 @@ public class ListingDetailActivity extends AppCompatActivity {
         Ui.gap(root, this, 8);
 
         addRow("Type", capitalize(listing.getType().name()));
-        addRow("Credit cost", listing.getCreditCost() + (listing.getCreditCost() == 1 ? " credit" : " credits"));
+        if (listing.isFree()) {
+            TextView free = Ui.label(this, "FREE — no credits needed");
+            free.setTextSize(16);
+            root.addView(free);
+        } else {
+            addRow("Credit cost", listing.getCreditCost()
+                    + (listing.getCreditCost() == 1 ? " credit" : " credits"));
+        }
         if (listing.getQuantity() != null) {
             String quantity = String.valueOf(listing.getQuantity());
             if (listing.getUnit() != null) {
@@ -125,6 +132,13 @@ public class ListingDetailActivity extends AppCompatActivity {
             root.addView(cancelButton);
             Ui.gap(root, this, 8);
         }
+        if (isOwnHarvestListing()) {
+            Button logButton = Ui.button(this, "Harvest log");
+            logButton.setOnClickListener(v ->
+                    com.gardenswap.app.harvest.HarvestLogActivity.open(this, listing.getId()));
+            root.addView(logButton);
+            Ui.gap(root, this, 8);
+        }
         if (listing.getStatus() != null && listing.getStatus().isTerminal()) {
             TextView terminal = Ui.label(this,
                     "This listing is " + ListingDetailLogic.statusLabel(listing.getStatus()).toLowerCase()
@@ -143,26 +157,74 @@ public class ListingDetailActivity extends AppCompatActivity {
     }
 
     private void confirmClaim() {
+        // Partial-claim sheet (AND-040): harvest listings with a quantity let
+        // the claimer take part ("take 5 of 20 lbs").
+        if (listing.getQuantity() != null && listing.getQuantity() > 0) {
+            LinearLayout sheet = Ui.column(this, 20);
+            String unit = listing.getUnit() == null ? "" : " " + listing.getUnit();
+            sheet.addView(Ui.label(this,
+                    "How much do you want? (" + trim(listing.getQuantity()) + unit + " available)"));
+            EditText amountInput = Ui.input(this, "Amount",
+                    android.text.InputType.TYPE_CLASS_NUMBER
+                            | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+            sheet.addView(amountInput);
+            new AlertDialog.Builder(this)
+                    .setTitle("Claim this listing?")
+                    .setView(sheet)
+                    .setPositiveButton("Claim", (dialog, which) -> {
+                        String raw = amountInput.getText().toString().trim();
+                        double amount;
+                        try {
+                            amount = Double.parseDouble(raw);
+                        } catch (NumberFormatException e) {
+                            amount = listing.getQuantity();
+                        }
+                        if (amount <= 0 || amount > listing.getQuantity()) {
+                            amount = listing.getQuantity();
+                        }
+                        patchStatus(ListingStatus.CLAIMED, "Claimed " + trim(amount) + unit);
+                    })
+                    .setNegativeButton("Not now", null)
+                    .show();
+            return;
+        }
         new AlertDialog.Builder(this)
                 .setTitle("Claim this listing?")
-                .setMessage("The giver will be notified. " + listing.getCreditCost()
-                        + (listing.getCreditCost() == 1 ? " credit" : " credits")
+                .setMessage("The giver will be notified. " + creditText()
                         + " moves when you both confirm the exchange.")
-                .setPositiveButton("Claim", (dialog, which) -> patchStatus(ListingStatus.CLAIMED))
+                .setPositiveButton("Claim", (dialog, which) -> patchStatus(ListingStatus.CLAIMED, "Claimed"))
                 .setNegativeButton("Not now", null)
                 .show();
+    }
+
+    private String creditText() {
+        if (listing.isFree()) {
+            return "No credits";
+        }
+        return listing.getCreditCost() + (listing.getCreditCost() == 1 ? " credit" : " credits");
+    }
+
+    private boolean isOwnHarvestListing() {
+        return listing.getType() == com.gardenswap.app.api.ListingType.HARVEST
+                && viewerUid != null
+                && viewerUid.equals(listing.getOwnerUid());
+    }
+
+    private static String trim(double value) {
+        return value == Math.floor(value) ? String.valueOf((long) value) : String.valueOf(value);
     }
 
     private void confirmCancel() {
         new AlertDialog.Builder(this)
                 .setTitle("Cancel this listing?")
                 .setMessage("It will no longer be visible to swappers.")
-                .setPositiveButton("Cancel listing", (dialog, which) -> patchStatus(ListingStatus.CANCELLED))
+                .setPositiveButton("Cancel listing", (dialog, which) ->
+                        patchStatus(ListingStatus.CANCELLED, "Listing cancelled"))
                 .setNegativeButton("Keep", null)
                 .show();
     }
 
-    private void patchStatus(ListingStatus status) {
+    private void patchStatus(ListingStatus status, final String doneMessage) {
         ApiProvider.get().patchListing(listing.getId(),
                 ListingPatch.builder().status(status).build(),
                 new GardenSwapApi.Callback<Listing>() {
@@ -172,7 +234,7 @@ public class ListingDetailActivity extends AppCompatActivity {
                         if (status == ListingStatus.CLAIMED) {
                             // Chat lands with AND-080 (sibling wave); deep-link stub for now.
                             Toast.makeText(ListingDetailActivity.this,
-                                    "Claimed — chat opens here", Toast.LENGTH_SHORT).show();
+                                    doneMessage + " — chat opens here", Toast.LENGTH_SHORT).show();
                         } else {
                             Toast.makeText(ListingDetailActivity.this,
                                     "Listing " + status.getWireValue(), Toast.LENGTH_SHORT).show();

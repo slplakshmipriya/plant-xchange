@@ -42,6 +42,9 @@ public class MockGardenSwapApi implements GardenSwapApi {
     /** In-memory want-list (AND-030). */
     private final Map<String, WantItem> wants = new LinkedHashMap<>();
 
+    /** In-memory harvest events per listing (AND-040). */
+    private final Map<String, List<HarvestEvent>> harvestEvents = new LinkedHashMap<>();
+
     public MockGardenSwapApi() {
         seedSampleListings();
     }
@@ -273,6 +276,7 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 .geo(input.getGeoLat(), input.getGeoLon())
                 .sprayDisclosure(input.getSprayDisclosure())
                 .status(ListingStatus.LIVE)
+                .free(input.isFree())
                 .build();
         listings.put(listing.getId(), listing);
         Log.d(TAG, "createListing id=" + listing.getId() + " type=" + input.getType());
@@ -312,7 +316,8 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 .sprayDisclosure(patch.getSprayDisclosure() != null
                         ? patch.getSprayDisclosure() : current.getSprayDisclosure())
                 .status(patch.getStatus() != null ? patch.getStatus() : current.getStatus())
-                .createdAtMs(current.getCreatedAtMs());
+                .createdAtMs(current.getCreatedAtMs())
+                .free(current.isFree());
         Listing updated = builder.build();
         listings.put(listingId, updated);
         emit(callback, updated);
@@ -367,6 +372,35 @@ public class MockGardenSwapApi implements GardenSwapApi {
             }
         }
         emit(callback, WantMatcher.matches(new ArrayList<>(wants.values()), others));
+    }
+
+    @Override
+    public void getHarvestEvents(String listingId, Callback<List<HarvestEvent>> callback) {
+        List<HarvestEvent> events = harvestEvents.get(listingId);
+        emit(callback, events == null ? new ArrayList<HarvestEvent>() : new ArrayList<>(events));
+    }
+
+    @Override
+    public void logHarvestEvent(String listingId, double delta, String note,
+            Callback<HarvestEvent> callback) {
+        if (!listings.containsKey(listingId)) {
+            emitError(callback, new ApiException("listing_not_found", "No such listing"));
+            return;
+        }
+        if (delta == 0) {
+            emitError(callback, new ApiException("invalid_delta", "Delta cannot be zero"));
+            return;
+        }
+        HarvestEvent event = new HarvestEvent(
+                "mock-event-" + UUID.randomUUID(), listingId, delta,
+                note == null ? "" : note, System.currentTimeMillis());
+        List<HarvestEvent> events = harvestEvents.get(listingId);
+        if (events == null) {
+            events = new ArrayList<>();
+            harvestEvents.put(listingId, events);
+        }
+        events.add(event);
+        emit(callback, event);
     }
 
     private <T> void emit(Callback<T> callback, T value) {

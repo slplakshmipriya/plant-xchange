@@ -67,6 +67,7 @@ responses until the real HTTP client replaces it at the integration checkpoint.
 | `listMyListings` | Client-proposed — backend Wave 2 should add `GET /v1/listings?owner=me` |
 | `getWantList` / `addWant` / `removeWant` | Client-proposed (API-030 builds these) |
 | `getMatches` | Client-proposed — backend match engine (API-030) is authoritative; mock delegates to `util/WantMatcher` |
+| `getHarvestEvents` / `logHarvestEvent` | Client-proposed (AND-040); backend harvest rules (API-040) define the wire form |
 
 ## Shapes
 
@@ -76,6 +77,11 @@ responses until the real HTTP client replaces it at the integration checkpoint.
   `sprayDisclosure`, `status` (draft/live/claimed/completed/expired/cancelled)
 - `ListingInput`: create payload; photo (≥1) + spray disclosure required
 - `ListingPatch`: nullable fields; `status` drives the state machine
+- `Listing.free` / `ListingInput.free`: client-proposed (AND-040) — the
+  backend decides the wire semantics (0-credit listing vs 1-credit floor);
+  the real HTTP client must map accordingly, never silently drop the flag
+- `HarvestEvent`: `id`, `listingId`, signed `delta` (+ picked / − taken),
+  `note`, `createdAtMs`
 - `ListingStatus.fromString` maps unknown wire values → `null`
   (forward-compatible with new backend states)
 

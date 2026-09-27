@@ -47,8 +47,11 @@ public class CreateListingActivity extends AppCompatActivity {
     private EditText varietyInput;
     private EditText quantityInput;
     private EditText unitInput;
+    private LinearLayout unitPresetRow;
     private TextView creditView;
     private int creditCost = 1;
+    private boolean freeListing = false;
+    private LinearLayout creditRow;
     private EditText pickupStartInput;
     private EditText pickupEndInput;
     private EditText expiryDaysInput;
@@ -57,6 +60,7 @@ public class CreateListingActivity extends AppCompatActivity {
     private Double geoLat;
     private Double geoLon;
     private TextView statusView;
+    private android.widget.CheckBox freeToggle;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -108,7 +112,34 @@ public class CreateListingActivity extends AppCompatActivity {
         root.addView(Ui.label(this, "Unit (optional)"));
         unitInput = Ui.input(this, "e.g. starts, lbs, bags", InputType.TYPE_CLASS_TEXT);
         root.addView(unitInput);
+        LinearLayout unitPresetRow = new LinearLayout(this);
+        unitPresetRow.setOrientation(LinearLayout.HORIZONTAL);
+        for (String preset : new String[]{"lbs", "bags", "each"}) {
+            Button presetButton = new Button(this);
+            presetButton.setText(preset);
+            presetButton.setOnClickListener(v -> unitInput.setText(preset));
+            unitPresetRow.addView(presetButton, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        root.addView(unitPresetRow);
+        this.unitPresetRow = unitPresetRow;
         Ui.gap(root, this, 8);
+
+        android.widget.CheckBox freeToggle = new android.widget.CheckBox(this);
+        freeToggle.setText("FREE — no credits needed (prominent)");
+        freeToggle.setTextSize(16);
+        this.freeToggle = freeToggle;
+        freeToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            freeListing = isChecked;
+            setCreditRowEnabled(!isChecked);
+            if (isChecked) {
+                creditView.setText("FREE");
+            } else {
+                setCredit(creditCost);
+            }
+        });
+        root.addView(freeToggle);
+        Ui.gap(root, this, 4);
 
         root.addView(Ui.label(this, "Credit cost (1–3)"));
         LinearLayout creditRow = new LinearLayout(this);
@@ -128,6 +159,7 @@ public class CreateListingActivity extends AppCompatActivity {
         creditRow.addView(plusButton, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         root.addView(creditRow);
+        this.creditRow = creditRow;
         Ui.gap(root, this, 8);
 
         root.addView(Ui.label(this, "Pickup window (optional, " + DATE_PATTERN + ")"));
@@ -187,6 +219,21 @@ public class CreateListingActivity extends AppCompatActivity {
             typeButtons.get(i).setSelected(ListingType.values()[i] == type);
             typeButtons.get(i).setAlpha(ListingType.values()[i] == type ? 1f : 0.5f);
         }
+        // Harvest listings get unit quick-picks (lbs/bags/each, AND-040).
+        if (unitPresetRow != null) {
+            unitPresetRow.setVisibility(
+                    type == ListingType.HARVEST ? android.view.View.VISIBLE : android.view.View.GONE);
+        }
+    }
+
+    private void setCreditRowEnabled(boolean enabled) {
+        if (creditRow == null) {
+            return;
+        }
+        for (int i = 0; i < creditRow.getChildCount(); i++) {
+            creditRow.getChildAt(i).setEnabled(enabled);
+        }
+        creditRow.setAlpha(enabled ? 1f : 0.5f);
     }
 
     private void setCredit(int value) {
@@ -214,7 +261,8 @@ public class CreateListingActivity extends AppCompatActivity {
                 .pickupWindow(draft.pickupStartMs, draft.pickupEndMs)
                 .expiresAtMs(draft.expiresAtMs)
                 .geo(geoLat, geoLon)
-                .sprayDisclosure(sprayInput.getText().toString().trim());
+                .sprayDisclosure(sprayInput.getText().toString().trim())
+                .free(freeListing);
         try {
             builder.quantity(CreateListingValidator.parseQuantity(quantityInput.getText().toString()));
         } catch (NumberFormatException e) {
@@ -301,6 +349,7 @@ public class CreateListingActivity extends AppCompatActivity {
                 .putString("pickupEnd", pickupEndInput.getText().toString())
                 .putString("expiryDays", expiryDaysInput.getText().toString())
                 .putString("spray", sprayInput.getText().toString())
+                .putBoolean("free", freeToggle.isChecked())
                 .apply();
     }
 
@@ -319,6 +368,7 @@ public class CreateListingActivity extends AppCompatActivity {
         pickupEndInput.setText(prefs.getString("pickupEnd", ""));
         expiryDaysInput.setText(prefs.getString("expiryDays", ""));
         sprayInput.setText(prefs.getString("spray", ""));
+        freeToggle.setChecked(prefs.getBoolean("free", false));
     }
 
     private void clearDraft() {

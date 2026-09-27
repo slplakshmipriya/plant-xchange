@@ -115,4 +115,15 @@ public interface GardenSwapApi {
      * Client-proposed; the backend match engine (API-030) is authoritative.
      */
     void getMatches(Callback<List<Listing>> callback);
+
+    /** Harvest-log entries for a listing, oldest behavior undefined (AND-040). */
+    void getHarvestEvents(String listingId, Callback<List<HarvestEvent>> callback);
+
+    /**
+     * Log a harvest event: positive {@code delta} = produce added, negative =
+     * taken. Client-proposed (AND-040); the backend harvest rules (API-040)
+     * define the wire form.
+     */
+    void logHarvestEvent(String listingId, double delta, String note,
+            Callback<HarvestEvent> callback);
 }

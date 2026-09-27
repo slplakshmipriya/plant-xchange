@@ -23,6 +23,8 @@ public final class ListingInput {
     private final Double geoLat;
     private final Double geoLon;
     private final String sprayDisclosure;
+    /** See {@link Listing#isFree}. */
+    private final boolean free;
 
     private ListingInput(Builder builder) {
         this.type = builder.type;
@@ -37,6 +39,7 @@ public final class ListingInput {
         this.geoLat = builder.geoLat;
         this.geoLon = builder.geoLon;
         this.sprayDisclosure = builder.sprayDisclosure;
+        this.free = builder.free;
     }
 
     public ListingType getType() {
@@ -87,6 +90,10 @@ public final class ListingInput {
         return sprayDisclosure;
     }
 
+    public boolean isFree() {
+        return free;
+    }
+
     public static Builder builder(ListingType type) {
         return new Builder(type);
     }
@@ -104,6 +111,7 @@ public final class ListingInput {
         private Double geoLat;
         private Double geoLon;
         private String sprayDisclosure;
+        private boolean free = false;
 
         public Builder(ListingType type) {
             this.type = type;
@@ -153,6 +161,11 @@ public final class ListingInput {
 
         public Builder sprayDisclosure(String sprayDisclosure) {
             this.sprayDisclosure = sprayDisclosure;
+            return this;
+        }
+
+        public Builder free(boolean free) {
+            this.free = free;
             return this;
         }
 
