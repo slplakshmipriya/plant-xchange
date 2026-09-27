@@ -22,12 +22,30 @@ from .errors import error_response
 
 logger = logging.getLogger(__name__)
 
-EXEMPT_PATHS = {"/healthz", "/openapi.yaml"}
+EXEMPT_PATHS = {
+    "/healthz",
+    "/openapi.yaml",
+    # Webhooks / internal jobs cannot carry a user ID token; they use their
+    # own auth (HMAC signature / shared secret) and are exempt here.
+    "/v1/idv/webhook",
+    "/v1/internal/sweep",
+}
+
+# Path prefixes that are public by design (listing photos served by the stub).
+EXEMPT_PREFIXES = ("/v1/uploads/public/",)
 
 
 def _is_exempt(path: str) -> bool:
     # Normalize a trailing slash so /healthz/ doesn't 401 before routing.
-    return (path.rstrip("/") or "/") in EXEMPT_PATHS
+    normalized = path.rstrip("/") or "/"
+    if normalized in EXEMPT_PATHS:
+        return True
+    return path.startswith(EXEMPT_PREFIXES)
+
+
+def is_exempt_path(path: str) -> bool:
+    """Public helper so the OpenAPI contract marks the same paths exempt."""
+    return _is_exempt(path)
 
 
 def init_firebase() -> None:

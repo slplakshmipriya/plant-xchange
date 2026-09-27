@@ -25,6 +25,14 @@ class Settings:
     rate_limit_per_min: int        # per-instance token bucket (approximate)
     log_level: str
     port: int                      # honored from $PORT on Cloud Run
+    # --- Wave 1 additions (all optional; None-safe defaults, no real creds) ---
+    sweep_secret: str | None       # SWEEP_SECRET: shared secret for /v1/internal/sweep
+    idv_provider: str              # IDV_PROVIDER: "stub" (dev) or real provider name
+    idv_webhook_secret: str | None  # IDV_WEBHOOK_SECRET: HMAC secret for IDV webhooks
+    storage_backend: str           # STORAGE_BACKEND: "local" stub or "gcs"
+    uploads_dir: str               # UPLOADS_DIR: local stub upload root
+    user_tz: str                   # USER_TZ: IANA tz for quiet-hours evaluation
+    notify_daily_cap: int          # NOTIFY_DAILY_CAP: max notifications per user per day
 
 
 def get_settings() -> Settings:
@@ -34,4 +42,11 @@ def get_settings() -> Settings:
         rate_limit_per_min=_int("RATE_LIMIT_PER_MIN", 120),
         log_level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         port=_int("PORT", 8080),
+        sweep_secret=os.environ.get("SWEEP_SECRET"),
+        idv_provider=os.environ.get("IDV_PROVIDER", "stub"),
+        idv_webhook_secret=os.environ.get("IDV_WEBHOOK_SECRET"),
+        storage_backend=os.environ.get("STORAGE_BACKEND", "local"),
+        uploads_dir=os.environ.get("UPLOADS_DIR", "var/uploads"),
+        user_tz=os.environ.get("USER_TZ", "America/New_York"),
+        notify_daily_cap=_int("NOTIFY_DAILY_CAP", 5),
     )

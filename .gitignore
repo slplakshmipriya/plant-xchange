@@ -26,3 +26,6 @@ serviceAccountKey.json
 
 # Test artifacts
 .tox/
+
+# Local stub upload storage (API-022) — dev/test only
+var/
