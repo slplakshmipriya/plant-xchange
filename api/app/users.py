@@ -19,8 +19,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .auth import ensure_owner, get_current_uid
+from .credits import CreditRepo, ensure_starter_credits, get_credit_repo
 from .db import get_db_conn
-
 router = APIRouter(prefix="/v1/users", tags=["users"])
 
 ZIP_RE = re.compile(r"^\d{5}$")
@@ -186,6 +186,7 @@ def upsert_profile(
     data: ProfileIn,
     uid: str = Depends(get_current_uid),
     repo: UserRepo = Depends(get_user_repo),
+    credit_repo: CreditRepo = Depends(get_credit_repo),
 ) -> dict[str, Any]:
     """Create or update the caller's own profile. uid comes from the ID token."""
     _validate_profile(data)
@@ -195,6 +196,9 @@ def upsert_profile(
         avatar_url=data.avatar_url,
         home_zip=data.home_zip,
     )
+    # Idempotent: grants the 3-credit bootstrap exactly once, however the
+    # user row was first created (profile upsert or phone verify).
+    ensure_starter_credits(uid, credit_repo)
     out = owner_profile(row)
     _check_pii_leak(out)
     return out

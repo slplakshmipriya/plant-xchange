@@ -111,6 +111,7 @@ def public_listing(row: dict[str, Any], rng: random.Random | None = None) -> dic
         "remaining_qty": (float(row["remaining_qty"])
                           if row.get("remaining_qty") is not None else None),
         "visit_rules": row.get("visit_rules"),
+        "claimer_uid": row.get("claimer_uid"),
     }
 
 
@@ -152,7 +153,7 @@ class PostgresListingRepo:
         "SELECT id, owner_uid, type, photos, variety, quantity, unit, credit_cost, "
         "lower(pickup_window) AS window_start, upper(pickup_window) AS window_end, "
         "expires_at, geo_lat, geo_lon, spray_disclosure, status, created_at, "
-        "COALESCE(remaining_qty, quantity) AS remaining_qty, visit_rules FROM listings"
+        "COALESCE(remaining_qty, quantity) AS remaining_qty, visit_rules, claimer_uid FROM listings"
     )
 
     def create(self, data: dict[str, Any]) -> dict[str, Any]:

@@ -736,6 +736,88 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/listings/{listing_id}/claim:
+    post:
+      tags:
+      - credits
+      - listings
+      summary: Claim Listing
+      description: Claim a live listing. Not the owner; needs balance >= credit_cost.
+      operationId: claim_listing_v1_listings__listing_id__claim_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Claim Listing V1 Listings  Listing Id  Claim Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/exchange/confirm:
+    post:
+      tags:
+      - credits
+      - credits
+      summary: Confirm Exchange
+      description: Both parties confirm; credits move exactly once when both are in.
+      operationId: confirm_exchange_v1_exchange_confirm_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Confirm Exchange V1 Exchange Confirm Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/wallet:
+    get:
+      tags:
+      - credits
+      - credits
+      summary: Get Wallet
+      description: Derived balance + full append-only history. No PII in entries.
+      operationId: get_wallet_v1_wallet_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Wallet V1 Wallet Get
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -757,6 +839,22 @@ paths:
       - bearerAuth: []
 components:
   schemas:
+    ConfirmIn:
+      properties:
+        listing_id:
+          type: string
+          minLength: 1
+          title: Listing Id
+        idempotency_key:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Idempotency Key
+      type: object
+      required:
+      - listing_id
+      title: ConfirmIn
     FinalizeIn:
       properties:
         key:
