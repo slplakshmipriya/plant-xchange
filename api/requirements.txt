@@ -1,0 +1,8 @@
+# GardenSwap API — pinned runtime dependencies
+# Install: pip install -r requirements.txt
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic==2.11.7
+psycopg[binary]==3.2.9
+firebase-admin==7.1.0
+PyYAML==6.0.2

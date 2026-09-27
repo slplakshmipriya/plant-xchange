@@ -1,0 +1,5 @@
+# GardenSwap API — dev/test-only dependencies (never deployed)
+-r requirements.txt
+pytest==8.3.5
+httpx==0.28.1
+pip-audit==2.9.0
