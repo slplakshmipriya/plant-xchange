@@ -145,7 +145,15 @@ def get_notification_repo(conn=Depends(get_db_conn)) -> NotificationRepo:
 
 
 def default_fcm_sender(uid: str, title: str, body: str, data: dict[str, str]) -> None:
-    """Send via firebase-admin. Raises when credentials/app are unavailable."""
+    """Send via firebase-admin to the per-user topic.
+
+    MVP delivery contract: the Android client MUST subscribe to topic
+    ``user_{uid}`` after sign-in (see AND-002 follow-up). Token-targeted
+    sends (via a device-registration endpoint) are the Wave 2 hardening —
+    topics have no ACLs, so treat them as a convenience channel, never as
+    carrying secrets.
+    Raises when credentials/app are unavailable.
+    """
     import firebase_admin
     from firebase_admin import messaging
 

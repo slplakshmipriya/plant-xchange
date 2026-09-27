@@ -227,3 +227,19 @@ def test_sweep_expires_past_due_and_is_idempotent(monkeypatch, alice_profile, mo
     assert lrepo.get("a1")["status"] == "expired"
     assert lrepo.get("a2")["status"] == "live"
     assert _sweep(client).json() == {"expired": 0}  # idempotent
+
+
+def test_naive_datetimes_are_treated_as_utc(alice_profile, mock_verify, auth_headers):
+    """Review: naive ISO datetimes must not 500 the naive/aware comparison."""
+    client, _, _ = alice_profile
+    naive_future = (datetime.now(timezone.utc) + timedelta(days=1)).replace(tzinfo=None).isoformat()
+    r = client.post("/v1/listings", json=_listing_payload(expires_at=naive_future),
+                    headers=auth_headers)
+    assert r.status_code == 201, r.text
+    assert r.json()["expires_at"].endswith("+00:00")
+
+    naive_past = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None).isoformat()
+    r = client.post("/v1/listings", json=_listing_payload(expires_at=naive_past),
+                    headers=auth_headers)
+    assert r.status_code == 400  # invalid_expiry, not a 500
+    assert r.json()["code"] == "invalid_expiry"

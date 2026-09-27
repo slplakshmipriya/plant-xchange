@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .auth import ensure_owner, get_current_uid
 from .config import get_settings
@@ -59,6 +59,15 @@ def can_transition(frm: str, to: str) -> bool:
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _coerce_utc(value: datetime | None) -> datetime | None:
+    """Treat naive datetimes as UTC. Clients that omit the offset (e.g. local
+    ISO strings) must not 500 the naive/aware comparison or poison the sweep
+    job — assume UTC and say so in the stored value."""
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 # ---------------------------------------------------------------- geo fuzzing
@@ -233,6 +242,11 @@ class PickupWindow(BaseModel):
     start: datetime
     end: datetime
 
+    @field_validator("start", "end", mode="after")
+    @classmethod
+    def _utc_window(cls, v):
+        return _coerce_utc(v)
+
 
 class ListingIn(BaseModel):
     type: str = Field(pattern="^(seedling|harvest|tree)$")
@@ -248,6 +262,11 @@ class ListingIn(BaseModel):
     spray_disclosure: str = Field(min_length=1, max_length=2000)
     status: str = Field(default="draft", pattern="^(draft|live)$")
 
+    @field_validator("expires_at", mode="after")
+    @classmethod
+    def _utc_expires(cls, v):
+        return _coerce_utc(v)
+
 
 class ListingPatch(BaseModel):
     photos: list[str] | None = Field(default=None, min_length=1)
@@ -259,6 +278,11 @@ class ListingPatch(BaseModel):
     expires_at: datetime | None = None
     spray_disclosure: str | None = Field(default=None, min_length=1, max_length=2000)
     status: str | None = Field(default=None, pattern="^(draft|live|claimed|completed|cancelled)$")
+
+    @field_validator("expires_at", mode="after")
+    @classmethod
+    def _utc_expires(cls, v):
+        return _coerce_utc(v)
 
 
 def _validate_common(data: ListingIn | ListingPatch) -> None:
