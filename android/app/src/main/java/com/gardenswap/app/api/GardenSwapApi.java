@@ -100,4 +100,19 @@ public interface GardenSwapApi {
 
     /** Listings owned by the signed-in user (API-020). */
     void listMyListings(Callback<List<Listing>> callback);
+
+    /** The signed-in user's want-list (API-030). */
+    void getWantList(Callback<List<WantItem>> callback);
+
+    /** Add a variety to the want-list (API-030). */
+    void addWant(String variety, Callback<WantItem> callback);
+
+    /** Remove a want-list entry (API-030). */
+    void removeWant(String wantId, Callback<Void> callback);
+
+    /**
+     * Live listings matching the signed-in user's want-list.
+     * Client-proposed; the backend match engine (API-030) is authoritative.
+     */
+    void getMatches(Callback<List<Listing>> callback);
 }

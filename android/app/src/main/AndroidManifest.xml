@@ -66,6 +66,9 @@
         <activity
             android:name=".listings.ListingDetailActivity"
             android:exported="false" />
+        <activity
+            android:name=".wantlist.WantListActivity"
+            android:exported="false" />
 
     </application>
 

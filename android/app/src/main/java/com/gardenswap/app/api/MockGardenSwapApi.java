@@ -4,6 +4,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.gardenswap.app.util.WantMatcher;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +38,54 @@ public class MockGardenSwapApi implements GardenSwapApi {
 
     /** In-memory listing store (AND-020). Keyed by id, insertion order. */
     private final Map<String, Listing> listings = new LinkedHashMap<>();
+
+    /** In-memory want-list (AND-030). */
+    private final Map<String, WantItem> wants = new LinkedHashMap<>();
+
+    public MockGardenSwapApi() {
+        seedSampleListings();
+    }
+
+    /**
+     * Sample listings from other gardeners so the feed/matches UI has
+     * something to render in the mock phase. Owned by other uids, so they
+     * never appear in {@link #listMyListings}.
+     */
+    private void seedSampleListings() {
+        seedListing(Listing.builder("sample-1")
+                .ownerUid("gardener-ana")
+                .type(ListingType.SEEDLING)
+                .photos(new ArrayList<String>())
+                .variety("Cherokee Purple tomato")
+                .quantity(6.0).unit("starts")
+                .creditCost(2)
+                .expiresAtMs(System.currentTimeMillis() + 6 * 86_400_000L)
+                .sprayDisclosure("none")
+                .status(ListingStatus.LIVE)
+                .build());
+        seedListing(Listing.builder("sample-2")
+                .ownerUid("gardener-ben")
+                .type(ListingType.HARVEST)
+                .photos(new ArrayList<String>())
+                .variety("Meyer lemons")
+                .quantity(8.0).unit("lbs")
+                .creditCost(1)
+                .expiresAtMs(System.currentTimeMillis() + 2 * 86_400_000L)
+                .sprayDisclosure("Neem oil, 4 weeks ago.")
+                .status(ListingStatus.LIVE)
+                .build());
+        seedListing(Listing.builder("sample-3")
+                .ownerUid("gardener-ana")
+                .type(ListingType.SEEDLING)
+                .photos(new ArrayList<String>())
+                .variety("Genovese basil")
+                .quantity(12.0).unit("starts")
+                .creditCost(1)
+                .expiresAtMs(System.currentTimeMillis() + 10 * 86_400_000L)
+                .sprayDisclosure("none")
+                .status(ListingStatus.LIVE)
+                .build());
+    }
 
     /** Harness hook: seed a listing into the mock store. */
     public void seedListing(Listing listing) {
@@ -277,6 +327,46 @@ public class MockGardenSwapApi implements GardenSwapApi {
             }
         }
         emit(callback, mine);
+    }
+
+    @Override
+    public void getWantList(Callback<List<WantItem>> callback) {
+        emit(callback, new ArrayList<>(wants.values()));
+    }
+
+    @Override
+    public void addWant(String variety, Callback<WantItem> callback) {
+        String trimmed = variety == null ? "" : variety.trim();
+        if (trimmed.isEmpty()) {
+            emitError(callback, new ApiException("invalid_variety", "Variety is required"));
+            return;
+        }
+        WantItem item = new WantItem("mock-want-" + UUID.randomUUID(),
+                trimmed, System.currentTimeMillis());
+        wants.put(item.getId(), item);
+        emit(callback, item);
+    }
+
+    @Override
+    public void removeWant(String wantId, Callback<Void> callback) {
+        if (wants.remove(wantId) == null) {
+            emitError(callback, new ApiException("want_not_found", "No such want"));
+            return;
+        }
+        emit(callback, null);
+    }
+
+    @Override
+    public void getMatches(Callback<List<Listing>> callback) {
+        // Mock-phase matching delegates to WantMatcher; the backend engine
+        // (API-030) replaces this at the integration checkpoint.
+        List<Listing> others = new ArrayList<>();
+        for (Listing listing : listings.values()) {
+            if (!profile.getUserId().equals(listing.getOwnerUid())) {
+                others.add(listing);
+            }
+        }
+        emit(callback, WantMatcher.matches(new ArrayList<>(wants.values()), others));
     }
 
     private <T> void emit(Callback<T> callback, T value) {

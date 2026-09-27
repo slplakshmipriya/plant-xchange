@@ -65,6 +65,8 @@ responses until the real HTTP client replaces it at the integration checkpoint.
 | `getListing` | `GET /v1/listings/{listing_id}` → `Listing` |
 | `patchListing` | `PATCH /v1/listings/{listing_id}` → `Listing` (illegal state moves are 422) |
 | `listMyListings` | Client-proposed — backend Wave 2 should add `GET /v1/listings?owner=me` |
+| `getWantList` / `addWant` / `removeWant` | Client-proposed (API-030 builds these) |
+| `getMatches` | Client-proposed — backend match engine (API-030) is authoritative; mock delegates to `util/WantMatcher` |
 
 ## Shapes
 
