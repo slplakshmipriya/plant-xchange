@@ -79,6 +79,17 @@ public class IdvActivity extends AppCompatActivity {
         refreshStatus();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Rotation (or backgrounding) during the provider flow strands the
+        // in-flight listener on the destroyed instance; re-reading status
+        // here keeps the badge truthful in all cases.
+        if (!verifying) {
+            refreshStatus();
+        }
+    }
+
     private void refreshStatus() {
         statusText.setText("Checking verification status…");
         actionButton.setEnabled(false);
