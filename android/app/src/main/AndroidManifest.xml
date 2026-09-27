@@ -38,6 +38,30 @@
         <activity
             android:name=".idv.StubIdvActivity"
             android:exported="false" />
+        <activity
+            android:name=".trees.TreeDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".wallet.WalletActivity"
+            android:exported="false" />
+        <activity
+            android:name=".wallet.ConfirmExchangeActivity"
+            android:exported="false" />
+        <activity
+            android:name=".sitters.SitterListActivity"
+            android:exported="false" />
+        <activity
+            android:name=".sitters.SitterProfileActivity"
+            android:exported="false" />
+        <activity
+            android:name=".sitters.ReviewActivity"
+            android:exported="false" />
+        <activity
+            android:name=".chat.ThreadListActivity"
+            android:exported="false" />
+        <activity
+            android:name=".chat.ChatActivity"
+            android:exported="false" />
 
     </application>
 
