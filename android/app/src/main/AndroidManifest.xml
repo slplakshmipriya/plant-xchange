@@ -32,6 +32,12 @@
         <activity
             android:name=".onboarding.HomeZipActivity"
             android:exported="false" />
+        <activity
+            android:name=".idv.IdvActivity"
+            android:exported="false" />
+        <activity
+            android:name=".idv.StubIdvActivity"
+            android:exported="false" />
 
     </application>
 
