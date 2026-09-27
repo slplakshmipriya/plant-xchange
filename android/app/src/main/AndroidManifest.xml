@@ -63,6 +63,9 @@
             android:name=".chat.ChatActivity"
             android:name=".listings.CreateListingActivity"
             android:exported="false" />
+        <activity
+            android:name=".listings.ListingDetailActivity"
+            android:exported="false" />
 
     </application>
 
