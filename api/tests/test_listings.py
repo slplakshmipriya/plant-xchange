@@ -29,7 +29,7 @@ def _listing_payload(**kw):
 
 @pytest.fixture()
 def alice_profile(mem_listings, mock_verify, auth_headers):
-    client, urepo, lrepo = mem_listings
+    client, urepo, lrepo, _, _ = mem_listings
     urepo.upsert("alice", display_name="Alice")
     return client, urepo, lrepo
 
@@ -90,7 +90,7 @@ def test_create_rejects_bad_credit_cost(alice_profile, mock_verify, auth_headers
 
 
 def test_create_requires_profile(mem_listings, mock_verify, auth_headers):
-    client, _, _ = mem_listings  # no profile for alice
+    client, *_ = mem_listings  # no profile for alice
     r = client.post("/v1/listings", json=_listing_payload(), headers=auth_headers)
     assert r.status_code == 400
     assert r.json()["code"] == "profile_required"

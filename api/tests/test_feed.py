@@ -51,7 +51,7 @@ def test_want_boost_lifts_matching_seedling():
 
 
 def test_feed_returns_live_only_with_pagination(mem_listings, mock_verify, auth_headers):
-    client, urepo, lrepo = mem_listings
+    client, urepo, lrepo, _, _ = mem_listings
     urepo.upsert("alice", display_name="Alice")
     now = datetime.now(timezone.utc)
     lrepo.create({"id": "live1", "owner_uid": "alice", "type": "seedling",
@@ -80,14 +80,14 @@ def test_feed_returns_live_only_with_pagination(mem_listings, mock_verify, auth_
 
 
 def test_feed_bad_cursor_is_400(mem_listings, mock_verify, auth_headers):
-    client, _, _ = mem_listings
+    client, *_ = mem_listings
     r = client.get("/v1/feed?cursor=!!!not-base64!!!", headers=auth_headers)
     assert r.status_code == 400
     assert r.json()["code"] == "invalid_cursor"
 
 
 def test_feed_geo_is_fuzzed_not_exact(mem_listings, mock_verify, auth_headers):
-    client, urepo, lrepo = mem_listings
+    client, urepo, lrepo, _, _ = mem_listings
     urepo.upsert("alice", display_name="Alice")
     lrepo.create({"id": "g1", "owner_uid": "alice", "type": "seedling",
                   "photos": ["https://x/g.jpg"], "credit_cost": 1,

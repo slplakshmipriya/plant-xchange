@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .auth import get_current_uid
 from .listings import ListingRepo, get_listing_repo, public_listing, utcnow
+from .wantlist import WANT_MATCH_BOOST, WantRepo, get_want_repo, variety_matches
 
 router = APIRouter(prefix="/v1", tags=["feed"])
 
@@ -83,14 +84,23 @@ def get_feed(
     cursor: str | None = Query(default=None),
     uid: str = Depends(get_current_uid),
     repo: ListingRepo = Depends(get_listing_repo),
+    want_repo: WantRepo = Depends(get_want_repo),
 ) -> dict[str, Any]:
     """Ranked discovery feed of live listings (fuzzed geo, no PII)."""
     offset = _decode_cursor(cursor)
     now = utcnow()
     live = repo.list_live()
-    # Want-list boost is wired by the want-list module (API-030); feed itself
-    # stays decoupled — score_listing takes an explicit boost.
-    ranked = sorted(live, key=lambda r: (-score_listing(r, now), r["id"]))
+    # API-030: seedling listings matching the caller's want-list get a boost.
+    wants = [w["variety"] for w in want_repo.list_for_user(uid)]
+
+    def boost(row: dict[str, Any]) -> float:
+        if row.get("type") != "seedling":
+            return 0.0
+        return WANT_MATCH_BOOST if any(
+            variety_matches(w, row.get("variety")) for w in wants
+        ) else 0.0
+
+    ranked = sorted(live, key=lambda r: (-score_listing(r, now, boost(r)), r["id"]))
     page = ranked[offset:offset + limit]
     next_cursor = _encode_cursor(offset + limit) if offset + limit < len(ranked) else None
     return {

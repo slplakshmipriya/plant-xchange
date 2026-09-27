@@ -522,6 +522,110 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/want-list:
+    get:
+      tags:
+      - want-list
+      summary: List Wants
+      operationId: list_wants_v1_want_list_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Wants V1 Want List Get
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - want-list
+      summary: Create Want
+      operationId: create_want_v1_want_list_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WantIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Want V1 Want List Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/want-list/{want_id}:
+    patch:
+      tags:
+      - want-list
+      summary: Patch Want
+      operationId: patch_want_v1_want_list__want_id__patch
+      parameters:
+      - name: want_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Want Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WantPatch'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Patch Want V1 Want List  Want Id  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - want-list
+      summary: Delete Want
+      operationId: delete_want_v1_want_list__want_id__delete
+      parameters:
+      - name: want_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Want Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -858,6 +962,42 @@ components:
       - msg
       - type
       title: ValidationError
+    WantIn:
+      properties:
+        variety:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Variety
+        types:
+          items:
+            type: string
+          type: array
+          maxItems: 3
+          title: Types
+      type: object
+      required:
+      - variety
+      title: WantIn
+    WantPatch:
+      properties:
+        variety:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Variety
+        types:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 3
+          - type: 'null'
+          title: Types
+      type: object
+      title: WantPatch
   securitySchemes:
     bearerAuth:
       type: http

@@ -139,7 +139,7 @@ def test_http_profile_endpoints_leak_nothing(mem_users, mock_verify, auth_header
 
 
 def test_http_listing_detail_hides_exact_geo(mem_listings, mock_verify, auth_headers):
-    client, urepo, lrepo = mem_listings
+    client, urepo, lrepo, _, _ = mem_listings
     urepo.upsert("alice", display_name="Alice", home_zip="85281", phone_hash="PH")
     lrepo.create({
         "id": "22222222-2222-2222-2222-222222222222",

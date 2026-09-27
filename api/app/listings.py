@@ -32,7 +32,9 @@ from pydantic import BaseModel, Field, field_validator
 from .auth import ensure_owner, get_current_uid
 from .config import get_settings
 from .db import get_db_conn
+from .notify import NotificationRepo, get_notification_repo
 from .users import UserRepo, get_user_repo
+from .wantlist import WantRepo, get_want_repo, notify_matches
 
 router = APIRouter(prefix="/v1", tags=["listings"])
 internal_router = APIRouter(prefix="/v1/internal", tags=["internal"])
@@ -313,6 +315,8 @@ def create_listing(
     uid: str = Depends(get_current_uid),
     repo: ListingRepo = Depends(get_listing_repo),
     user_repo: UserRepo = Depends(get_user_repo),
+    want_repo: WantRepo = Depends(get_want_repo),
+    notify_repo: NotificationRepo = Depends(get_notification_repo),
 ) -> dict[str, Any]:
     _validate_common(data)
     if user_repo.get(uid) is None:
@@ -335,6 +339,9 @@ def create_listing(
         "spray_disclosure": data.spray_disclosure.strip(),
         "status": data.status,
     })
+    if row["status"] == "live":
+        # A listing going live is the match event (API-030).
+        notify_matches(row, want_repo, notify_repo)
     return public_listing(row)
 
 
@@ -355,6 +362,8 @@ def patch_listing(
     data: ListingPatch,
     uid: str = Depends(get_current_uid),
     repo: ListingRepo = Depends(get_listing_repo),
+    want_repo: WantRepo = Depends(get_want_repo),
+    notify_repo: NotificationRepo = Depends(get_notification_repo),
 ) -> dict[str, Any]:
     row = repo.get(listing_id)
     if row is None:
@@ -377,6 +386,9 @@ def patch_listing(
     if "spray_disclosure" in fields:
         fields["spray_disclosure"] = fields["spray_disclosure"].strip()
     updated = repo.update(listing_id, fields)
+    if updated and row["status"] != "live" and updated.get("status") == "live":
+        # draft -> live is the match event (API-030).
+        notify_matches(updated, want_repo, notify_repo)
     return public_listing(updated)
 
 
