@@ -56,6 +56,12 @@
         <activity
             android:name=".sitters.ReviewActivity"
             android:exported="false" />
+        <activity
+            android:name=".chat.ThreadListActivity"
+            android:exported="false" />
+        <activity
+            android:name=".chat.ChatActivity"
+            android:exported="false" />
 
     </application>
 
