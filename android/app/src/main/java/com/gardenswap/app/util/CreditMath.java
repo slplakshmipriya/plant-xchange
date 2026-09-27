@@ -11,6 +11,12 @@ package com.gardenswap.app.util;
  *       {@link #MAX_LISTING_COST}] credits.</li>
  *   <li>Earning is capped at {@link #WEEKLY_EARN_CAP} credits per week.</li>
  * </ul>
+ *
+ * <p><b>Client-side mirror only.</b> The backend ledger (API-060/API-061) is
+ * the single source of truth for balances, issuance, and caps — the server
+ * never trusts values computed here (SEC-060). These helpers exist so the UI
+ * can render affordability and remaining-cap affordances without a round trip;
+ * every constant must match the backend's values.
  */
 public final class CreditMath {
 
