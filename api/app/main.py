@@ -6,6 +6,7 @@ from pathlib import Path
 import logging
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse
 
 from .auth import FirebaseAuthMiddleware, get_current_uid, init_firebase
@@ -88,6 +89,39 @@ def create_app() -> FastAPI:
     def openapi_yaml() -> FileResponse:
         """Serve the checked-in contract spec (see API-004). Auth-exempt."""
         return FileResponse(OPENAPI_PATH, media_type="text/yaml")
+
+    def custom_openapi():
+        """OpenAPI with the Firebase bearer scheme documented for FE mock generation."""
+        if app.openapi_schema:
+            return app.openapi_schema
+        spec = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+        spec.setdefault("components", {}).setdefault("securitySchemes", {})[
+            "bearerAuth"
+        ] = {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": (
+                "Firebase ID token. Required on every route except /healthz "
+                "and /openapi.yaml."
+            ),
+        }
+        # Mark authenticated operations so generated mocks know the contract.
+        for path, methods in spec.get("paths", {}).items():
+            if path in ("/healthz", "/openapi.yaml"):
+                continue
+            for op in methods.values():
+                if isinstance(op, dict):
+                    op.setdefault("security", [{"bearerAuth": []}])
+        app.openapi_schema = spec
+        return spec
+
+    app.openapi = custom_openapi  # type: ignore[method-assign]
 
     return app
 
