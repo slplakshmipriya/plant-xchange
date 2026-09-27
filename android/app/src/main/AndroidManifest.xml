@@ -41,6 +41,12 @@
         <activity
             android:name=".trees.TreeDetailActivity"
             android:exported="false" />
+        <activity
+            android:name=".wallet.WalletActivity"
+            android:exported="false" />
+        <activity
+            android:name=".wallet.ConfirmExchangeActivity"
+            android:exported="false" />
 
     </application>
 
