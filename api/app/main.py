@@ -3,11 +3,20 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+import logging
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from .auth import FirebaseAuthMiddleware, get_current_uid, init_firebase
 from .db import run_migrations
+from .errors import error_response, http_exception_detail
+from .middleware import (
+    AccessLogMiddleware,
+    RateLimitMiddleware,
+    RequestIDMiddleware,
+    configure_logging,
+)
 
 API_DIR = Path(__file__).resolve().parent.parent
 OPENAPI_PATH = API_DIR / "openapi.yaml"
@@ -25,6 +34,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     app = FastAPI(
         title="GardenSwap API",
         version=APP_VERSION,
@@ -35,9 +45,34 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # NOTE: middleware is added innermost-first (last added runs outermost).
-    # API-003 adds rate-limit / logging / request-id layers around this.
+    # Middleware: added innermost-first; last added runs outermost.
+    # Final order: RequestID -> AccessLog -> RateLimit -> FirebaseAuth.
     app.add_middleware(FirebaseAuthMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(AccessLogMiddleware)
+    app.add_middleware(RequestIDMiddleware)
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        code, message = http_exception_detail(exc.status_code, exc.detail)
+        return error_response(request, exc.status_code, code, message)
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        # Traceback goes to the JSON logs only — never to the client.
+        logging.getLogger(__name__).exception("unhandled exception")
+        return error_response(request, 500, "internal_error", "Internal server error.")
+
+    async def not_found_default(scope, receive, send):
+        """Router fallback: unmatched paths also get the error envelope."""
+        request = Request(scope)
+        response = error_response(
+            request, 404, "not_found",
+            f"No route for {request.method} {request.url.path}",
+        )
+        await response(scope, receive, send)
+
+    app.router.default = not_found_default
 
     @app.get("/healthz", tags=["ops"])
     def healthz() -> dict:
