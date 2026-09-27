@@ -326,6 +326,77 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/harvest-events:
+    post:
+      tags:
+      - listings
+      - listings
+      summary: Record Harvest Event
+      description: 'Record kilos picked from a harvest listing (owner only, live only).
+
+
+        Atomic decrement — concurrent pickers cannot oversell. When the harvest
+
+        is fully picked (remaining hits 0) the listing completes via the legal
+
+        live -> claimed -> completed path.'
+      operationId: record_harvest_event_v1_harvest_events_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HarvestEventIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Record Harvest Event V1 Harvest Events Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/harvest-events:
+    get:
+      tags:
+      - listings
+      - listings
+      summary: Get Harvest Events
+      description: Pick audit log for a harvest listing. Owner and authenticated viewers.
+      operationId: get_harvest_events_v1_listings__listing_id__harvest_events_get
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Harvest Events V1 Listings  Listing Id  Harvest
+                  Events Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /v1/internal/sweep:
     post:
       tags:
@@ -665,6 +736,22 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    HarvestEventIn:
+      properties:
+        listing_id:
+          type: string
+          minLength: 1
+          title: Listing Id
+        delta_kg:
+          type: number
+          maximum: 10000.0
+          exclusiveMinimum: 0.0
+          title: Delta Kg
+      type: object
+      required:
+      - listing_id
+      - delta_kg
+      title: HarvestEventIn
     ListingIn:
       properties:
         type:

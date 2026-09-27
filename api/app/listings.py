@@ -108,6 +108,8 @@ def public_listing(row: dict[str, Any], rng: random.Random | None = None) -> dic
         "spray_disclosure": row.get("spray_disclosure"),
         "status": row["status"],
         "created_at": row.get("created_at"),
+        "remaining_qty": (float(row["remaining_qty"])
+                          if row.get("remaining_qty") is not None else None),
     }
 
 
@@ -120,6 +122,14 @@ class ListingRepo(Protocol):
     def set_status(self, listing_id: str, status: str) -> dict[str, Any] | None: ...
     def sweep_expired(self, now: datetime) -> int: ...
     def list_live(self) -> list[dict[str, Any]]: ...
+    def decrement_remaining(self, listing_id: str, delta: float) -> dict[str, Any] | None:
+        """Atomically subtract delta from remaining (COALESCE remaining_qty, quantity).
+        Returns the updated row, or None when the listing is missing or delta
+        exceeds what is available."""
+        ...
+    def log_harvest_event(self, listing_id: str, recorder_uid: str,
+                          delta_kg: float, remaining_after: float) -> None: ...
+    def list_harvest_events(self, listing_id: str) -> list[dict[str, Any]]: ...
 
 
 class PostgresListingRepo:
@@ -140,15 +150,17 @@ class PostgresListingRepo:
     _SELECT = (
         "SELECT id, owner_uid, type, photos, variety, quantity, unit, credit_cost, "
         "lower(pickup_window) AS window_start, upper(pickup_window) AS window_end, "
-        "expires_at, geo_lat, geo_lon, spray_disclosure, status, created_at FROM listings"
+        "expires_at, geo_lat, geo_lon, spray_disclosure, status, created_at, "
+        "COALESCE(remaining_qty, quantity) AS remaining_qty FROM listings"
     )
 
     def create(self, data: dict[str, Any]) -> dict[str, Any]:
         window = data.get("pickup_window")
         row = self._conn.execute(
             "INSERT INTO listings (id, owner_uid, type, photos, variety, quantity, unit, "
-            "credit_cost, pickup_window, expires_at, geo_lat, geo_lon, spray_disclosure, status) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,tstzrange(%s,%s,'[)'),%s,%s,%s,%s,%s) "
+            "credit_cost, pickup_window, expires_at, geo_lat, geo_lon, spray_disclosure, status, "
+            "remaining_qty) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,tstzrange(%s,%s,'[)'),%s,%s,%s,%s,%s,%s) "
             + "RETURNING id",
             (
                 data["id"], data["owner_uid"], data["type"], data["photos"],
@@ -157,6 +169,7 @@ class PostgresListingRepo:
                 window[0] if window else None, window[1] if window else None,
                 data.get("expires_at"), data.get("geo_lat"), data.get("geo_lon"),
                 data["spray_disclosure"], data.get("status", "draft"),
+                data.get("remaining_qty"),
             ),
         ).fetchone()
         self._conn.commit()
@@ -203,10 +216,48 @@ class PostgresListingRepo:
         ).fetchall()
         return [self._row(r) for r in rows]
 
+    def decrement_remaining(self, listing_id: str, delta: float) -> dict[str, Any] | None:
+        # Single atomic UPDATE: concurrent pickers cannot oversell the harvest.
+        cur = self._conn.execute(
+            "UPDATE listings SET remaining_qty = COALESCE(remaining_qty, quantity) - %s "
+            "WHERE id = %s AND COALESCE(remaining_qty, quantity) >= %s",
+            (delta, listing_id, delta),
+        )
+        self._conn.commit()
+        if not cur.rowcount:
+            return None
+        return self.get(listing_id)
+
+    def log_harvest_event(self, listing_id: str, recorder_uid: str,
+                          delta_kg: float, remaining_after: float) -> None:
+        self._conn.execute(
+            "INSERT INTO harvest_events (id, listing_id, recorder_uid, delta_kg, remaining_after) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            (str(uuid.uuid4()), listing_id, recorder_uid, delta_kg, remaining_after),
+        )
+        self._conn.commit()
+
+    def list_harvest_events(self, listing_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT id, listing_id, recorder_uid, delta_kg, remaining_after, created_at "
+            "FROM harvest_events WHERE listing_id = %s ORDER BY created_at",
+            (listing_id,),
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            c = d.get("created_at")
+            d["created_at"] = c.isoformat() if hasattr(c, "isoformat") else c
+            d["delta_kg"] = float(d["delta_kg"])
+            d["remaining_after"] = float(d["remaining_after"])
+            out.append(d)
+        return out
+
 
 class MemoryListingRepo:
     def __init__(self):
         self._rows: dict[str, dict[str, Any]] = {}
+        self._harvest_events: list[dict[str, Any]] = []
 
     def create(self, data: dict[str, Any]) -> dict[str, Any]:
         row = dict(data)
@@ -243,6 +294,35 @@ class MemoryListingRepo:
 
     def list_live(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self._rows.values() if r.get("status") == "live"]
+
+    def decrement_remaining(self, listing_id: str, delta: float) -> dict[str, Any] | None:
+        row = self._rows.get(listing_id)
+        if row is None:
+            return None
+        avail = row.get("remaining_qty")
+        if avail is None:
+            avail = row.get("quantity")
+        if avail is None or float(avail) < delta:
+            return None
+        new_remaining = float(avail) - delta
+        if new_remaining < 0 and new_remaining > -1e-9:  # float dust
+            new_remaining = 0.0
+        row["remaining_qty"] = new_remaining
+        return dict(row)
+
+    def log_harvest_event(self, listing_id: str, recorder_uid: str,
+                          delta_kg: float, remaining_after: float) -> None:
+        self._harvest_events.append({
+            "id": str(uuid.uuid4()),
+            "listing_id": listing_id,
+            "recorder_uid": recorder_uid,
+            "delta_kg": float(delta_kg),
+            "remaining_after": float(remaining_after),
+            "created_at": utcnow().isoformat(),
+        })
+
+    def list_harvest_events(self, listing_id: str) -> list[dict[str, Any]]:
+        return [dict(e) for e in self._harvest_events if e["listing_id"] == listing_id]
 
 
 def get_listing_repo(conn=Depends(get_db_conn)) -> ListingRepo:
@@ -338,6 +418,8 @@ def create_listing(
         "geo_lon": data.geo_lon,
         "spray_disclosure": data.spray_disclosure.strip(),
         "status": data.status,
+        # Harvest listings track what is left to pick (API-040).
+        "remaining_qty": data.quantity if data.type == "harvest" else None,
     })
     if row["status"] == "live":
         # A listing going live is the match event (API-030).
@@ -406,6 +488,66 @@ def cancel_listing(
         raise HTTPException(422, {"code": "invalid_transition",
                                   "message": f"Cannot cancel a listing in status '{row['status']}'"})
     return public_listing(repo.set_status(listing_id, "cancelled"))
+
+
+class HarvestEventIn(BaseModel):
+    listing_id: str = Field(min_length=1)
+    delta_kg: float = Field(gt=0, le=10000)
+
+
+@router.post("/harvest-events", status_code=201, tags=["listings"])
+def record_harvest_event(
+    data: HarvestEventIn,
+    uid: str = Depends(get_current_uid),
+    repo: ListingRepo = Depends(get_listing_repo),
+) -> dict[str, Any]:
+    """Record kilos picked from a harvest listing (owner only, live only).
+
+    Atomic decrement — concurrent pickers cannot oversell. When the harvest
+    is fully picked (remaining hits 0) the listing completes via the legal
+    live -> claimed -> completed path.
+    """
+    row = repo.get(data.listing_id)
+    if row is None:
+        raise HTTPException(404, {"code": "listing_not_found", "message": "No such listing"})
+    ensure_owner(row["owner_uid"], uid)
+    if row["type"] != "harvest":
+        raise HTTPException(422, {"code": "not_harvest_listing",
+                                  "message": "Harvest events apply to harvest listings only"})
+    if row["status"] != "live":
+        raise HTTPException(422, {"code": "listing_not_live",
+                                  "message": f"Cannot record a pick on a '{row['status']}' listing"})
+    if row.get("remaining_qty") is None:
+        raise HTTPException(422, {"code": "quantity_not_tracked",
+                                  "message": "This harvest listing has no quantity to pick from"})
+    updated = repo.decrement_remaining(data.listing_id, data.delta_kg)
+    if updated is None:
+        raise HTTPException(422, {"code": "insufficient_quantity",
+                                  "message": "Not that much harvest remaining"})
+    remaining = float(updated["remaining_qty"])
+    repo.log_harvest_event(data.listing_id, uid, data.delta_kg, remaining)
+    if remaining == 0:
+        # Fully picked: walk the legal transitions, no state-machine bypass.
+        repo.set_status(data.listing_id, "claimed")
+        updated = repo.set_status(data.listing_id, "completed")
+    return {
+        "listing": public_listing(updated),
+        "delta_kg": data.delta_kg,
+        "remaining_kg": remaining,
+    }
+
+
+@router.get("/listings/{listing_id}/harvest-events", tags=["listings"])
+def get_harvest_events(
+    listing_id: str,
+    uid: str = Depends(get_current_uid),
+    repo: ListingRepo = Depends(get_listing_repo),
+) -> dict[str, Any]:
+    """Pick audit log for a harvest listing. Owner and authenticated viewers."""
+    row = repo.get(listing_id)
+    if row is None:
+        raise HTTPException(404, {"code": "listing_not_found", "message": "No such listing"})
+    return {"listing_id": listing_id, "events": repo.list_harvest_events(listing_id)}
 
 
 @internal_router.post("/sweep")
