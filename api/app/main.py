@@ -9,7 +9,13 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse
 
-from .auth import EXEMPT_PATHS, FirebaseAuthMiddleware, get_current_uid, init_firebase
+from .auth import (
+    EXEMPT_PATHS,
+    EXEMPT_PREFIXES,
+    FirebaseAuthMiddleware,
+    get_current_uid,
+    init_firebase,
+)
 from .db import run_migrations
 from .errors import error_response, http_exception_detail
 from .middleware import (
@@ -22,6 +28,7 @@ from . import users as users_module
 from . import verify as verify_module
 from . import idv as idv_module
 from . import listings as listings_module
+from . import uploads as uploads_module
 
 API_DIR = Path(__file__).resolve().parent.parent
 OPENAPI_PATH = API_DIR / "openapi.yaml"
@@ -90,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(idv_module.router)
     app.include_router(listings_module.router)
     app.include_router(listings_module.internal_router)
+    app.include_router(uploads_module.router)
 
     @app.get("/me", tags=["auth"])
     def me(uid: str = Depends(get_current_uid)) -> dict:
@@ -123,9 +131,9 @@ def create_app() -> FastAPI:
             ),
         }
         # Mark authenticated operations so generated mocks know the contract.
-        # Auth-exempt paths come from the same set the middleware enforces.
+        # Auth-exempt paths come from the same sets the middleware enforces.
         for path, methods in spec.get("paths", {}).items():
-            if path in EXEMPT_PATHS:
+            if path in EXEMPT_PATHS or path.startswith(EXEMPT_PREFIXES):
                 continue
             for op in methods.values():
                 if isinstance(op, dict):

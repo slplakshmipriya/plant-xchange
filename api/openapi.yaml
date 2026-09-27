@@ -343,6 +343,96 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Sweep Expired V1 Internal Sweep Post
+  /v1/uploads/sign:
+    post:
+      tags:
+      - uploads
+      summary: Sign Upload
+      operationId: sign_upload_v1_uploads_sign_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Sign Upload V1 Uploads Sign Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/uploads/raw/{key}:
+    put:
+      tags:
+      - uploads
+      summary: Put Raw
+      description: 'Local-stub raw PUT target. (GCS backend: 501 — clients PUT to
+        the signed URL.)'
+      operationId: put_raw_v1_uploads_raw__key__put
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Put Raw V1 Uploads Raw  Key  Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/uploads/finalize:
+    post:
+      tags:
+      - uploads
+      summary: Finalize Upload
+      operationId: finalize_upload_v1_uploads_finalize_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinalizeIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Finalize Upload V1 Uploads Finalize Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -364,6 +454,15 @@ paths:
       - bearerAuth: []
 components:
   schemas:
+    FinalizeIn:
+      properties:
+        key:
+          type: string
+          title: Key
+      type: object
+      required:
+      - key
+      title: FinalizeIn
     HTTPValidationError:
       properties:
         detail:
@@ -607,6 +706,20 @@ components:
       - display_name
       - avatar_url
       title: PublicProfile
+    SignIn:
+      properties:
+        content_type:
+          type: string
+          title: Content Type
+        size_bytes:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Size Bytes
+      type: object
+      required:
+      - content_type
+      - size_bytes
+      title: SignIn
     StubDecision:
       properties:
         decision:
