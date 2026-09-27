@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field, field_validator
 from .auth import ensure_owner, get_current_uid
 from .config import get_settings
 from .db import get_db_conn
-from .notify import NotificationRepo, get_notification_repo
+from .notify import NotificationRepo, get_notification_repo, send_notification
 from .users import UserRepo, get_user_repo
 from .wantlist import WantRepo, get_want_repo, notify_matches
 
@@ -110,6 +110,7 @@ def public_listing(row: dict[str, Any], rng: random.Random | None = None) -> dic
         "created_at": row.get("created_at"),
         "remaining_qty": (float(row["remaining_qty"])
                           if row.get("remaining_qty") is not None else None),
+        "visit_rules": row.get("visit_rules"),
     }
 
 
@@ -151,7 +152,7 @@ class PostgresListingRepo:
         "SELECT id, owner_uid, type, photos, variety, quantity, unit, credit_cost, "
         "lower(pickup_window) AS window_start, upper(pickup_window) AS window_end, "
         "expires_at, geo_lat, geo_lon, spray_disclosure, status, created_at, "
-        "COALESCE(remaining_qty, quantity) AS remaining_qty FROM listings"
+        "COALESCE(remaining_qty, quantity) AS remaining_qty, visit_rules FROM listings"
     )
 
     def create(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -159,8 +160,8 @@ class PostgresListingRepo:
         row = self._conn.execute(
             "INSERT INTO listings (id, owner_uid, type, photos, variety, quantity, unit, "
             "credit_cost, pickup_window, expires_at, geo_lat, geo_lon, spray_disclosure, status, "
-            "remaining_qty) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,tstzrange(%s,%s,'[)'),%s,%s,%s,%s,%s,%s) "
+            "remaining_qty, visit_rules) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,tstzrange(%s,%s,'[)'),%s,%s,%s,%s,%s,%s,%s) "
             + "RETURNING id",
             (
                 data["id"], data["owner_uid"], data["type"], data["photos"],
@@ -169,7 +170,7 @@ class PostgresListingRepo:
                 window[0] if window else None, window[1] if window else None,
                 data.get("expires_at"), data.get("geo_lat"), data.get("geo_lon"),
                 data["spray_disclosure"], data.get("status", "draft"),
-                data.get("remaining_qty"),
+                data.get("remaining_qty"), data.get("visit_rules"),
             ),
         ).fetchone()
         self._conn.commit()
@@ -354,6 +355,7 @@ class ListingIn(BaseModel):
     geo_lon: float | None = Field(default=None, ge=-180, le=180)
     spray_disclosure: str = Field(min_length=1, max_length=2000)
     status: str = Field(default="draft", pattern="^(draft|live)$")
+    visit_rules: str | None = Field(default=None, max_length=2000)
 
     @field_validator("expires_at", mode="after")
     @classmethod
@@ -371,6 +373,7 @@ class ListingPatch(BaseModel):
     expires_at: datetime | None = None
     spray_disclosure: str | None = Field(default=None, min_length=1, max_length=2000)
     status: str | None = Field(default=None, pattern="^(draft|live|claimed|completed|cancelled)$")
+    visit_rules: str | None = Field(default=None, max_length=2000)
 
     @field_validator("expires_at", mode="after")
     @classmethod
@@ -420,6 +423,7 @@ def create_listing(
         "status": data.status,
         # Harvest listings track what is left to pick (API-040).
         "remaining_qty": data.quantity if data.type == "harvest" else None,
+        "visit_rules": data.visit_rules.strip() if data.visit_rules else None,
     })
     if row["status"] == "live":
         # A listing going live is the match event (API-030).
@@ -467,6 +471,8 @@ def patch_listing(
         fields["status"] = data.status
     if "spray_disclosure" in fields:
         fields["spray_disclosure"] = fields["spray_disclosure"].strip()
+    if "visit_rules" in fields and fields["visit_rules"]:
+        fields["visit_rules"] = fields["visit_rules"].strip()
     updated = repo.update(listing_id, fields)
     if updated and row["status"] != "live" and updated.get("status") == "live":
         # draft -> live is the match event (API-030).
@@ -548,6 +554,47 @@ def get_harvest_events(
     if row is None:
         raise HTTPException(404, {"code": "listing_not_found", "message": "No such listing"})
     return {"listing_id": listing_id, "events": repo.list_harvest_events(listing_id)}
+
+
+@router.post("/trees/{listing_id}/ripe-alert", tags=["trees"])
+def ripe_alert(
+    listing_id: str,
+    uid: str = Depends(get_current_uid),
+    repo: ListingRepo = Depends(get_listing_repo),
+    want_repo: WantRepo = Depends(get_want_repo),
+    notify_repo: NotificationRepo = Depends(get_notification_repo),
+) -> dict[str, Any]:
+    """Notify want-list matches that a tree is ripe for picking (API-050).
+
+    Owner-only. The notify layer's 24h dedupe on ref ``<listing>:<date>``
+    makes this safe to re-trigger — each user gets at most one ripe alert
+    per tree per day.
+    """
+    from .wantlist import RIPE_ALERT_CATEGORY, find_matches
+
+    row = repo.get(listing_id)
+    if row is None:
+        raise HTTPException(404, {"code": "listing_not_found", "message": "No such listing"})
+    ensure_owner(row["owner_uid"], uid)
+    if row["type"] != "tree":
+        raise HTTPException(422, {"code": "not_tree_listing",
+                                  "message": "Ripe alerts apply to tree listings only"})
+    today = utcnow().date().isoformat()
+    ref = f"{listing_id}:{today}"
+    notified = 0
+    for entry in find_matches(row, want_repo.list_all()):
+        result = send_notification(
+            entry["user_uid"],
+            RIPE_ALERT_CATEGORY,
+            "Fruit is ripe near you",
+            f"{row.get('variety') or 'A tree'} you want is ripe for picking.",
+            data={"listing_id": listing_id},
+            ref=ref,
+            repo=notify_repo,
+        )
+        if result["status"] in ("sent", "would_send"):
+            notified += 1
+    return {"listing_id": listing_id, "notified": notified, "date": today}
 
 
 @internal_router.post("/sweep")

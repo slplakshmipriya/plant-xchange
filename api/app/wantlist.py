@@ -25,6 +25,7 @@ from .notify import NotificationRepo, get_notification_repo, send_notification
 router = APIRouter(prefix="/v1/want-list", tags=["want-list"])
 
 MATCH_CATEGORY = "match"
+RIPE_ALERT_CATEGORY = "ripe_alert"
 WANT_MATCH_BOOST = 1.0  # feed ranking boost for seedling matches (API-021)
 
 

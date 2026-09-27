@@ -397,6 +397,45 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/trees/{listing_id}/ripe-alert:
+    post:
+      tags:
+      - listings
+      - trees
+      summary: Ripe Alert
+      description: 'Notify want-list matches that a tree is ripe for picking (API-050).
+
+
+        Owner-only. The notify layer''s 24h dedupe on ref ``<listing>:<date>``
+
+        makes this safe to re-trigger — each user gets at most one ripe alert
+
+        per tree per day.'
+      operationId: ripe_alert_v1_trees__listing_id__ripe_alert_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Ripe Alert V1 Trees  Listing Id  Ripe Alert Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /v1/internal/sweep:
     post:
       tags:
@@ -821,6 +860,12 @@ components:
           pattern: ^(draft|live)$
           title: Status
           default: draft
+        visit_rules:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Visit Rules
       type: object
       required:
       - type
@@ -886,6 +931,12 @@ components:
             pattern: ^(draft|live|claimed|completed|cancelled)$
           - type: 'null'
           title: Status
+        visit_rules:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Visit Rules
       type: object
       title: ListingPatch
     OwnerProfile:
