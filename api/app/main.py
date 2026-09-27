@@ -18,6 +18,7 @@ from .middleware import (
     RequestIDMiddleware,
     configure_logging,
 )
+from . import users as users_module
 
 API_DIR = Path(__file__).resolve().parent.parent
 OPENAPI_PATH = API_DIR / "openapi.yaml"
@@ -79,6 +80,9 @@ def create_app() -> FastAPI:
     def healthz() -> dict:
         """Liveness probe. Auth-exempt; must stay cheap and dependency-free."""
         return {"status": "ok", "version": APP_VERSION}
+
+    # Domain routers (each owns its /v1/* routes and repo factory).
+    app.include_router(users_module.router)
 
     @app.get("/me", tags=["auth"])
     def me(uid: str = Depends(get_current_uid)) -> dict:

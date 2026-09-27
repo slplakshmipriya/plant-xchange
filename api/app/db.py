@@ -8,6 +8,9 @@ Conventions:
   transaction per file, then records the version. No manual SQL.
 - When ``DATABASE_URL`` is unset, startup skips migrations with a warning
   so /healthz and the test suite work without Postgres.
+- ``get_db_conn`` is the FastAPI dependency domains use for a request-scoped
+  connection (dict rows). Tests override the repo factories instead of this,
+  so most tests never need Postgres.
 """
 
 from __future__ import annotations
@@ -15,6 +18,9 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+from typing import Iterator
+
+from fastapi import HTTPException
 
 from .config import get_settings
 
@@ -82,3 +88,26 @@ def run_migrations(migrations_dir: Path = MIGRATIONS_DIR) -> list[int]:
     if applied:
         logger.info("migrations applied: %s", applied)
     return applied
+
+
+def get_db_conn() -> Iterator:
+    """FastAPI dependency: request-scoped Postgres connection (dict rows).
+
+    Raises 503 when DATABASE_URL is unset so route handlers fail closed
+    instead of crashing. Tests override the per-domain repo factories, so
+    they exercise the Memory* repos and never touch this.
+    """
+    url = database_url()
+    if not url:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "database_unavailable",
+                "message": "DATABASE_URL is not configured",
+            },
+        )
+    import psycopg
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(url, row_factory=dict_row) as conn:
+        yield conn

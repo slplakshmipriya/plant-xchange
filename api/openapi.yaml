@@ -21,6 +21,105 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Healthz Healthz Get
+  /v1/users:
+    post:
+      tags:
+      - users
+      summary: Upsert Profile
+      description: Create or update the caller's own profile. uid comes from the ID
+        token.
+      operationId: upsert_profile_v1_users_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerProfile'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/users/me:
+    get:
+      tags:
+      - users
+      summary: Get Me
+      operationId: get_me_v1_users_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerProfile'
+      security:
+      - bearerAuth: []
+    patch:
+      tags:
+      - users
+      summary: Patch Me
+      operationId: patch_me_v1_users_me_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerProfile'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/users/{uid}:
+    get:
+      tags:
+      - users
+      summary: Get Public Profile
+      description: Anyone authenticated can see the public profile — no PII, no home_zip.
+      operationId: get_public_profile_v1_users__uid__get
+      parameters:
+      - name: uid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Uid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProfile'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -41,6 +140,125 @@ paths:
       security:
       - bearerAuth: []
 components:
+  schemas:
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    OwnerProfile:
+      properties:
+        uid:
+          type: string
+          title: Uid
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+        avatar_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Avatar Url
+        idv_status:
+          type: string
+          title: Idv Status
+          default: unverified
+        home_zip:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Home Zip
+        created_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Created At
+      type: object
+      required:
+      - uid
+      - display_name
+      - avatar_url
+      - home_zip
+      title: OwnerProfile
+    ProfileIn:
+      properties:
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Display Name
+        avatar_url:
+          anyOf:
+          - type: string
+            maxLength: 2048
+          - type: 'null'
+          title: Avatar Url
+        home_zip:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Home Zip
+      type: object
+      title: ProfileIn
+    PublicProfile:
+      properties:
+        uid:
+          type: string
+          title: Uid
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+        avatar_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Avatar Url
+        idv_status:
+          type: string
+          title: Idv Status
+          default: unverified
+      type: object
+      required:
+      - uid
+      - display_name
+      - avatar_url
+      title: PublicProfile
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
   securitySchemes:
     bearerAuth:
       type: http
