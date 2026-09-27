@@ -47,6 +47,15 @@
         <activity
             android:name=".wallet.ConfirmExchangeActivity"
             android:exported="false" />
+        <activity
+            android:name=".sitters.SitterListActivity"
+            android:exported="false" />
+        <activity
+            android:name=".sitters.SitterProfileActivity"
+            android:exported="false" />
+        <activity
+            android:name=".sitters.ReviewActivity"
+            android:exported="false" />
 
     </application>
 
