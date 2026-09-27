@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
+        android:name=".GardenSwapApp"
         android:allowBackup="false"
         android:label="Garden Swap"
         android:supportsRtl="true">
