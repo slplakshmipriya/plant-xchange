@@ -45,6 +45,44 @@ were reconciled client-side in AND-090 and documented in
   (null = leave unchanged)
 - `IdvSession`: `sessionId` (provisional, from URL), `providerUrl`
 - `IdvStatus.fromString` maps unknown wire values → `UNVERIFIED`
+
+# GardenSwap Android API contract (Wave 2)
+
+`api/GardenSwapApi.java` is the **frozen client-side contract**. Every screen
+builds against it; `api/MockGardenSwapApi.java` implements it with canned
+responses until the real HTTP client replaces it at the integration checkpoint.
+
+## Interface → backend endpoint map
+
+| Interface method | Backend (API-010/011/012/020) |
+|---|---|
+| `getMe` | `GET /v1/users/me` → `UserProfile` |
+| `upsertProfile` | `POST /v1/users` + `PATCH /v1/users/me` → `UserProfile` |
+| `createIdvSession` | `POST /v1/idv/session` → `IdvSession { sessionId, providerUrl }` |
+| `getIdvStatus` | `GET /v1/users/me`.idv_status (no dedicated endpoint) |
+| `registerFcmToken` | No backend endpoint — client subscribes to FCM topic `user_{uid}` on login (see notify.py) |
+| `createListing` | `POST /v1/listings` (201) → `Listing` |
+| `getListing` | `GET /v1/listings/{listing_id}` → `Listing` |
+| `patchListing` | `PATCH /v1/listings/{listing_id}` → `Listing` (illegal state moves are 422) |
+| `listMyListings` | Client-proposed — backend Wave 2 should add `GET /v1/listings?owner=me` |
+| `getWantList` / `addWant` / `removeWant` | Client-proposed (API-030 builds these) |
+| `getMatches` | Client-proposed — backend match engine (API-030) is authoritative; mock delegates to `util/WantMatcher` |
+| `getHarvestEvents` / `logHarvestEvent` | Client-proposed (AND-040); backend harvest rules (API-040) define the wire form |
+
+## Shapes
+
+- `Listing`: `id`, `ownerUid`, `type` (seedling/harvest/tree), `photos[]`,
+  `variety`, `quantity`, `unit`, `creditCost` (1–3), `pickupStartMs/EndMs`,
+  `expiresAtMs`, `geoLat/Lon` (**fuzzed** by the backend, ~0.5 mi),
+  `sprayDisclosure`, `status` (draft/live/claimed/completed/expired/cancelled)
+- `ListingInput`: create payload; photo (≥1) + spray disclosure required
+- `ListingPatch`: nullable fields; `status` drives the state machine
+- `Listing.free` / `ListingInput.free`: client-proposed (AND-040) — the
+  backend decides the wire semantics (0-credit listing vs 1-credit floor);
+  the real HTTP client must map accordingly, never silently drop the flag
+- `HarvestEvent`: `id`, `listingId`, signed `delta` (+ picked / − taken),
+  `note`, `createdAtMs`
+- `ListingStatus.fromString` maps unknown wire values → `null`
   (forward-compatible with new backend states)
 
 ## Wave 3 — PROPOSED (mock phase)

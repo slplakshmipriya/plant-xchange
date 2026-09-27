@@ -4,6 +4,14 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.gardenswap.app.util.WantMatcher;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
 /**
  * In-memory mock of {@link GardenSwapApi} (Waves 1–3).
  *
@@ -27,6 +35,65 @@ public class MockGardenSwapApi implements GardenSwapApi {
             .idvStatus(IdvStatus.UNVERIFIED)
             .build();
     private IdvStatus mockIdvStatus = IdvStatus.UNVERIFIED;
+
+    /** In-memory listing store (AND-020). Keyed by id, insertion order. */
+    private final Map<String, Listing> listings = new LinkedHashMap<>();
+
+    /** In-memory want-list (AND-030). */
+    private final Map<String, WantItem> wants = new LinkedHashMap<>();
+
+    /** In-memory harvest events per listing (AND-040). */
+    private final Map<String, List<HarvestEvent>> harvestEvents = new LinkedHashMap<>();
+
+    public MockGardenSwapApi() {
+        seedSampleListings();
+    }
+
+    /**
+     * Sample listings from other gardeners so the feed/matches UI has
+     * something to render in the mock phase. Owned by other uids, so they
+     * never appear in {@link #listMyListings}.
+     */
+    private void seedSampleListings() {
+        seedListing(Listing.builder("sample-1")
+                .ownerUid("gardener-ana")
+                .type(ListingType.SEEDLING)
+                .photos(new ArrayList<String>())
+                .variety("Cherokee Purple tomato")
+                .quantity(6.0).unit("starts")
+                .creditCost(2)
+                .expiresAtMs(System.currentTimeMillis() + 6 * 86_400_000L)
+                .sprayDisclosure("none")
+                .status(ListingStatus.LIVE)
+                .build());
+        seedListing(Listing.builder("sample-2")
+                .ownerUid("gardener-ben")
+                .type(ListingType.HARVEST)
+                .photos(new ArrayList<String>())
+                .variety("Meyer lemons")
+                .quantity(8.0).unit("lbs")
+                .creditCost(1)
+                .expiresAtMs(System.currentTimeMillis() + 2 * 86_400_000L)
+                .sprayDisclosure("Neem oil, 4 weeks ago.")
+                .status(ListingStatus.LIVE)
+                .build());
+        seedListing(Listing.builder("sample-3")
+                .ownerUid("gardener-ana")
+                .type(ListingType.SEEDLING)
+                .photos(new ArrayList<String>())
+                .variety("Genovese basil")
+                .quantity(12.0).unit("starts")
+                .creditCost(1)
+                .expiresAtMs(System.currentTimeMillis() + 10 * 86_400_000L)
+                .sprayDisclosure("none")
+                .status(ListingStatus.LIVE)
+                .build());
+    }
+
+    /** Harness hook: seed a listing into the mock store. */
+    public void seedListing(Listing listing) {
+        listings.put(listing.getId(), listing);
+    }
 
     /** Harness hook: force the status returned by {@link #getIdvStatus}. */
     public void setMockIdvStatus(IdvStatus status) {
@@ -192,9 +259,155 @@ public class MockGardenSwapApi implements GardenSwapApi {
     public void sendMessage(String threadId, String text, Callback<ChatMessage> callback) {
         emit(callback, new ChatMessage("m" + System.currentTimeMillis(), threadId,
                 "You", true, ChatMessage.Kind.TEXT, text, System.currentTimeMillis()));
+
+    // ------------------------------------------------------------ Wave 2 (proposed)
+    @Override
+    public void createListing(ListingInput input, Callback<Listing> callback) {
+        Listing listing = Listing.builder("mock-listing-" + UUID.randomUUID())
+                .ownerUid(profile.getUserId())
+                .type(input.getType())
+                .photos(input.getPhotos())
+                .variety(input.getVariety())
+                .quantity(input.getQuantity())
+                .unit(input.getUnit())
+                .creditCost(input.getCreditCost())
+                .pickupWindow(input.getPickupStartMs(), input.getPickupEndMs())
+                .expiresAtMs(input.getExpiresAtMs())
+                .geo(input.getGeoLat(), input.getGeoLon())
+                .sprayDisclosure(input.getSprayDisclosure())
+                .status(ListingStatus.LIVE)
+                .free(input.isFree())
+                .build();
+        listings.put(listing.getId(), listing);
+        Log.d(TAG, "createListing id=" + listing.getId() + " type=" + input.getType());
+        emit(callback, listing);
+    }
+
+    @Override
+    public void getListing(String listingId, Callback<Listing> callback) {
+        Listing listing = listings.get(listingId);
+        if (listing == null) {
+            emitError(callback, new ApiException("listing_not_found", "No such listing"));
+            return;
+        }
+        emit(callback, listing);
+    }
+
+    @Override
+    public void patchListing(String listingId, ListingPatch patch, Callback<Listing> callback) {
+        Listing current = listings.get(listingId);
+        if (current == null) {
+            emitError(callback, new ApiException("listing_not_found", "No such listing"));
+            return;
+        }
+        // The real backend enforces the state machine (422 on illegal moves);
+        // the mock applies the patch permissively for UI development.
+        Listing.Builder builder = Listing.builder(current.getId())
+                .ownerUid(current.getOwnerUid())
+                .type(current.getType())
+                .photos(current.getPhotos())
+                .variety(patch.getVariety() != null ? patch.getVariety() : current.getVariety())
+                .quantity(patch.getQuantity() != null ? patch.getQuantity() : current.getQuantity())
+                .unit(patch.getUnit() != null ? patch.getUnit() : current.getUnit())
+                .creditCost(patch.getCreditCost() != null ? patch.getCreditCost() : current.getCreditCost())
+                .pickupWindow(current.getPickupStartMs(), current.getPickupEndMs())
+                .expiresAtMs(patch.getExpiresAtMs() != null ? patch.getExpiresAtMs() : current.getExpiresAtMs())
+                .geo(current.getGeoLat(), current.getGeoLon())
+                .sprayDisclosure(patch.getSprayDisclosure() != null
+                        ? patch.getSprayDisclosure() : current.getSprayDisclosure())
+                .status(patch.getStatus() != null ? patch.getStatus() : current.getStatus())
+                .createdAtMs(current.getCreatedAtMs())
+                .free(current.isFree());
+        Listing updated = builder.build();
+        listings.put(listingId, updated);
+        emit(callback, updated);
+    }
+
+    @Override
+    public void listMyListings(Callback<List<Listing>> callback) {
+        List<Listing> mine = new ArrayList<>();
+        for (Listing listing : listings.values()) {
+            if (profile.getUserId().equals(listing.getOwnerUid())) {
+                mine.add(listing);
+            }
+        }
+        emit(callback, mine);
+    }
+
+    @Override
+    public void getWantList(Callback<List<WantItem>> callback) {
+        emit(callback, new ArrayList<>(wants.values()));
+    }
+
+    @Override
+    public void addWant(String variety, Callback<WantItem> callback) {
+        String trimmed = variety == null ? "" : variety.trim();
+        if (trimmed.isEmpty()) {
+            emitError(callback, new ApiException("invalid_variety", "Variety is required"));
+            return;
+        }
+        WantItem item = new WantItem("mock-want-" + UUID.randomUUID(),
+                trimmed, System.currentTimeMillis());
+        wants.put(item.getId(), item);
+        emit(callback, item);
+    }
+
+    @Override
+    public void removeWant(String wantId, Callback<Void> callback) {
+        if (wants.remove(wantId) == null) {
+            emitError(callback, new ApiException("want_not_found", "No such want"));
+            return;
+        }
+        emit(callback, null);
+    }
+
+    @Override
+    public void getMatches(Callback<List<Listing>> callback) {
+        // Mock-phase matching delegates to WantMatcher; the backend engine
+        // (API-030) replaces this at the integration checkpoint.
+        List<Listing> others = new ArrayList<>();
+        for (Listing listing : listings.values()) {
+            if (!profile.getUserId().equals(listing.getOwnerUid())) {
+                others.add(listing);
+            }
+        }
+        emit(callback, WantMatcher.matches(new ArrayList<>(wants.values()), others));
+    }
+
+    @Override
+    public void getHarvestEvents(String listingId, Callback<List<HarvestEvent>> callback) {
+        List<HarvestEvent> events = harvestEvents.get(listingId);
+        emit(callback, events == null ? new ArrayList<HarvestEvent>() : new ArrayList<>(events));
+    }
+
+    @Override
+    public void logHarvestEvent(String listingId, double delta, String note,
+            Callback<HarvestEvent> callback) {
+        if (!listings.containsKey(listingId)) {
+            emitError(callback, new ApiException("listing_not_found", "No such listing"));
+            return;
+        }
+        if (delta == 0) {
+            emitError(callback, new ApiException("invalid_delta", "Delta cannot be zero"));
+            return;
+        }
+        HarvestEvent event = new HarvestEvent(
+                "mock-event-" + UUID.randomUUID(), listingId, delta,
+                note == null ? "" : note, System.currentTimeMillis());
+        List<HarvestEvent> events = harvestEvents.get(listingId);
+        if (events == null) {
+            events = new ArrayList<>();
+            harvestEvents.put(listingId, events);
+        }
+        events.add(event);
+        emit(callback, event);
     }
 
     private <T> void emit(Callback<T> callback, T value) {
         main.postDelayed(() -> callback.onSuccess(value), LATENCY_MS);
+    }
+
+    private <T> void emitError(Callback<T> callback, ApiException error) {
+        main.postDelayed(() -> callback.onError(error), LATENCY_MS);
     }
 }

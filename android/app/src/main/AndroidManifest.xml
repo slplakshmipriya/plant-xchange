@@ -61,6 +61,16 @@
             android:exported="false" />
         <activity
             android:name=".chat.ChatActivity"
+            android:name=".listings.CreateListingActivity"
+            android:exported="false" />
+        <activity
+            android:name=".listings.ListingDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".wantlist.WantListActivity"
+            android:exported="false" />
+        <activity
+            android:name=".harvest.HarvestLogActivity"
             android:exported="false" />
 
     </application>
