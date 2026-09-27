@@ -1,0 +1,50 @@
+openapi: 3.1.0
+info:
+  title: GardenSwap API
+  description: 'Hyperlocal gardening exchange: seedling swaps, harvest swaps, pick-your-own
+    slots, plant sitting, and a fungible credit economy.'
+  version: 0.1.0
+paths:
+  /healthz:
+    get:
+      tags:
+      - ops
+      summary: Healthz
+      description: Liveness probe. Auth-exempt; must stay cheap and dependency-free.
+      operationId: healthz_healthz_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Healthz Healthz Get
+  /me:
+    get:
+      tags:
+      - auth
+      summary: Me
+      description: 'Whoami: proves the caller''s ID token verified. Used by clients
+        at login.'
+      operationId: me_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Me Me Get
+      security:
+      - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase ID token. Required on every route except /healthz and
+        /openapi.yaml.
