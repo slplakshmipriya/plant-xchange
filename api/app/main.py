@@ -33,6 +33,7 @@ from . import notify as notify_module
 from . import feed as feed_module
 from . import wantlist as wantlist_module
 from . import exchange as exchange_module
+from . import sitter as sitter_module
 
 API_DIR = Path(__file__).resolve().parent.parent
 OPENAPI_PATH = API_DIR / "openapi.yaml"
@@ -106,6 +107,7 @@ def create_app() -> FastAPI:
     app.include_router(feed_module.router)
     app.include_router(wantlist_module.router)
     app.include_router(exchange_module.router)
+    app.include_router(sitter_module.router)
 
     @app.get("/me", tags=["auth"])
     def me(uid: str = Depends(get_current_uid)) -> dict:

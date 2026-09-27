@@ -1,0 +1,206 @@
+"""API-070: sitter profiles, request lifecycle, reviews."""
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.fixture()
+def mem_sitting(client, monkeypatch):
+    from app import sitter as sitter_mod
+    from app import users as users_mod
+    from conftest import wire_credit_repo
+    import app.auth as auth_mod
+
+    urepo = users_mod.MemoryUserRepo()
+    srepo = sitter_mod.MemorySitterRepo()
+    client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
+    client.app.dependency_overrides[sitter_mod.get_sitter_repo] = lambda: srepo
+    wire_credit_repo(client)
+
+    def fake(token: str) -> dict:
+        if token == "good-token":
+            return {"uid": "alice", "phone_number": "+15551234567"}
+        if token == "bob-token":
+            return {"uid": "bob"}
+        if token == "mallory-token":
+            return {"uid": "mallory"}
+        raise ValueError("bad token")
+
+    monkeypatch.setattr(auth_mod, "verify_id_token", fake)
+    return client, urepo, srepo
+
+
+ALICE = {"Authorization": "Bearer good-token"}
+BOB = {"Authorization": "Bearer bob-token"}
+MALLORY = {"Authorization": "Bearer mallory-token"}
+
+
+def _profile(client, headers, name):
+    r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+    assert r.status_code == 200, r.text
+
+
+def _sitter(client, headers, **kw):
+    base = {"bio": "20 tomato seasons", "experience_years": 5,
+            "service_radius_miles": 10, "active": True}
+    base.update(kw)
+    r = client.put("/v1/sitters/me", json=base, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _request(client, headers, sitter_uid="bob"):
+    r = client.post("/v1/sitting-requests", json={
+        "sitter_uid": sitter_uid, "plant_count": 12,
+        "start_date": "2026-10-10", "end_date": "2026-10-15",
+        "notes": "Water the tomatoes daily.",
+    }, headers=headers)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def test_sitter_profile_needs_user_profile(mem_sitting):
+    client, _, _ = mem_sitting
+    r = client.put("/v1/sitters/me", json={"bio": "x"}, headers=BOB)
+    assert r.status_code == 400
+    assert r.json()["code"] == "profile_required"
+
+
+def test_sitter_directory_lists_active_only(mem_sitting):
+    client, _, _ = mem_sitting
+    _profile(client, BOB, "Bob")
+    _profile(client, MALLORY, "Mallory")
+    _sitter(client, BOB, bio="Tomato whisperer")
+    _sitter(client, MALLORY, active=False)
+
+    body = client.get("/v1/sitters", headers=ALICE).json()
+    assert [s["uid"] for s in body["sitters"]] == ["bob"]
+    assert body["sitters"][0]["display_name"] == "Bob"
+    assert body["sitters"][0]["bio"] == "Tomato whisperer"
+
+
+def test_full_sitting_lifecycle_with_review(mem_sitting):
+    client, _, _ = mem_sitting
+    _profile(client, ALICE, "Alice")
+    _profile(client, BOB, "Bob")
+    _sitter(client, BOB)
+
+    req = _request(client, ALICE)
+    assert req["status"] == "requested"
+
+    r = client.post(f"/v1/sitting-requests/{req['id']}/accept", headers=BOB)
+    assert r.json()["status"] == "accepted"
+
+    r = client.post(f"/v1/sitting-requests/{req['id']}/complete", headers=ALICE)
+    assert r.json()["status"] == "completed"
+
+    r = client.post(f"/v1/sitting-requests/{req['id']}/reviews",
+                    json={"rating": 5, "comment": "Plants thrived!"}, headers=ALICE)
+    assert r.status_code == 201, r.text
+    assert r.json()["rating"] == 5
+
+    body = client.get("/v1/sitters/bob/reviews", headers=ALICE).json()
+    assert len(body["reviews"]) == 1
+    assert body["reviews"][0]["comment"] == "Plants thrived!"
+
+
+def test_request_rules(mem_sitting):
+    client, _, _ = mem_sitting
+    _profile(client, ALICE, "Alice")
+    _profile(client, BOB, "Bob")
+    _profile(client, MALLORY, "Mallory")
+
+    # Cannot request yourself.
+    r = client.post("/v1/sitting-requests", json={
+        "sitter_uid": "alice", "plant_count": 3,
+        "start_date": "2026-10-10", "end_date": "2026-10-12"}, headers=ALICE)
+    assert r.status_code == 422
+    assert r.json()["code"] == "cannot_request_self"
+
+    # Sitter must be active.
+    _sitter(client, MALLORY, active=False)
+    r = client.post("/v1/sitting-requests", json={
+        "sitter_uid": "mallory", "plant_count": 3,
+        "start_date": "2026-10-10", "end_date": "2026-10-12"}, headers=ALICE)
+    assert r.status_code == 422
+    assert r.json()["code"] == "sitter_unavailable"
+
+    # Bad dates.
+    _sitter(client, BOB)
+    r = client.post("/v1/sitting-requests", json={
+        "sitter_uid": "bob", "plant_count": 3,
+        "start_date": "2026-10-12", "end_date": "2026-10-10"}, headers=ALICE)
+    assert r.status_code == 422
+    assert r.json()["code"] == "invalid_dates"
+
+
+def test_lifecycle_permissions_and_transitions(mem_sitting):
+    client, _, _ = mem_sitting
+    _profile(client, ALICE, "Alice")
+    _profile(client, BOB, "Bob")
+    _profile(client, MALLORY, "Mallory")
+    _sitter(client, BOB)
+
+    req = _request(client, ALICE)
+
+    # Only the sitter accepts/declines.
+    r = client.post(f"/v1/sitting-requests/{req['id']}/accept", headers=MALLORY)
+    assert r.status_code == 403
+    r = client.post(f"/v1/sitting-requests/{req['id']}/decline", headers=ALICE)
+    assert r.status_code == 403
+
+    # Decline path ends the request.
+    r = client.post(f"/v1/sitting-requests/{req['id']}/decline", headers=BOB)
+    assert r.json()["status"] == "declined"
+    r = client.post(f"/v1/sitting-requests/{req['id']}/accept", headers=BOB)
+    assert r.status_code == 422
+    assert r.json()["code"] == "invalid_transition"
+
+    # Owner cancels a pending request.
+    req2 = _request(client, ALICE)
+    r = client.post(f"/v1/sitting-requests/{req2['id']}/cancel", headers=BOB)
+    assert r.status_code == 403
+    r = client.post(f"/v1/sitting-requests/{req2['id']}/cancel", headers=ALICE)
+    assert r.json()["status"] == "cancelled"
+
+
+def test_review_rules(mem_sitting):
+    client, _, _ = mem_sitting
+    _profile(client, ALICE, "Alice")
+    _profile(client, BOB, "Bob")
+    _profile(client, MALLORY, "Mallory")
+    _sitter(client, BOB)
+
+    req = _request(client, ALICE)
+    client.post(f"/v1/sitting-requests/{req['id']}/accept", headers=BOB)
+
+    # No review before completion.
+    r = client.post(f"/v1/sitting-requests/{req['id']}/reviews",
+                    json={"rating": 5}, headers=ALICE)
+    assert r.status_code == 422
+    assert r.json()["code"] == "sitting_not_completed"
+
+    client.post(f"/v1/sitting-requests/{req['id']}/complete", headers=BOB)
+
+    # Only the owner reviews.
+    r = client.post(f"/v1/sitting-requests/{req['id']}/reviews",
+                    json={"rating": 4}, headers=MALLORY)
+    assert r.status_code == 403
+
+    r = client.post(f"/v1/sitting-requests/{req['id']}/reviews",
+                    json={"rating": 5, "comment": "Great"}, headers=ALICE)
+    assert r.status_code == 201
+
+    # Exactly one review per sitting.
+    r = client.post(f"/v1/sitting-requests/{req['id']}/reviews",
+                    json={"rating": 1}, headers=ALICE)
+    assert r.status_code == 409
+    assert r.json()["code"] == "duplicate_review"
+
+    # Rating bounds enforced by validation.
+    req2 = _request(client, ALICE)
+    client.post(f"/v1/sitting-requests/{req2['id']}/accept", headers=BOB)
+    client.post(f"/v1/sitting-requests/{req2['id']}/complete", headers=BOB)
+    r = client.post(f"/v1/sitting-requests/{req2['id']}/reviews",
+                    json={"rating": 6}, headers=ALICE)
+    assert r.status_code == 422
