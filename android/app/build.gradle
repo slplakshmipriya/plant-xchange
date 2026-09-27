@@ -25,6 +25,10 @@ android {
         // Inject API base URL into BuildConfig (git-ignored local.properties)
         buildConfigField "String", "API_BASE_URL",
                 "\"${localProperties.getProperty('API_BASE_URL', '')}\""
+        // Flip to the real HTTP client at the integration checkpoint:
+        //   USE_REAL_API=true in local.properties (API_BASE_URL must also be set).
+        buildConfigField "boolean", "USE_REAL_API",
+                "${localProperties.getProperty('USE_REAL_API', 'false')}"
     }
 
     buildFeatures {
