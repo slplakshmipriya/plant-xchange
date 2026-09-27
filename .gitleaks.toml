@@ -1,0 +1,10 @@
+title = "GardenSwap gitleaks config"
+
+# Start from the default rule set (AWS keys, private keys, generic secrets, ...).
+[extend]
+useDefault = true
+
+# Never flag the checked-in example env file — it ships with empty values.
+[allowlist]
+paths = ['''api/\.env\.example''']
+regexes = ['''^$''']

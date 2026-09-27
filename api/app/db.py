@@ -13,9 +13,10 @@ Conventions:
 from __future__ import annotations
 
 import logging
-import os
 import re
 from pathlib import Path
+
+from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ FILENAME_RE = re.compile(r"^(\d{3,})_[a-z0-9_]+\.sql$")
 
 
 def database_url() -> str | None:
-    return os.environ.get("DATABASE_URL")
+    return get_settings().database_url
 
 
 def discover_migrations(migrations_dir: Path = MIGRATIONS_DIR) -> list[tuple[int, Path]]:

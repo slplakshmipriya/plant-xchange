@@ -20,7 +20,6 @@ import contextvars
 import hashlib
 import json
 import logging
-import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -28,6 +27,7 @@ from datetime import datetime, timezone
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .config import get_settings
 from .errors import error_response, new_request_id
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ def configure_logging() -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
     root.addHandler(handler)
-    root.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
+    root.setLevel(get_settings().log_level)
 
 
 # ------------------------------------------------------------ request id ---
@@ -113,10 +113,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
 
 
 def _rate_limit_per_min() -> int:
-    try:
-        return max(1, int(os.environ.get("RATE_LIMIT_PER_MIN", "120")))
-    except ValueError:
-        return 120
+    return get_settings().rate_limit_per_min
 
 
 class TokenBucketLimiter:

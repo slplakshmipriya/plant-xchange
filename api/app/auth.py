@@ -13,11 +13,11 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .config import get_settings
 from .errors import error_response
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def init_firebase() -> None:
         except ValueError:
             pass  # not initialized yet
         options = {}
-        project_id = os.environ.get("FIREBASE_PROJECT_ID")
+        project_id = get_settings().firebase_project_id
         if project_id:
             options["projectId"] = project_id
         firebase_admin.initialize_app(options=options or None)
