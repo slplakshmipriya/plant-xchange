@@ -120,6 +120,23 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/auth/verify:
+    post:
+      tags:
+      - auth
+      summary: Verify Phone
+      operationId: verify_phone_v1_auth_verify_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Verify Phone V1 Auth Verify Post
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
