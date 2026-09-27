@@ -137,6 +137,73 @@ paths:
                 title: Response Verify Phone V1 Auth Verify Post
       security:
       - bearerAuth: []
+  /v1/idv/session:
+    post:
+      tags:
+      - idv
+      summary: Create Session
+      operationId: create_session_v1_idv_session_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Session V1 Idv Session Post
+      security:
+      - bearerAuth: []
+  /v1/idv/webhook:
+    post:
+      tags:
+      - idv
+      summary: Idv Webhook
+      description: Auth-exempt (no user token possible); secured by HMAC signature
+        only.
+      operationId: idv_webhook_v1_idv_webhook_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Idv Webhook V1 Idv Webhook Post
+      security:
+      - bearerAuth: []
+  /v1/idv/stub/decide:
+    post:
+      tags:
+      - idv
+      summary: Stub Decide
+      description: 'TEST-ONLY: acts as the stub vendor delivering a signed verdict
+        webhook.'
+      operationId: stub_decide_v1_idv_stub_decide_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StubDecision'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Stub Decide V1 Idv Stub Decide Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -250,6 +317,16 @@ components:
       - display_name
       - avatar_url
       title: PublicProfile
+    StubDecision:
+      properties:
+        decision:
+          type: string
+          pattern: ^(approved|rejected)$
+          title: Decision
+      type: object
+      required:
+      - decision
+      title: StubDecision
     ValidationError:
       properties:
         loc:

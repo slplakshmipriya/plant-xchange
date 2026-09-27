@@ -20,6 +20,7 @@ from .middleware import (
 )
 from . import users as users_module
 from . import verify as verify_module
+from . import idv as idv_module
 
 API_DIR = Path(__file__).resolve().parent.parent
 OPENAPI_PATH = API_DIR / "openapi.yaml"
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     # Domain routers (each owns its /v1/* routes and repo factory).
     app.include_router(users_module.router)
     app.include_router(verify_module.router)
+    app.include_router(idv_module.router)
 
     @app.get("/me", tags=["auth"])
     def me(uid: str = Depends(get_current_uid)) -> dict:

@@ -22,7 +22,14 @@ from .errors import error_response
 
 logger = logging.getLogger(__name__)
 
-EXEMPT_PATHS = {"/healthz", "/openapi.yaml"}
+EXEMPT_PATHS = {
+    "/healthz",
+    "/openapi.yaml",
+    # Webhooks / internal jobs cannot carry a user ID token; they use their
+    # own auth (HMAC signature / shared secret) and are exempt here.
+    "/v1/idv/webhook",
+    "/v1/internal/sweep",
+}
 
 
 def _is_exempt(path: str) -> bool:
