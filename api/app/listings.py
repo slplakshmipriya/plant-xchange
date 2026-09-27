@@ -124,6 +124,9 @@ class ListingRepo(Protocol):
     def set_status(self, listing_id: str, status: str) -> dict[str, Any] | None: ...
     def sweep_expired(self, now: datetime) -> int: ...
     def list_live(self) -> list[dict[str, Any]]: ...
+    def list_by_owner(self, uid: str) -> list[dict[str, Any]]:
+        """All listings owned by uid (any status) — for thread scoping."""
+        ...
     def decrement_remaining(self, listing_id: str, delta: float) -> dict[str, Any] | None:
         """Atomically subtract delta from remaining (COALESCE remaining_qty, quantity).
         Returns the updated row, or None when the listing is missing or delta
@@ -218,6 +221,13 @@ class PostgresListingRepo:
         ).fetchall()
         return [self._row(r) for r in rows]
 
+    def list_by_owner(self, uid: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            self._SELECT + " WHERE owner_uid = %s ORDER BY created_at DESC",
+            (uid,),
+        ).fetchall()
+        return [self._row(r) for r in rows]
+
     def decrement_remaining(self, listing_id: str, delta: float) -> dict[str, Any] | None:
         # Single atomic UPDATE: concurrent pickers cannot oversell the harvest.
         cur = self._conn.execute(
@@ -296,6 +306,9 @@ class MemoryListingRepo:
 
     def list_live(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self._rows.values() if r.get("status") == "live"]
+
+    def list_by_owner(self, uid: str) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._rows.values() if r.get("owner_uid") == uid]
 
     def decrement_remaining(self, listing_id: str, delta: float) -> dict[str, Any] | None:
         row = self._rows.get(listing_id)

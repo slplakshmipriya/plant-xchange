@@ -1103,6 +1103,141 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/threads:
+    get:
+      tags:
+      - messaging
+      - messaging
+      summary: List Threads
+      description: Threads you opened plus threads on your listings.
+      operationId: list_threads_v1_threads_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Threads V1 Threads Get
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - messaging
+      - messaging
+      summary: Open Thread
+      description: Open (or fetch) your thread about a listing. Idempotent per listing.
+      operationId: open_thread_v1_threads_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Open Thread V1 Threads Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/threads/{thread_id}/messages:
+    post:
+      tags:
+      - messaging
+      - messaging
+      summary: Send Message
+      description: Send a message. Participants only.
+      operationId: send_message_v1_threads__thread_id__messages_post
+      parameters:
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Send Message V1 Threads  Thread Id  Messages Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+    get:
+      tags:
+      - messaging
+      - messaging
+      summary: Read Messages
+      description: Read a thread's messages, oldest first. Participants only.
+      operationId: read_messages_v1_threads__thread_id__messages_get
+      parameters:
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Read Messages V1 Threads  Thread Id  Messages Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -1322,6 +1457,17 @@ components:
           title: Visit Rules
       type: object
       title: ListingPatch
+    MessageIn:
+      properties:
+        body:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Body
+      type: object
+      required:
+      - body
+      title: MessageIn
     OwnerProfile:
       properties:
         uid:
@@ -1531,6 +1677,16 @@ components:
       required:
       - decision
       title: StubDecision
+    ThreadIn:
+      properties:
+        listing_id:
+          type: string
+          minLength: 1
+          title: Listing Id
+      type: object
+      required:
+      - listing_id
+      title: ThreadIn
     ValidationError:
       properties:
         loc:
