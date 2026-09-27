@@ -58,3 +58,13 @@ def mem_listings(client, monkeypatch):
     client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
     client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
     return client, urepo, lrepo
+
+
+@pytest.fixture()
+def mem_notify(client, monkeypatch):
+    """In-memory notification repo. Returns (client, repo)."""
+    from app import notify as notify_mod
+
+    repo = notify_mod.MemoryNotificationRepo()
+    client.app.dependency_overrides[notify_mod.get_notification_repo] = lambda: repo
+    return client, repo

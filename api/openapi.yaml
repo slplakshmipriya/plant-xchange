@@ -433,6 +433,53 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/users/me/notification-prefs:
+    get:
+      tags:
+      - notifications
+      summary: Get Notification Prefs
+      operationId: get_notification_prefs_v1_users_me_notification_prefs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Notification Prefs V1 Users Me Notification Prefs
+                  Get
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - notifications
+      summary: Put Notification Prefs
+      operationId: put_notification_prefs_v1_users_me_notification_prefs_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrefsIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Put Notification Prefs V1 Users Me Notification Prefs
+                  Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -659,6 +706,19 @@ components:
       - start
       - end
       title: PickupWindow
+    PrefsIn:
+      properties:
+        categories:
+          additionalProperties:
+            type: boolean
+          type: object
+          title: Categories
+        quiet_hours:
+          type: boolean
+          title: Quiet Hours
+          default: true
+      type: object
+      title: PrefsIn
     ProfileIn:
       properties:
         display_name:
