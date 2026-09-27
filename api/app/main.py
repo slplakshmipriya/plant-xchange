@@ -3,9 +3,10 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 
+from .auth import FirebaseAuthMiddleware, get_current_uid, init_firebase
 from .db import run_migrations
 
 API_DIR = Path(__file__).resolve().parent.parent
@@ -19,6 +20,7 @@ async def lifespan(app: FastAPI):
     # Apply pending DB migrations on startup. Skips gracefully when
     # DATABASE_URL is unset (e.g. local dev / CI without Postgres).
     run_migrations()
+    init_firebase()
     yield
 
 
@@ -33,10 +35,19 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # NOTE: middleware is added innermost-first (last added runs outermost).
+    # API-003 adds rate-limit / logging / request-id layers around this.
+    app.add_middleware(FirebaseAuthMiddleware)
+
     @app.get("/healthz", tags=["ops"])
     def healthz() -> dict:
         """Liveness probe. Auth-exempt; must stay cheap and dependency-free."""
         return {"status": "ok", "version": APP_VERSION}
+
+    @app.get("/me", tags=["auth"])
+    def me(uid: str = Depends(get_current_uid)) -> dict:
+        """Whoami: proves the caller's ID token verified. Used by clients at login."""
+        return {"uid": uid}
 
     @app.get("/openapi.yaml", include_in_schema=False)
     def openapi_yaml() -> FileResponse:
