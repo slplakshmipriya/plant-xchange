@@ -117,6 +117,7 @@ class ListingRepo(Protocol):
     def update(self, listing_id: str, fields: dict[str, Any]) -> dict[str, Any] | None: ...
     def set_status(self, listing_id: str, status: str) -> dict[str, Any] | None: ...
     def sweep_expired(self, now: datetime) -> int: ...
+    def list_live(self) -> list[dict[str, Any]]: ...
 
 
 class PostgresListingRepo:
@@ -193,6 +194,13 @@ class PostgresListingRepo:
         self._conn.commit()
         return cur.rowcount or 0
 
+    def list_live(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            self._SELECT + " WHERE status = 'live' "
+            "ORDER BY expires_at NULLS LAST, created_at DESC"
+        ).fetchall()
+        return [self._row(r) for r in rows]
+
 
 class MemoryListingRepo:
     def __init__(self):
@@ -230,6 +238,9 @@ class MemoryListingRepo:
                 row["status"] = "expired"
                 n += 1
         return n
+
+    def list_live(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._rows.values() if r.get("status") == "live"]
 
 
 def get_listing_repo(conn=Depends(get_db_conn)) -> ListingRepo:
