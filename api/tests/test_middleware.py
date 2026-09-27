@@ -124,3 +124,39 @@ def test_unauthorized_uses_envelope_with_request_id(client):
     body = r.json()
     assert set(body) == {"code", "message", "request_id"}
     assert r.headers["X-Request-ID"] == body["request_id"]
+
+
+def test_bucket_key_prefers_x_forwarded_for():
+    from starlette.requests import Request
+
+    def make_request(xff: str | None):
+        headers = []
+        if xff is not None:
+            headers.append((b"x-forwarded-for", xff.encode()))
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/me",
+            "headers": headers,
+            "client": ("10.0.0.1", 1234),  # LB IP when behind a proxy
+        }
+        return Request(scope)
+
+    # Leftmost XFF entry wins; distinct clients get distinct buckets.
+    assert TokenBucketLimiter.bucket_key(make_request("203.0.113.7, 10.0.0.1")).startswith(
+        "203.0.113.7:"
+    )
+    assert TokenBucketLimiter.bucket_key(make_request("198.51.100.9")).startswith(
+        "198.51.100.9:"
+    )
+    # No XFF: falls back to the direct peer address.
+    assert TokenBucketLimiter.bucket_key(make_request(None)).startswith("10.0.0.1:")
+
+
+def test_healthz_trailing_slash_is_exempt(client):
+    r = client.get("/healthz/")
+    assert r.status_code in (200, 307)  # 307 = FastAPI slash redirect, also exempt
+    if r.status_code == 307:
+        assert r.is_redirect
+    else:
+        assert r.json()["status"] == "ok"

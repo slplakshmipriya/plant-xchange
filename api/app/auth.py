@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 EXEMPT_PATHS = {"/healthz", "/openapi.yaml"}
 
 
+def _is_exempt(path: str) -> bool:
+    # Normalize a trailing slash so /healthz/ doesn't 401 before routing.
+    return (path.rstrip("/") or "/") in EXEMPT_PATHS
+
+
 def init_firebase() -> None:
     """Initialize firebase-admin once. Warns (does not crash) without credentials."""
     try:
@@ -54,7 +59,7 @@ def verify_id_token(token: str) -> dict:
 
 class FirebaseAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in EXEMPT_PATHS:
+        if _is_exempt(request.url.path):
             return await call_next(request)
 
         authz = request.headers.get("authorization", "")

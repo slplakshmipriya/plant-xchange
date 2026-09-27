@@ -127,7 +127,15 @@ class TokenBucketLimiter:
 
     @staticmethod
     def bucket_key(request: Request) -> str:
-        client = request.client.host if request.client else "unknown"
+        # Prefer the leftmost X-Forwarded-For entry: behind Cloud Run's
+        # load balancer request.client.host would otherwise be the LB's IP
+        # and every anonymous caller would share one bucket. (uvicorn also
+        # runs with --proxy-headers, which rewrites scope["client"]; reading
+        # XFF explicitly keeps this correct regardless of proxy config.)
+        xff = request.headers.get("x-forwarded-for", "")
+        client = xff.split(",")[0].strip() or (
+            request.client.host if request.client else "unknown"
+        )
         auth = request.headers.get("authorization", "")
         cred = hashlib.sha256(auth.encode()).hexdigest()[:16] if auth else "anon"
         return f"{client}:{cred}"
