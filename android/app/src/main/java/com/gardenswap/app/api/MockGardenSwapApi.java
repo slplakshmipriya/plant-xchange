@@ -4,6 +4,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
 /**
  * In-memory mock of {@link GardenSwapApi} (Waves 1–3).
  *
@@ -27,6 +33,14 @@ public class MockGardenSwapApi implements GardenSwapApi {
             .idvStatus(IdvStatus.UNVERIFIED)
             .build();
     private IdvStatus mockIdvStatus = IdvStatus.UNVERIFIED;
+
+    /** In-memory listing store (AND-020). Keyed by id, insertion order. */
+    private final Map<String, Listing> listings = new LinkedHashMap<>();
+
+    /** Harness hook: seed a listing into the mock store. */
+    public void seedListing(Listing listing) {
+        listings.put(listing.getId(), listing);
+    }
 
     /** Harness hook: force the status returned by {@link #getIdvStatus}. */
     public void setMockIdvStatus(IdvStatus status) {
@@ -192,9 +206,84 @@ public class MockGardenSwapApi implements GardenSwapApi {
     public void sendMessage(String threadId, String text, Callback<ChatMessage> callback) {
         emit(callback, new ChatMessage("m" + System.currentTimeMillis(), threadId,
                 "You", true, ChatMessage.Kind.TEXT, text, System.currentTimeMillis()));
+
+    // ------------------------------------------------------------ Wave 2 (proposed)
+    @Override
+    public void createListing(ListingInput input, Callback<Listing> callback) {
+        Listing listing = Listing.builder("mock-listing-" + UUID.randomUUID())
+                .ownerUid(profile.getUserId())
+                .type(input.getType())
+                .photos(input.getPhotos())
+                .variety(input.getVariety())
+                .quantity(input.getQuantity())
+                .unit(input.getUnit())
+                .creditCost(input.getCreditCost())
+                .pickupWindow(input.getPickupStartMs(), input.getPickupEndMs())
+                .expiresAtMs(input.getExpiresAtMs())
+                .geo(input.getGeoLat(), input.getGeoLon())
+                .sprayDisclosure(input.getSprayDisclosure())
+                .status(ListingStatus.LIVE)
+                .build();
+        listings.put(listing.getId(), listing);
+        Log.d(TAG, "createListing id=" + listing.getId() + " type=" + input.getType());
+        emit(callback, listing);
+    }
+
+    @Override
+    public void getListing(String listingId, Callback<Listing> callback) {
+        Listing listing = listings.get(listingId);
+        if (listing == null) {
+            emitError(callback, new ApiException("listing_not_found", "No such listing"));
+            return;
+        }
+        emit(callback, listing);
+    }
+
+    @Override
+    public void patchListing(String listingId, ListingPatch patch, Callback<Listing> callback) {
+        Listing current = listings.get(listingId);
+        if (current == null) {
+            emitError(callback, new ApiException("listing_not_found", "No such listing"));
+            return;
+        }
+        // The real backend enforces the state machine (422 on illegal moves);
+        // the mock applies the patch permissively for UI development.
+        Listing.Builder builder = Listing.builder(current.getId())
+                .ownerUid(current.getOwnerUid())
+                .type(current.getType())
+                .photos(current.getPhotos())
+                .variety(patch.getVariety() != null ? patch.getVariety() : current.getVariety())
+                .quantity(patch.getQuantity() != null ? patch.getQuantity() : current.getQuantity())
+                .unit(patch.getUnit() != null ? patch.getUnit() : current.getUnit())
+                .creditCost(patch.getCreditCost() != null ? patch.getCreditCost() : current.getCreditCost())
+                .pickupWindow(current.getPickupStartMs(), current.getPickupEndMs())
+                .expiresAtMs(patch.getExpiresAtMs() != null ? patch.getExpiresAtMs() : current.getExpiresAtMs())
+                .geo(current.getGeoLat(), current.getGeoLon())
+                .sprayDisclosure(patch.getSprayDisclosure() != null
+                        ? patch.getSprayDisclosure() : current.getSprayDisclosure())
+                .status(patch.getStatus() != null ? patch.getStatus() : current.getStatus())
+                .createdAtMs(current.getCreatedAtMs());
+        Listing updated = builder.build();
+        listings.put(listingId, updated);
+        emit(callback, updated);
+    }
+
+    @Override
+    public void listMyListings(Callback<List<Listing>> callback) {
+        List<Listing> mine = new ArrayList<>();
+        for (Listing listing : listings.values()) {
+            if (profile.getUserId().equals(listing.getOwnerUid())) {
+                mine.add(listing);
+            }
+        }
+        emit(callback, mine);
     }
 
     private <T> void emit(Callback<T> callback, T value) {
         main.postDelayed(() -> callback.onSuccess(value), LATENCY_MS);
+    }
+
+    private <T> void emitError(Callback<T> callback, ApiException error) {
+        main.postDelayed(() -> callback.onError(error), LATENCY_MS);
     }
 }

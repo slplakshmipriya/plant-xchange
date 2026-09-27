@@ -6,12 +6,13 @@ import java.util.List;
  * Client contract for the GardenSwap backend (API-004).
  *
  * <p><b>Wave 1 methods are frozen</b> (getMe, upsertProfile, createIdvSession,
- * getIdvStatus, registerFcmToken). <b>Wave 3 methods</b> (trees, wallet,
- * sitters, chat) are client-proposed against the planned contract — the
- * backend Wave 3 endpoints do not exist yet, so {@link MockGardenSwapApi}
- * implements them with canned responses. At the Wave 3 integration checkpoint
- * the real client must reconcile any drift against {@code api/openapi.yaml};
- * drift is a P0 bug against the drifting side (see DEPENDENCY_TREE.md).
+ * getIdvStatus, registerFcmToken) with real HTTP implementations.
+ * <b>Wave 2 methods</b> (listings, want-list, harvest — API-020/030/040) and
+ * <b>Wave 3 methods</b> (trees, wallet, sitters, chat) are client-proposed
+ * against the planned contract; {@link MockGardenSwapApi} implements them
+ * with canned responses. At each integration checkpoint the real client must
+ * reconcile drift against {@code api/openapi.yaml}; drift is a P0 bug
+ * against the drifting side (see DEPENDENCY_TREE.md).
  *
  * <p>All calls are asynchronous and deliver results on the main thread.
  */
@@ -86,4 +87,17 @@ public interface GardenSwapApi {
 
     /** Send a message (proposed: API-080, POST /v1/threads/{id}/messages). */
     void sendMessage(String threadId, String text, Callback<ChatMessage> callback);
+    // ------------------------------------------------------------ Wave 2 (proposed)
+
+    /** Create a listing (API-020). Photo + spray disclosure are required. */
+    void createListing(ListingInput input, Callback<Listing> callback);
+
+    /** Fetch one listing by id (API-020). */
+    void getListing(String listingId, Callback<Listing> callback);
+
+    /** Partial update incl. status transitions (API-020). Illegal moves are a backend 422. */
+    void patchListing(String listingId, ListingPatch patch, Callback<Listing> callback);
+
+    /** Listings owned by the signed-in user (API-020). */
+    void listMyListings(Callback<List<Listing>> callback);
 }
