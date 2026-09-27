@@ -139,7 +139,7 @@ def test_http_profile_endpoints_leak_nothing(mem_users, mock_verify, auth_header
 
 
 def test_http_listing_detail_hides_exact_geo(mem_listings, mock_verify, auth_headers):
-    client, urepo, lrepo = mem_listings
+    client, urepo, lrepo, _, _ = mem_listings
     urepo.upsert("alice", display_name="Alice", home_zip="85281", phone_hash="PH")
     lrepo.create({
         "id": "22222222-2222-2222-2222-222222222222",
@@ -150,8 +150,10 @@ def test_http_listing_detail_hides_exact_geo(mem_listings, mock_verify, auth_hea
     })
     body = client.get("/v1/listings/22222222-2222-2222-2222-222222222222",
                       headers=auth_headers).json()
-    assert "33.4152" not in str(body)
-    assert "-111.8315" not in str(body)
+    # Fuzzed != exact: numeric inequality, not substring (a jittered value like
+    # 33.41520140687793 legitimately starts with the same digits).
+    assert body["geo_lat"] != 33.4152
+    assert body["geo_lon"] != -111.8315
     assert "85281" not in str(body)
     assert "PH" not in str(body.values())
 

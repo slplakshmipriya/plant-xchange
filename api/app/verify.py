@@ -17,6 +17,7 @@ import hashlib
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .auth import get_current_uid
+from .credits import CreditRepo, ensure_starter_credits, get_credit_repo
 from .users import PhoneInUseError, UserRepo, get_user_repo
 
 router = APIRouter(tags=["auth"])
@@ -34,6 +35,7 @@ def verify_phone(
     request: Request,
     uid: str = Depends(get_current_uid),
     repo: UserRepo = Depends(get_user_repo),
+    credit_repo: CreditRepo = Depends(get_credit_repo),
 ) -> dict:
     claims = getattr(request.state, "claims", None) or {}
     phone = claims.get("phone_number")
@@ -57,4 +59,6 @@ def verify_phone(
                 "message": "This phone number is already registered to another account.",
             },
         )
+    # Idempotent starter-credit bootstrap (a user row may first be created here).
+    ensure_starter_credits(uid, credit_repo)
     return {"uid": uid, "verified": True}

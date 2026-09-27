@@ -37,6 +37,20 @@ def auth_headers() -> dict:
     return {"Authorization": "Bearer good-token"}
 
 
+def wire_credit_repo(client):
+    """Override the credit-ledger repo with an in-memory one.
+
+    Required by any fixture whose tests hit POST /v1/users or
+    POST /v1/auth/verify (API-060 grants starter credits there).
+    Returns the repo so tests can seed/inspect it.
+    """
+    from app import credits as credits_mod
+
+    crepo = credits_mod.MemoryCreditRepo()
+    client.app.dependency_overrides[credits_mod.get_credit_repo] = lambda: crepo
+    return crepo
+
+
 @pytest.fixture()
 def mem_users(client, monkeypatch):
     """Override the user repo with an in-memory one. Returns (client, repo)."""
@@ -44,20 +58,29 @@ def mem_users(client, monkeypatch):
 
     repo = users_mod.MemoryUserRepo()
     client.app.dependency_overrides[users_mod.get_user_repo] = lambda: repo
+    wire_credit_repo(client)
     return client, repo
 
 
 @pytest.fixture()
 def mem_listings(client, monkeypatch):
-    """In-memory user + listing repos. Returns (client, user_repo, listing_repo)."""
+    """In-memory user + listing + want + notification repos.
+    Returns (client, user_repo, listing_repo, want_repo, notify_repo)."""
     from app import listings as listings_mod
+    from app import notify as notify_mod
     from app import users as users_mod
+    from app import wantlist as wantlist_mod
 
     urepo = users_mod.MemoryUserRepo()
     lrepo = listings_mod.MemoryListingRepo()
+    wrepo = wantlist_mod.MemoryWantRepo()
+    nrepo = notify_mod.MemoryNotificationRepo()
     client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
     client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
-    return client, urepo, lrepo
+    client.app.dependency_overrides[wantlist_mod.get_want_repo] = lambda: wrepo
+    client.app.dependency_overrides[notify_mod.get_notification_repo] = lambda: nrepo
+    wire_credit_repo(client)
+    return client, urepo, lrepo, wrepo, nrepo
 
 
 @pytest.fixture()
