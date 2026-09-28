@@ -14,6 +14,11 @@
 
     <!-- Typography scale (UID-002). Display/Headline use Libre Franklin;
          everything else DM Sans. -->
+    <!-- Base parent for the dotted GardenSwap text appearances below.
+         AAPT infers TextAppearance.GardenSwap as the parent of each
+         TextAppearance.GardenSwap.* style, so it must exist. -->
+    <style name="TextAppearance.GardenSwap" parent="android:TextAppearance" />
+
     <style name="TextAppearance.GardenSwap.Display">
         <item name="android:fontFamily">@font/libre_franklin</item>
         <item name="android:textSize">28sp</item>
