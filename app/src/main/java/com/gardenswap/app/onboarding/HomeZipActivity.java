@@ -52,27 +52,27 @@ public class HomeZipActivity extends AppCompatActivity {
         }
 
         LinearLayout root = Ui.column(this, 24);
-        TextView title = Ui.label(this, "Where do you garden?");
-        title.setTextSize(20);
-        TextView expl = Ui.label(this,
-                "Your ZIP sets the search radius for nearby swaps. "
-                        + "Only your approximate area is ever shown to others.");
-        zipInput = Ui.input(this, "ZIP code (5 digits)", InputType.TYPE_CLASS_NUMBER);
-        continueButton = Ui.button(this, "Finish");
-        continueButton.setOnClickListener(v -> onFinish());
-        progress = new ProgressBar(this);
-        progress.setVisibility(View.GONE);
-        statusText = Ui.status(this);
-
-        root.addView(title);
+        root.addView(Ui.eyebrow(this, "Step 3 of 3"));
         Ui.gap(root, this, 8);
-        root.addView(expl);
-        Ui.gap(root, this, 16);
+        root.addView(Ui.headline(this, "Where do you garden?"));
+        Ui.gap(root, this, 8);
+        root.addView(Ui.body(this,
+                "Your ZIP sets the search radius for nearby swaps. "
+                        + "Only your approximate area is ever shown to others."));
+        Ui.gap(root, this, 24);
+        root.addView(Ui.eyebrow(this, "Home ZIP code"));
+        Ui.gap(root, this, 8);
+        zipInput = Ui.input(this, "ZIP code (5 digits)", InputType.TYPE_CLASS_NUMBER);
         root.addView(zipInput);
-        Ui.gap(root, this, 16);
+        Ui.gap(root, this, 24);
+        continueButton = Ui.primaryButton(this, "Finish");
+        continueButton.setOnClickListener(v -> onFinish());
         root.addView(continueButton);
         Ui.gap(root, this, 16);
+        progress = new ProgressBar(this);
+        progress.setVisibility(View.GONE);
         root.addView(progress);
+        statusText = Ui.status(this);
         root.addView(statusText);
         setContentView(root);
     }
