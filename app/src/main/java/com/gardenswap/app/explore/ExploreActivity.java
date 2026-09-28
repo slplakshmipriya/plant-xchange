@@ -96,10 +96,7 @@ public class ExploreActivity extends AppCompatActivity {
         TextView listingsTitle = Ui.headline(this, "Nearby listings");
         listingsTitle.setLayoutParams(new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Button newListing = Ui.secondaryButton(this, "+ Create your listing");
-        newListing.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+        Button newListing = Ui.rowButton(this, "+ Create your listing", false);
         newListing.setOnClickListener(v ->
                 startActivity(new Intent(this, CreateListingActivity.class)));
         listingsHeader.addView(listingsTitle);

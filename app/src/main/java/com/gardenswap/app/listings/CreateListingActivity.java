@@ -403,10 +403,7 @@ public class CreateListingActivity extends AppCompatActivity {
     private LinearLayout dateTimeRow(EditText field) {
         field.setLayoutParams(new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Button pick = Ui.secondaryButton(this, "Pick");
-        pick.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+        Button pick = Ui.rowButton(this, "Pick", false);
         pick.setOnClickListener(v -> showDateTimePicker(field));
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);

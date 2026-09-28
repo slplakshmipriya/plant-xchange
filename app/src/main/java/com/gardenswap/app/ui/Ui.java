@@ -179,6 +179,25 @@ public final class Ui {
         return view;
     }
 
+    /**
+     * Button sized for a horizontal row. {@link #primaryButton} and
+     * {@link #secondaryButton} default to MATCH_PARENT width (correct in
+     * vertical columns), which silently squeezes every sibling to zero width
+     * when the button lands in a horizontal LinearLayout. Use this instead of
+     * building the button and overriding its params by hand.
+     *
+     * @param primary true for the leaf-green primary style, false for the
+     *                outline secondary style.
+     */
+    public static Button rowButton(Context context, String text, boolean primary) {
+        Button view = primary ? primaryButton(context, text)
+                : secondaryButton(context, text);
+        view.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        return view;
+    }
+
     /** Card container: surface fill, 18dp radius, 16dp inner padding. */
     public static LinearLayout card(Context context) {
         LinearLayout layout = new LinearLayout(context);
