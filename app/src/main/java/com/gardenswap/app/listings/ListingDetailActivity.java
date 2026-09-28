@@ -169,6 +169,32 @@ public class ListingDetailActivity extends AppCompatActivity {
             body.addView(cancelClaimButton);
             Ui.gap(body, this, 8);
         }
+        // r2 claims: giver-side accept/decline — the listing owner sees this
+        // row when the listing has a pending claim (CLAIMED status +
+        // claimerUid set). The server enforces the owner rule on the
+        // accept/decline endpoints; these endpoints may 404 until the
+        // backend lands, in which case a Toast is shown and nothing crashes.
+        if (listing.getStatus() == ListingStatus.CLAIMED
+                && listing.getClaimerUid() != null
+                && viewerUid != null
+                && viewerUid.equals(listing.getOwnerUid())) {
+            LinearLayout claimDecisionRow = new LinearLayout(this);
+            claimDecisionRow.setOrientation(LinearLayout.HORIZONTAL);
+            Button acceptButton = Ui.primaryButton(this, "Accept");
+            LinearLayout.LayoutParams acceptParams = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            acceptParams.setMarginEnd(Ui.dp(this, 8));
+            acceptButton.setLayoutParams(acceptParams);
+            acceptButton.setOnClickListener(v -> acceptClaim());
+            claimDecisionRow.addView(acceptButton);
+            Button declineButton = Ui.secondaryButton(this, "Decline");
+            declineButton.setLayoutParams(new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            declineButton.setOnClickListener(v -> confirmDeclineClaim());
+            claimDecisionRow.addView(declineButton);
+            body.addView(claimDecisionRow);
+            Ui.gap(body, this, 8);
+        }
         if (isOwnHarvestListing()) {
             Button logButton = Ui.secondaryButton(this, "Harvest log");
             logButton.setOnClickListener(v ->
@@ -350,6 +376,71 @@ public class ListingDetailActivity extends AppCompatActivity {
                                         Toast.makeText(ListingDetailActivity.this,
                                                 message == null || message.trim().isEmpty()
                                                         ? "Couldn't cancel the claim. Try again."
+                                                        : message,
+                                                Toast.LENGTH_LONG).show();
+                                    }
+                                }))
+                .setNegativeButton("Keep claim", null)
+                .show();
+    }
+
+    /**
+     * r2 claims: giver-side accept. The Listing model exposes no standalone
+     * claim id, so the claimer uid (the only claim identifier the model
+     * carries) is passed as the {@code claim_id} endpoint argument.
+     * On success the returned listing replaces the local one and the detail
+     * re-renders; on error (e.g. the endpoint 404s until the backend
+     * lands) a Toast is shown and nothing crashes.
+     */
+    private void acceptClaim() {
+        ApiProvider.get().acceptClaim(listing.getId(), listing.getClaimerUid(),
+                new GardenSwapApi.Callback<Listing>() {
+                    @Override
+                    public void onSuccess(Listing result) {
+                        listing = result;
+                        Toast.makeText(ListingDetailActivity.this,
+                                "Claim accepted", Toast.LENGTH_SHORT).show();
+                        render();
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        String message = e.getMessage();
+                        Toast.makeText(ListingDetailActivity.this,
+                                message == null || message.trim().isEmpty()
+                                        ? "Couldn't accept the claim. Try again."
+                                        : message,
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    /**
+     * r2 claims: giver-side decline, behind a confirm dialog like the other
+     * destructive actions in this file. Claim-id sourcing and error
+     * handling mirror {@link #acceptClaim()}.
+     */
+    private void confirmDeclineClaim() {
+        new AlertDialog.Builder(this)
+                .setTitle("Decline this claim?")
+                .setMessage("The listing will become available to other swappers again.")
+                .setPositiveButton("Decline claim", (dialog, which) ->
+                        ApiProvider.get().declineClaim(listing.getId(), listing.getClaimerUid(),
+                                new GardenSwapApi.Callback<Listing>() {
+                                    @Override
+                                    public void onSuccess(Listing result) {
+                                        listing = result;
+                                        Toast.makeText(ListingDetailActivity.this,
+                                                "Claim declined", Toast.LENGTH_SHORT).show();
+                                        render();
+                                    }
+
+                                    @Override
+                                    public void onError(ApiException e) {
+                                        String message = e.getMessage();
+                                        Toast.makeText(ListingDetailActivity.this,
+                                                message == null || message.trim().isEmpty()
+                                                        ? "Couldn't decline the claim. Try again."
                                                         : message,
                                                 Toast.LENGTH_LONG).show();
                                     }
