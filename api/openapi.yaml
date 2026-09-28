@@ -120,6 +120,29 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/users/me/credit-expiry:
+    get:
+      tags:
+      - credits
+      summary: Credit Expiry
+      description: 'Credit expiry outlook: effective balance, tranches expiring within
+        the
+
+        next 30 days (covers both the 30-day and 7-day warning windows), and the
+
+        end of the current season.'
+      operationId: credit_expiry_v1_users_me_credit_expiry_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Credit Expiry V1 Users Me Credit Expiry Get
+      security:
+      - bearerAuth: []
   /v1/auth/verify:
     post:
       tags:
