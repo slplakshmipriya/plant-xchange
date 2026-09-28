@@ -41,14 +41,23 @@ FCM — going live:
 - Device tokens are registered by the Android client after sign-in via
   ``POST /v1/users/me/fcm-token`` (``FirebaseMessaging.getInstance().token``);
   tokens are stored per user in ``device_tokens`` (migration 0018) and used
-  for token-targeted sends. The old ``user_{uid}`` topic fallback stays for
-  users with no registered token — topics have no ACLs, so treat them as a
-  convenience channel, never as carrying secrets.
+  for token-targeted sends. Tokens are deregistered via
+  ``DELETE /v1/users/me/fcm-token`` (logout / uninstall / rotation) and
+  pruned automatically when FCM reports them unregistered.
+- The old ``user_{uid}`` topic fallback stays for users with no registered
+  token — **DEPRECATED** (H13): topics have no ACLs, so anyone can subscribe
+  to ``user_{uid}`` and read push content. It remains ON by default so
+  existing pushes keep working; set ``FCM_TOPIC_FALLBACK_ENABLED=0`` to
+  disable it once token-registration coverage is high. Sensitive content
+  must NEVER ride the topic path — ``send_notification`` /
+  ``dispatch_event`` take ``sensitive=True``, which the topic sender
+  rejects (code-level guard).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
@@ -109,6 +118,36 @@ def _parse_hhmm(value: str) -> tuple[int, int]:
     return int(hours), int(minutes)
 
 
+def _resolve_user_tz() -> ZoneInfo:
+    """Resolve ``USER_TZ`` (M14).
+
+    A typo'd ``USER_TZ`` must not 500 every notification send: fall back to
+    UTC with a logged warning.
+    """
+    tz_name = get_settings().user_tz
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:  # noqa: BLE001 — ZoneInfoNotFoundError and friends
+        logger.warning("invalid USER_TZ %r; falling back to UTC", tz_name)
+        return ZoneInfo("UTC")
+
+
+def validate_user_tz(settings) -> None:
+    """Startup check for ``USER_TZ`` (M14).
+
+    Loud warning, not fatal — the runtime path falls back to UTC — so a
+    typo is noticed before it silently shifts every user's quiet-hours
+    window. Call from lifespan alongside the other ``validate_*`` checks.
+    """
+    try:
+        ZoneInfo(settings.user_tz)
+    except Exception:  # noqa: BLE001 — bad IANA name
+        logger.warning(
+            "invalid USER_TZ %r at startup; quiet hours will evaluate in UTC",
+            settings.user_tz,
+        )
+
+
 def in_quiet_hours(
     now: datetime | None = None,
     start: str = DEFAULT_QUIET_START,
@@ -117,7 +156,8 @@ def in_quiet_hours(
     """True when local time falls inside the [start, end) window (wraps midnight).
 
     A degenerate equal start/end disables the window. Unparseable bounds
-    fail safe to "not quiet" and log.
+    fail safe to "not quiet" and log. A bad ``USER_TZ`` falls back to UTC
+    (M14) instead of raising.
     """
     try:
         start_min = _parse_hhmm(start)[0] * 60 + _parse_hhmm(start)[1]
@@ -127,7 +167,7 @@ def in_quiet_hours(
         return False
     if start_min == end_min:
         return False
-    local = (now or _now()).astimezone(ZoneInfo(get_settings().user_tz))
+    local = (now or _now()).astimezone(_resolve_user_tz())
     minute = local.hour * 60 + local.minute
     if start_min > end_min:  # wraps midnight
         return minute >= start_min or minute < end_min
@@ -160,6 +200,9 @@ class NotificationRepo(Protocol):
     ) -> dict[str, Any]: ...
     def get_tokens(self, uid: str) -> list[str]: ...
     def register_token(self, uid: str, token: str, platform: str = "android") -> None: ...
+    def unregister_token(self, uid: str, token: str) -> bool:
+        """Remove one device token. Returns True when a row was removed."""
+        ...
     def has_recent(self, uid: str, category: str, ref: str, since: datetime) -> bool: ...
     def count_since(self, uid: str, since: datetime) -> int: ...
     def log(self, uid: str, category: str, ref: str, outcome: str) -> None: ...
@@ -215,6 +258,14 @@ class PostgresNotificationRepo:
             (uid, token, platform),
         )
         self._conn.commit()
+
+    def unregister_token(self, uid: str, token: str) -> bool:
+        cur = self._conn.execute(
+            "DELETE FROM device_tokens WHERE user_uid = %s AND token = %s",
+            (uid, token),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
 
     def has_recent(self, uid: str, category: str, ref: str, since: datetime) -> bool:
         row = self._conn.execute(
@@ -275,6 +326,13 @@ class MemoryNotificationRepo:
         if token not in tokens:
             tokens.append(token)
 
+    def unregister_token(self, uid: str, token: str) -> bool:
+        tokens = self._tokens.get(uid, [])
+        if token in tokens:
+            tokens.remove(token)
+            return True
+        return False
+
     def has_recent(self, uid: str, category: str, ref: str, since: datetime) -> bool:
         return any(
             e["user_uid"] == uid and e["category"] == category and e["ref"] == ref
@@ -324,14 +382,30 @@ def _check_guards(
     return None
 
 
+def _topic_fallback_enabled() -> bool:
+    """Kill-switch for the legacy per-user topic fallback (H13).
+
+    Default True (current behavior — existing pushes keep working). Set
+    ``FCM_TOPIC_FALLBACK_ENABLED=0`` to disable once token-registration
+    coverage is high. The topic path is deprecated: topics have no ACLs, so
+    anyone who subscribes to ``user_{uid}`` can read the push content.
+    """
+    return os.environ.get("FCM_TOPIC_FALLBACK_ENABLED", "1") == "1"
+
+
 def default_fcm_sender(uid: str, title: str, body: str, data: dict[str, str]) -> None:
     """Send via firebase-admin to the per-user topic.
 
-    Legacy seam, kept as the fallback for users with no registered device
-    token. The Android client MUST subscribe to topic ``user_{uid}`` after
+    .. deprecated::
+        The ``user_{uid}`` topic path has no ACLs — anyone can subscribe and
+        read push content. It stays as the fallback for users with no
+        registered device token (disable via ``FCM_TOPIC_FALLBACK_ENABLED=0``),
+        and it REJECTS sensitive sends: ``send_notification`` /
+        ``dispatch_event`` with ``sensitive=True`` never reach this function.
+
+    The Android client MUST subscribe to topic ``user_{uid}`` after
     sign-in for this path to deliver. Token-targeted sends (``send_push``)
-    are the preferred path — topics have no ACLs, so treat them as a
-    convenience channel, never as carrying secrets.
+    are the preferred path.
     Raises when credentials/app are unavailable.
     """
     import firebase_admin
@@ -345,6 +419,23 @@ def default_fcm_sender(uid: str, title: str, body: str, data: dict[str, str]) ->
     ))
 
 
+def _is_token_unregistered(exc: BaseException) -> bool:
+    """True when FCM says the registration token is dead (M21 prune signal).
+
+    Duck-types on the firebase-admin exception classes when the SDK is
+    present; falls back to class-name matching so fakes/stubs can drive
+    pruning in tests.
+    """
+    try:
+        from firebase_admin import messaging
+
+        return isinstance(
+            exc, (messaging.UnregisteredError, messaging.SenderIdMismatchError)
+        )
+    except Exception:  # noqa: BLE001 — SDK absent in dev/CI
+        return type(exc).__name__ in ("UnregisteredError", "SenderIdMismatchError")
+
+
 def send_push(
     token: str, title: str, body: str, data: dict[str, str] | None = None
 ) -> dict[str, str]:
@@ -353,7 +444,9 @@ def send_push(
 
     Returns ``{"status": "sent"}`` on delivery, ``{"status": "would_send"}``
     when the SDK is unavailable (structured-logged, no exception escapes),
-    ``{"status": "failed"}`` when FCM rejects the send.
+    ``{"status": "failed"}`` when FCM rejects the send. On unregistered-token
+    errors the result also carries ``"prune_token": True`` so the caller can
+    drop the dead token (M21).
     """
     try:
         import firebase_admin
@@ -380,7 +473,11 @@ def send_push(
             type(exc).__name__,
             extra={"token_suffix": token[-6:], "title": title},
         )
-        return {"status": "failed", "reason": "fcm_error"}
+        return {
+            "status": "failed",
+            "reason": "fcm_error",
+            "prune_token": _is_token_unregistered(exc),
+        }
     return {"status": "sent", "reason": "delivered"}
 
 
@@ -394,13 +491,26 @@ def send_notification(
     ref: str = "",
     repo: NotificationRepo,
     sender=default_fcm_sender,
+    sensitive: bool = False,
 ) -> dict[str, str]:
-    """Run the guard chain and deliver (or honestly record why not)."""
+    """Run the guard chain and deliver (or honestly record why not).
+
+    ``sensitive=True`` is the H13 code-level guard: personal content (chat
+    snippets, addresses, names) must never ride the ACL-less ``user_{uid}``
+    topic path, so a sensitive send through the default topic sender is
+    refused outright. Callers with their own token-targeted sender pass it
+    explicitly.
+    """
     now = _now()
     skip = _check_guards(uid, category, ref, repo, now)
     if skip is not None:
         repo.log(uid, category, ref, f"skipped_{skip}")
         return {"status": "skipped", "reason": skip}
+
+    if sensitive and sender is default_fcm_sender:
+        logger.warning("refusing sensitive send via topic fallback for %s", uid)
+        repo.log(uid, category, ref, "skipped_sensitive_not_routed_via_topic")
+        return {"status": "skipped", "reason": "sensitive_not_routed_via_topic"}
 
     try:
         sender(uid, title, body, data or {})
@@ -506,6 +616,12 @@ def _build_credit_warning(
     )
 
 
+# H13 audit (2026-09-28): every builder below emits generic titles/bodies
+# ("Fruit is ripe near you", "A seedling you want is nearby", "Your listing
+# expires soon", "Credits expiring soon"). None carries names, addresses,
+# chat snippets, or other personal content, so all four events are safe for
+# the legacy topic fallback. Mark sensitive=True on dispatch_event for any
+# future event that carries personal content — the topic path refuses it.
 _EVENT_BUILDERS = {
     "ripe_window_entry": _build_ripe_window,
     "new_listing": _build_new_listing,
@@ -523,12 +639,17 @@ def _deliver_to_recipient(
     ref: str,
     repo: NotificationRepo,
     now: datetime,
+    *,
+    sensitive: bool = False,
 ) -> dict[str, Any]:
     """Guard chain + token-targeted delivery for one recipient.
 
     Prefers registered device tokens (``send_push``); falls back to the
-    legacy per-user topic when the user has no token. Every outcome is
-    logged to ``notification_log``.
+    legacy per-user topic when the user has no token — unless the topic
+    fallback is disabled (``FCM_TOPIC_FALLBACK_ENABLED=0``) or the send is
+    ``sensitive`` (H13: sensitive content is never routed through the
+    ACL-less topic path). Dead tokens reported by FCM are pruned (M21).
+    Every outcome is logged to ``notification_log``.
     """
     skip = _check_guards(uid, category, ref, repo, now)
     if skip is not None:
@@ -539,8 +660,32 @@ def _deliver_to_recipient(
     tokens = repo.get_tokens(uid)
     if tokens:
         results = [send_push(token, title, body, data) for token in tokens]
+        for token, result in zip(tokens, results):
+            if result.get("prune_token") and repo.unregister_token(uid, token):
+                logger.info(
+                    "pruned dead FCM token",
+                    extra={"token_suffix": token[-6:]},
+                )
         outcome = "sent" if any(r["status"] == "sent" for r in results) else "would_send"
         via = f"{len(tokens)}_token(s)"
+    elif sensitive:
+        # H13 code-level guard: the topic path rejects sensitive content.
+        logger.warning("refusing sensitive send via topic fallback for %s", uid)
+        repo.log(uid, category, ref, "skipped_sensitive_not_routed_via_topic")
+        return {
+            "uid": uid,
+            "status": "skipped",
+            "reason": "sensitive_not_routed_via_topic",
+        }
+    elif not _topic_fallback_enabled():
+        repo.log(uid, category, ref, "skipped_topic_fallback_disabled")
+        logger.info("notification skipped: %s for %s (topic_fallback_disabled)",
+                    category, uid)
+        return {
+            "uid": uid,
+            "status": "skipped",
+            "reason": "topic_fallback_disabled",
+        }
     else:
         try:
             default_fcm_sender(uid, title, body, data)
@@ -566,12 +711,14 @@ def dispatch_event(
     notify_repo: NotificationRepo,
     want_repo: Any = None,
     now: datetime | None = None,
+    sensitive: bool = False,
 ) -> dict[str, Any]:
     """Central pipeline entry point: resolve recipients, run guards, deliver.
 
     ``payload`` shapes per event type (see the ``on_*`` wrappers). Returns a
     summary with per-recipient results; raises ``ValueError`` for an unknown
-    event type.
+    event type. ``sensitive=True`` (H13) refuses the ACL-less topic fallback
+    for sends carrying personal content.
     """
     builder = _EVENT_BUILDERS.get(event_type)
     if builder is None:
@@ -579,7 +726,10 @@ def dispatch_event(
     recipients, category, title, body, data, ref = builder(payload or {}, want_repo)
     ts = now or _now()
     results = [
-        _deliver_to_recipient(uid, category, title, body, data, ref, notify_repo, ts)
+        _deliver_to_recipient(
+            uid, category, title, body, data, ref, notify_repo, ts,
+            sensitive=sensitive,
+        )
         for uid in recipients
     ]
     by_reason: dict[str, int] = {}
@@ -758,10 +908,34 @@ def register_fcm_token(
 
     Called by the Android client after sign-in and whenever
     ``FirebaseMessaging.getInstance().token`` rotates. Idempotent per
-    (user, token).
+    (user, token). Returns a success flag — the token itself is a secret
+    and is never echoed back (L4d).
     """
     token = data.token.strip()
     if not token:
         raise HTTPException(422, {"code": "empty_token", "message": "token must not be blank"})
     repo.register_token(uid, token, data.platform)
-    return {"user_uid": uid, "token": token, "platform": data.platform}
+    return {"user_uid": uid, "registered": True, "platform": data.platform}
+
+
+class FcmTokenDeleteIn(BaseModel):
+    token: str = Field(min_length=1, max_length=4096)
+
+
+@router.delete("/fcm-token")
+def delete_fcm_token(
+    data: FcmTokenDeleteIn,
+    uid: str = Depends(get_current_uid),
+    repo: NotificationRepo = Depends(get_notification_repo),
+) -> dict[str, Any]:
+    """Deregister a device FCM registration token (M21).
+
+    Called by the Android client on sign-out / uninstall / token rotation.
+    Idempotent: removing a token that isn't registered returns
+    ``removed: false`` (200), never 404.
+    """
+    token = data.token.strip()
+    if not token:
+        raise HTTPException(422, {"code": "empty_token", "message": "token must not be blank"})
+    removed = repo.unregister_token(uid, token)
+    return {"user_uid": uid, "removed": removed}

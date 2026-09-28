@@ -10,24 +10,32 @@ server-side:
 - ``credit_cost`` bounded to 1..3 (DB CHECK + API validation).
 - Lifecycle is a strict state machine; illegal transitions are 422, never
   silently coerced. Terminal states: completed, expired, cancelled.
-- SEC-010: responses carry FUZZED geo (~0.5 mi jitter) via ``fuzz_location``.
-  True coordinates never leave the server. True coordinates are stored
-  ENCRYPTED at rest (Fernet, ``GEO_ENCRYPTION_KEY``): the ``geo_lat`` /
-  ``geo_lon`` columns hold ciphertext, encrypted on every repo write and
-  decrypted in-process only inside the serializers, immediately before
-  fuzzing. (Exact address stays hidden until the exchange-confirm flow
-  lands in a later wave.)
+- SEC-010: responses carry FUZZED geo via ``fuzz_location_for_listing`` — a
+  DETERMINISTIC per-listing offset (HMAC of the listing id, 0.05–0.5 mi band),
+  so repeated reads return the same point and averaging cannot triangulate
+  the true coordinate (M1). True coordinates never leave the server. True
+  coordinates are stored ENCRYPTED at rest (Fernet, ``GEO_ENCRYPTION_KEY``):
+  the ``geo_lat`` / ``geo_lon`` columns hold ciphertext, encrypted on every
+  repo write and decrypted in-process only inside the serializers,
+  immediately before fuzzing. (Exact address stays hidden until the
+  exchange-confirm flow lands in a later wave.)
 - Expiry: ``POST /v1/internal/sweep`` flips live->expired past ``expires_at``.
-  Idempotent; service-to-service auth via ``X-Sweep-Secret``.
+  Idempotent; service-to-service auth via ``X-Sweep-Secret``. The same sweep
+  enforces the retention policy (M19): notification_log 90d, resolved disputes
+  2y, media GC for terminal listings 180d. Append-only by design (never
+  purged): the credit ledger (financial record), harvest_events (pick audit),
+  moderation_views (safety audit), and reports/strikes/enforcement history.
 """
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import math
+import os
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -44,7 +52,7 @@ from .notify import (
     send_notification,
 )
 from .users import UserRepo, get_user_repo
-from .wantlist import WantRepo, get_want_repo, notify_matches
+from .wantlist import WantRepo, find_matches, get_want_repo, notify_matches
 
 router = APIRouter(prefix="/v1", tags=["listings"])
 internal_router = APIRouter(prefix="/v1/internal", tags=["internal"])
@@ -87,7 +95,8 @@ def _coerce_utc(value: datetime | None) -> datetime | None:
 def fuzz_location(lat: float, lon: float, rng: random.Random | None = None) -> tuple[float, float]:
     """Jitter a coordinate by up to ~0.5 mi in a random direction (SEC-010).
 
-    ``rng`` is injectable for deterministic tests; routes use system randomness.
+    ``rng`` is injectable for deterministic tests; production serializers use
+    ``fuzz_location_for_listing`` (deterministic per listing) instead.
     """
     r = rng or random.SystemRandom()
     miles = r.uniform(0.05, 0.5)  # never return the exact point
@@ -97,16 +106,66 @@ def fuzz_location(lat: float, lon: float, rng: random.Random | None = None) -> t
     return lat + dlat, lon + dlon
 
 
-def public_listing(row: dict[str, Any], rng: random.Random | None = None) -> dict[str, Any]:
+def _fuzz_offset_for_listing(listing_id: str) -> tuple[float, float]:
+    """Deterministic per-listing fuzz offset (M1): HMAC(listing_id) -> (miles, theta).
+
+    A fresh random offset per request is triangulable — averaging N reads of
+    the same listing converges on the true coordinate. Deriving the offset
+    from ``HMAC(listing_id, GEO_ENCRYPTION_KEY)`` makes repeated reads return
+    the SAME fuzzed point, so averaging buys the attacker nothing. The geo
+    key doubles as the HMAC secret: it is a server-side secret, stable across
+    restarts (unlike a boot-time random), and already required to be set for
+    geo handling. Distinct listings get distinct offsets.
+    """
+    secret = os.environ.get(GEO_KEY_ENV, "").encode("utf-8")
+    mac = hmac.new(secret, str(listing_id).encode("utf-8"), hashlib.sha256).digest()
+    miles = 0.05 + (int.from_bytes(mac[:8], "big") / 2**64) * 0.45  # 0.05..0.5 mi band
+    theta = (int.from_bytes(mac[8:16], "big") / 2**64) * 2 * math.pi
+    return miles, theta
+
+
+def fuzz_location_for_listing(lat: float, lon: float, listing_id: str) -> tuple[float, float]:
+    """SEC-010 fuzz for a listing: stable per listing id (M1)."""
+    miles, theta = _fuzz_offset_for_listing(listing_id)
+    dlat = miles / 69.0 * math.cos(theta)
+    dlon = miles / (69.0 * math.cos(math.radians(lat))) * math.sin(theta)
+    return lat + dlat, lon + dlon
+
+
+def public_listing(row: dict[str, Any], rng: random.Random | None = None,
+                   viewer_uid: str | None = None) -> dict[str, Any]:
     """Public serializer: fuzzed geo, no owner PII (owner is just a uid).
 
     ``row`` carries ENCRYPTED geo (repo contract); decrypt in-process here,
     immediately before fuzzing, so true coordinates never sit in a served
-    dict. Fail closed: bad ciphertext raises."""
+    dict. Fail closed: bad ciphertext raises.
+
+    Fuzzing is deterministic per listing id (M1) unless an explicit ``rng``
+    is passed (tests).
+
+    L8: ``claimer_uid`` is revealed only to the listing's owner or claimer.
+    Pass the viewer's uid explicitly from every PUBLIC route (feed, detail,
+    cards). ``viewer_uid=None`` (the default) means participant/internal
+    context — the calling route has already established the viewer is a
+    party to the listing (the claim/exchange flows, which must show the
+    claimer to the counterparty to coordinate pickup) — so it is revealed.
+    """
     lat = decrypt_float(row.get("geo_lat"), GEO_KEY_ENV)
     lon = decrypt_float(row.get("geo_lon"), GEO_KEY_ENV)
-    flat, flon = (fuzz_location(lat, lon, rng) if lat is not None and lon is not None else (None, None))
+    if lat is not None and lon is not None:
+        if rng is not None:
+            flat, flon = fuzz_location(lat, lon, rng)
+        else:
+            flat, flon = fuzz_location_for_listing(lat, lon, row["id"])
+    else:
+        flat, flon = None, None
     window = row.get("pickup_window")
+    claimer_uid = row.get("claimer_uid")
+    # L8: viewer_uid=None is participant/internal context (claim/exchange
+    # routes, whose viewer is always owner or claimer) -> reveal. An explicit
+    # viewer must be the owner or the claimer; everyone else gets None.
+    is_party = (viewer_uid is None
+                or viewer_uid in (row.get("owner_uid"), claimer_uid))
     return {
         "id": str(row["id"]),
         "owner_uid": row["owner_uid"],
@@ -126,7 +185,7 @@ def public_listing(row: dict[str, Any], rng: random.Random | None = None) -> dic
         "remaining_qty": (float(row["remaining_qty"])
                           if row.get("remaining_qty") is not None else None),
         "visit_rules": row.get("visit_rules"),
-        "claimer_uid": row.get("claimer_uid"),
+        "claimer_uid": claimer_uid if is_party else None,
         # AND-125/AND-126: optional create-form fields (absent on old rows).
         "potSize": row.get("pot_size"),
         "plantAgeYears": row.get("plant_age_years"),
@@ -151,8 +210,31 @@ class ListingRepo(Protocol):
         """Atomically flip claimed -> completed. Only one caller wins; the
         loser gets None. Guards the exactly-once credit move."""
         ...
+    def complete_if_live(self, listing_id: str) -> dict[str, Any] | None:
+        """Atomically flip live -> completed in ONE conditional UPDATE (M6).
+
+        Used when a harvest is fully picked: no claimer exists, so the
+        listing completes directly instead of walking live -> claimed ->
+        completed as two commits (a crash between them would strand the
+        listing in claimed with no sweeper). Returns the updated row, or
+        None when the listing is not live — concurrent racers cannot both
+        win."""
+        ...
     def sweep_expired(self, now: datetime) -> int: ...
-    def list_live(self) -> list[dict[str, Any]]: ...
+    def list_live(self, limit: int | None = None, offset: int = 0,
+                  listing_type: str | None = None) -> list[dict[str, Any]]:
+        """Live listings, DB-paginated (M9). Ordered by expires_at ascending
+        (nulls last), then created_at descending — the same order the feed
+        scores within a page."""
+        ...
+    def count_live(self, listing_type: str | None = None) -> int:
+        """Total live listings (M9: feed next_cursor without loading rows)."""
+        ...
+    def list_live_expiring_before(self, cutoff: datetime) -> list[dict[str, Any]]:
+        """Live listings with expires_at < cutoff (M9). Bounds the sweep's
+        expiry-nudge scan to listings that can actually need a nudge instead
+        of iterating every live listing in-request."""
+        ...
     def list_by_owner(self, uid: str) -> list[dict[str, Any]]:
         """All listings owned by uid (any status) — for thread scoping."""
         ...
@@ -225,6 +307,12 @@ class PostgresListingRepo:
         for geo_key in ("geo_lat", "geo_lon"):
             if geo_key in fields:
                 fields[geo_key] = encrypt_float(fields[geo_key], GEO_KEY_ENV)
+        # L1a: column whitelist — dict keys must never reach SQL unchecked.
+        # Allowed = the fixed ListingPatch model fields (+ remaining_qty,
+        # written by the claim-quantity path in claims.py).
+        unknown = [k for k in fields if k not in _LISTING_UPDATE_COLUMNS]
+        if unknown:
+            raise ValueError(f"refusing to update unknown listing columns: {unknown}")
         sets, params = [], []
         for k, v in fields.items():
             sets.append(f"{k} = %s")
@@ -260,6 +348,16 @@ class PostgresListingRepo:
         self._conn.commit()
         return self.get(listing_id) if (cur.rowcount or 0) > 0 else None
 
+    def complete_if_live(self, listing_id: str) -> dict[str, Any] | None:
+        # M6: single conditional UPDATE, one commit — no stranded claimed state.
+        cur = self._conn.execute(
+            "UPDATE listings SET status = 'completed' "
+            "WHERE id = %s AND status = 'live'",
+            (listing_id,),
+        )
+        self._conn.commit()
+        return self.get(listing_id) if (cur.rowcount or 0) > 0 else None
+
     def sweep_expired(self, now: datetime) -> int:
         cur = self._conn.execute(
             "UPDATE listings SET status = 'expired' "
@@ -269,10 +367,38 @@ class PostgresListingRepo:
         self._conn.commit()
         return cur.rowcount or 0
 
-    def list_live(self) -> list[dict[str, Any]]:
+    def list_live(self, limit: int | None = None, offset: int = 0,
+                  listing_type: str | None = None) -> list[dict[str, Any]]:
+        # M9: DB-level pagination — the feed scores one page, not the table.
+        query = self._SELECT + " WHERE status = 'live'"
+        params: list[Any] = []
+        if listing_type is not None:
+            query += " AND type = %s"
+            params.append(listing_type)
+        query += " ORDER BY expires_at NULLS LAST, created_at DESC"
+        if limit is not None:
+            query += " LIMIT %s OFFSET %s"
+            params.extend([limit, offset])
+        elif offset:
+            query += " OFFSET %s"
+            params.append(offset)
+        rows = self._conn.execute(query, params).fetchall()
+        return [self._row(r) for r in rows]
+
+    def count_live(self, listing_type: str | None = None) -> int:
+        query = "SELECT COUNT(*) AS n FROM listings WHERE status = 'live'"
+        params: list[Any] = []
+        if listing_type is not None:
+            query += " AND type = %s"
+            params.append(listing_type)
+        row = self._conn.execute(query, params).fetchone()
+        return int(row["n"])
+
+    def list_live_expiring_before(self, cutoff: datetime) -> list[dict[str, Any]]:
         rows = self._conn.execute(
-            self._SELECT + " WHERE status = 'live' "
-            "ORDER BY expires_at NULLS LAST, created_at DESC"
+            self._SELECT + " WHERE status = 'live' AND expires_at IS NOT NULL "
+            "AND expires_at < %s ORDER BY expires_at",
+            (cutoff,),
         ).fetchall()
         return [self._row(r) for r in rows]
 
@@ -285,10 +411,18 @@ class PostgresListingRepo:
 
     def decrement_remaining(self, listing_id: str, delta: float) -> dict[str, Any] | None:
         # Single atomic UPDATE: concurrent pickers cannot oversell the harvest.
+        # M5a: the delta is cast to NUMERIC so the subtraction never evaluates
+        # in float8 — a Python float bound into NUMERIC arithmetic leaves
+        # float dust that breaks the "fully picked" (remaining == 0) check.
+        # The predicate tolerates tiny NEGATIVE dust (a legit final pick whose
+        # decimal expansion lands a hair below zero, e.g. 0.9 - 3x(0.1+0.2));
+        # GREATEST clamps it to zero instead of stranding the pick as a 422.
         cur = self._conn.execute(
-            "UPDATE listings SET remaining_qty = COALESCE(remaining_qty, quantity) - %s "
-            "WHERE id = %s AND COALESCE(remaining_qty, quantity) >= %s",
-            (delta, listing_id, delta),
+            "UPDATE listings SET remaining_qty = "
+            "GREATEST(COALESCE(remaining_qty, quantity) - %s::numeric, 0) "
+            "WHERE id = %s AND COALESCE(remaining_qty, quantity) - %s::numeric "
+            ">= -%s::numeric",
+            (delta, listing_id, delta, _REMAINING_EPSILON),
         )
         self._conn.commit()
         if not cur.rowcount:
@@ -366,6 +500,13 @@ class MemoryListingRepo:
         row["status"] = "completed"
         return dict(row)
 
+    def complete_if_live(self, listing_id: str) -> dict[str, Any] | None:
+        row = self._rows.get(listing_id)
+        if row is None or row.get("status") != "live":
+            return None
+        row["status"] = "completed"
+        return dict(row)
+
     def sweep_expired(self, now: datetime) -> int:
         n = 0
         for row in self._rows.values():
@@ -379,8 +520,43 @@ class MemoryListingRepo:
                 n += 1
         return n
 
-    def list_live(self) -> list[dict[str, Any]]:
-        return [dict(r) for r in self._rows.values() if r.get("status") == "live"]
+    def list_live(self, limit: int | None = None, offset: int = 0,
+                  listing_type: str | None = None) -> list[dict[str, Any]]:
+        rows = [r for r in self._rows.values()
+                if r.get("status") == "live"
+                and (listing_type is None or r.get("type") == listing_type)]
+        # Mirror the Postgres order: expires_at ascending (nulls last), then
+        # created_at descending (stable sorts, applied in reverse priority).
+        rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+        rows.sort(key=lambda r: (r.get("expires_at") is None, str(r.get("expires_at") or "")))
+        if offset:
+            rows = rows[offset:]
+        if limit is not None:
+            rows = rows[:limit]
+        return [dict(r) for r in rows]
+
+    def count_live(self, listing_type: str | None = None) -> int:
+        return sum(1 for r in self._rows.values()
+                   if r.get("status") == "live"
+                   and (listing_type is None or r.get("type") == listing_type))
+
+    def list_live_expiring_before(self, cutoff: datetime) -> list[dict[str, Any]]:
+        out = []
+        for r in self._rows.values():
+            if r.get("status") != "live":
+                continue
+            exp = r.get("expires_at")
+            try:
+                exp_dt = datetime.fromisoformat(exp) if isinstance(exp, str) else exp
+            except (ValueError, TypeError):
+                continue
+            if exp_dt is not None:
+                if exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                if exp_dt < cutoff:
+                    out.append(dict(r))
+        out.sort(key=lambda r: str(r.get("expires_at") or ""))
+        return out
 
     def list_by_owner(self, uid: str) -> list[dict[str, Any]]:
         return [dict(r) for r in self._rows.values() if r.get("owner_uid") == uid]
@@ -392,10 +568,15 @@ class MemoryListingRepo:
         avail = row.get("remaining_qty")
         if avail is None:
             avail = row.get("quantity")
-        if avail is None or float(avail) < delta:
+        if avail is None:
+            return None
+        # M5a: epsilon-tolerant overpick check — a legitimate final pick that
+        # lands a hair below zero (float dust, e.g. 0.9 - 3x(0.1+0.2)) is
+        # still a legal pick; only a real shortfall is rejected.
+        if float(avail) < delta and delta - float(avail) >= _REMAINING_EPSILON:
             return None
         new_remaining = float(avail) - delta
-        if new_remaining < 0 and new_remaining > -1e-9:  # float dust
+        if abs(new_remaining) < _REMAINING_EPSILON:  # float dust -> zero
             new_remaining = 0.0
         row["remaining_qty"] = new_remaining
         return dict(row)
@@ -468,13 +649,181 @@ class ListingPatch(BaseModel):
     pickup_window: PickupWindow | None = None
     expires_at: datetime | None = None
     spray_disclosure: str | None = Field(default=None, min_length=1, max_length=2000)
-    status: str | None = Field(default=None, pattern="^(draft|live|claimed|completed|cancelled)$")
+    # H1: PATCH may only move between draft/live/cancelled. claimed/completed
+    # are reachable ONLY through the claim/confirm/exchange endpoints (which
+    # move credits and set claimer_uid); letting an owner PATCH straight to
+    # claimed/completed would bypass the entire claim flow.
+    status: str | None = Field(default=None, pattern="^(draft|live|cancelled)$")
     visit_rules: str | None = Field(default=None, max_length=2000)
 
     @field_validator("expires_at", mode="after")
     @classmethod
     def _utc_expires(cls, v):
         return _coerce_utc(v)
+
+
+# L1a: column whitelist for PostgresListingRepo.update — mirrors the fixed
+# ListingPatch model (+ remaining_qty, written by the claim-quantity path in
+# claims.py). Defined after the model so it tracks the schema.
+_LISTING_UPDATE_COLUMNS = frozenset(ListingPatch.model_fields) | {"remaining_qty"}
+
+
+# ---------------------------------------------------------------- retention (M19)
+
+# Retention windows, enforced by the internal sweep. Tables not listed here
+# are append-only BY DESIGN and never purged:
+# - credit ledger (credit_entries): financial record; expiry is logical
+#   (balance() excludes expired lots) so the audit trail must survive.
+# - harvest_events: pick audit log.
+# - moderation_views: safety audit log (append-only is the point).
+# - reports / strikes / enforcement: trust-&-safety history.
+# - messages: user content; removed only via account-deletion cascade.
+NOTIFICATION_LOG_RETENTION_DAYS = 90
+RESOLVED_DISPUTE_RETENTION_DAYS = 730  # 2 years
+TERMINAL_LISTING_MEDIA_GC_DAYS = 180
+
+_UPLOAD_PUBLIC_MARKER = "/uploads/public/"
+
+
+def _upload_key_from_url(url: Any) -> str | None:
+    """Extract the upload registry key from a listing photo URL, if it is one
+    of ours (``…/uploads/public/<key>``). External URLs return None."""
+    if not isinstance(url, str) or _UPLOAD_PUBLIC_MARKER not in url:
+        return None
+    key = url.split(_UPLOAD_PUBLIC_MARKER, 1)[1].split("?", 1)[0].strip("/")
+    return key or None
+
+
+class RetentionRepo(Protocol):
+    def purge_notification_log(self, older_than_days: int) -> int:
+        """Delete notification_log rows older than the window. Returns count."""
+        ...
+    def purge_resolved_disputes(self, older_than_days: int) -> int:
+        """Delete resolved disputes older than the window. Returns count."""
+        ...
+    def gc_terminal_listing_media(self, older_than_days: int) -> int:
+        """Media GC for terminal listings (M19). For listings in a terminal
+        state (completed/expired/cancelled) older than the window, delete the
+        matching ``uploads`` registry rows and clear the listing's photos.
+        Returns the number of registry rows deleted."""
+        ...
+
+
+class PostgresRetentionRepo:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def purge_notification_log(self, older_than_days: int) -> int:
+        cur = self._conn.execute(
+            "DELETE FROM notification_log WHERE sent_at < now() - make_interval(days => %s)",
+            (older_than_days,),
+        )
+        self._conn.commit()
+        return cur.rowcount or 0
+
+    def purge_resolved_disputes(self, older_than_days: int) -> int:
+        cur = self._conn.execute(
+            "DELETE FROM disputes WHERE status = 'resolved' AND resolved_at IS NOT NULL "
+            "AND resolved_at < now() - make_interval(days => %s)",
+            (older_than_days,),
+        )
+        self._conn.commit()
+        return cur.rowcount or 0
+
+    def gc_terminal_listing_media(self, older_than_days: int) -> int:
+        rows = self._conn.execute(
+            "SELECT id, photos FROM listings "
+            "WHERE status IN ('completed','expired','cancelled') "
+            "AND created_at < now() - make_interval(days => %s) "
+            "AND photos <> '{}'",
+            (older_than_days,),
+        ).fetchall()
+        keys: set[str] = set()
+        ids: list[Any] = []
+        for r in rows:
+            ids.append(r["id"])
+            for url in r["photos"] or []:
+                key = _upload_key_from_url(url)
+                if key:
+                    keys.add(key)
+        deleted = 0
+        if keys:
+            # After the C7 fix, serve_public 404s without a finalized registry
+            # row — deleting the row stops the bytes being served. Physical
+            # byte deletion needs a storage-layer delete API (storage.py has
+            # none yet) and is a documented follow-up.
+            cur = self._conn.execute(
+                "DELETE FROM uploads WHERE key = ANY(%s)", (list(keys),))
+            deleted = cur.rowcount or 0
+        if ids:
+            self._conn.execute(
+                "UPDATE listings SET photos = '{}' WHERE id = ANY(%s)", (ids,))
+        self._conn.commit()
+        return deleted
+
+
+class MemoryRetentionRepo:
+    """In-memory retention sweeps (tests). Operates on the memory stores it
+    is handed — pass the fakes' ``_log``/``_rows`` (or plain lists/dicts)
+    from the test fixture."""
+
+    def __init__(
+        self,
+        notification_log: list[dict[str, Any]] | None = None,
+        disputes: list[dict[str, Any]] | None = None,
+        uploads: dict[str, dict[str, Any]] | None = None,
+        listings: dict[str, dict[str, Any]] | None = None,
+    ):
+        self._log = notification_log if notification_log is not None else []
+        self._disputes = disputes if disputes is not None else []
+        self._uploads = uploads if uploads is not None else {}
+        self._listings = listings if listings is not None else {}
+
+    @staticmethod
+    def _as_aware(value: Any) -> datetime | None:
+        if value is None:
+            return None
+        dt = datetime.fromisoformat(value) if isinstance(value, str) else value
+        if not isinstance(dt, datetime):
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    def purge_notification_log(self, older_than_days: int) -> int:
+        cutoff = utcnow() - timedelta(days=older_than_days)
+        keep = [e for e in self._log
+                if (self._as_aware(e.get("sent_at")) or utcnow()) >= cutoff]
+        purged = len(self._log) - len(keep)
+        self._log[:] = keep
+        return purged
+
+    def purge_resolved_disputes(self, older_than_days: int) -> int:
+        cutoff = utcnow() - timedelta(days=older_than_days)
+        keep = [d for d in self._disputes
+                if not (d.get("status") == "resolved"
+                        and (self._as_aware(d.get("resolved_at")) or utcnow()) < cutoff)]
+        purged = len(self._disputes) - len(keep)
+        self._disputes[:] = keep
+        return purged
+
+    def gc_terminal_listing_media(self, older_than_days: int) -> int:
+        cutoff = utcnow() - timedelta(days=older_than_days)
+        deleted = 0
+        for row in self._listings.values():
+            if row.get("status") not in ("completed", "expired", "cancelled"):
+                continue
+            created = self._as_aware(row.get("created_at"))
+            if created is None or created >= cutoff:
+                continue
+            for url in row.get("photos") or []:
+                key = _upload_key_from_url(url)
+                if key and self._uploads.pop(key, None) is not None:
+                    deleted += 1
+            row["photos"] = []
+        return deleted
+
+
+def get_retention_repo(conn=Depends(get_db_conn)) -> RetentionRepo:
+    return PostgresRetentionRepo(conn)
 
 
 def _validate_common(data: ListingIn | ListingPatch) -> None:
@@ -527,18 +876,21 @@ def create_listing(
     if row["status"] == "live":
         # A listing going live is the match event (API-030).
         notify_matches(row, want_repo, notify_repo)
-    return public_listing(row)
+    return public_listing(row, viewer_uid=uid)
 
 
 @router.get("/listings/{listing_id}")
 def get_listing(
     listing_id: str,
+    uid: str = Depends(get_current_uid),
     repo: ListingRepo = Depends(get_listing_repo),
 ) -> dict[str, Any]:
     row = repo.get(listing_id)
     if row is None:
         raise HTTPException(404, {"code": "listing_not_found", "message": "No such listing"})
-    return public_listing(row)
+    # L8: the FirebaseAuthMiddleware guarantees an authenticated viewer here;
+    # claimer_uid is hidden from everyone except owner/claimer.
+    return public_listing(row, viewer_uid=uid)
 
 
 @router.patch("/listings/{listing_id}")
@@ -576,7 +928,7 @@ def patch_listing(
     if updated and row["status"] != "live" and updated.get("status") == "live":
         # draft -> live is the match event (API-030).
         notify_matches(updated, want_repo, notify_repo)
-    return public_listing(updated)
+    return public_listing(updated, viewer_uid=uid)
 
 
 @router.post("/listings/{listing_id}/cancel")
@@ -592,7 +944,13 @@ def cancel_listing(
     if not can_transition(row["status"], "cancelled"):
         raise HTTPException(422, {"code": "invalid_transition",
                                   "message": f"Cannot cancel a listing in status '{row['status']}'"})
-    return public_listing(repo.set_status(listing_id, "cancelled"))
+    return public_listing(repo.set_status(listing_id, "cancelled"), viewer_uid=uid)
+
+
+# Epsilon for the "fully picked" check (M5a): NUMERIC arithmetic is exact,
+# but the API compares in float — treat anything this close to zero as zero
+# so float dust can never strand a listing live with ~0 quantity.
+_REMAINING_EPSILON = 1e-6
 
 
 class HarvestEventIn(BaseModel):
@@ -609,8 +967,9 @@ def record_harvest_event(
     """Record kilos picked from a harvest listing (owner only, live only).
 
     Atomic decrement — concurrent pickers cannot oversell. When the harvest
-    is fully picked (remaining hits 0) the listing completes via the legal
-    live -> claimed -> completed path.
+    is fully picked (remaining hits ~0) the listing completes via one
+    conditional live -> completed flip (M6): a single commit, so a crash can
+    never strand the listing in claimed with no sweeper.
     """
     row = repo.get(data.listing_id)
     if row is None:
@@ -631,12 +990,13 @@ def record_harvest_event(
                                   "message": "Not that much harvest remaining"})
     remaining = float(updated["remaining_qty"])
     repo.log_harvest_event(data.listing_id, uid, data.delta_kg, remaining)
-    if remaining == 0:
-        # Fully picked: walk the legal transitions, no state-machine bypass.
-        repo.set_status(data.listing_id, "claimed")
-        updated = repo.set_status(data.listing_id, "completed")
+    if abs(remaining) < _REMAINING_EPSILON:
+        # Fully picked: one atomic flip, no two-commit walk (M6).
+        remaining = 0.0
+        flipped = repo.complete_if_live(data.listing_id)
+        updated = flipped if flipped is not None else repo.get(data.listing_id)
     return {
-        "listing": public_listing(updated),
+        "listing": public_listing(updated, viewer_uid=uid),
         "delta_kg": data.delta_kg,
         "remaining_kg": remaining,
     }
@@ -648,7 +1008,10 @@ def get_harvest_events(
     uid: str = Depends(get_current_uid),
     repo: ListingRepo = Depends(get_listing_repo),
 ) -> dict[str, Any]:
-    """Pick audit log for a harvest listing. Owner and authenticated viewers."""
+    """Pick audit log for a harvest listing.
+
+    Visible to any authenticated user (the route requires auth; the
+    recorder_uid values are the audit trail)."""
     row = repo.get(listing_id)
     if row is None:
         raise HTTPException(404, {"code": "listing_not_found", "message": "No such listing"})
@@ -662,7 +1025,10 @@ def _tree_card(row: dict[str, Any]) -> dict[str, Any]:
     immediately before fuzzing."""
     lat = decrypt_float(row.get("geo_lat"), GEO_KEY_ENV)
     lon = decrypt_float(row.get("geo_lon"), GEO_KEY_ENV)
-    flat, flon = (fuzz_location(lat, lon) if lat is not None and lon is not None else (None, None))
+    if lat is not None and lon is not None:
+        flat, flon = fuzz_location_for_listing(lat, lon, row["id"])  # M1: stable per listing
+    else:
+        flat, flon = None, None
     window = row.get("pickup_window")
     return {
         "id": str(row["id"]),
@@ -699,7 +1065,7 @@ def ripe_alert(
     makes this safe to re-trigger — each user gets at most one ripe alert
     per tree per day.
     """
-    from .wantlist import RIPE_ALERT_CATEGORY, find_matches
+    from .wantlist import RIPE_ALERT_CATEGORY
 
     row = repo.get(listing_id)
     if row is None:
@@ -711,7 +1077,11 @@ def ripe_alert(
     today = utcnow().date().isoformat()
     ref = f"{listing_id}:{today}"
     notified = 0
-    for entry in find_matches(row, want_repo.list_all()):
+    # M9: DB-level matching — one indexed query, not a full want_list scan.
+    # getattr fallback keeps third-party WantRepo implementations working.
+    find = getattr(want_repo, "find_matches_for_listing", None)
+    matches = find(row) if find is not None else find_matches(row, want_repo.list_all())
+    for entry in matches:
         result = send_notification(
             entry["user_uid"],
             RIPE_ALERT_CATEGORY,
@@ -731,12 +1101,22 @@ def sweep_expired(
     request: Request,
     repo: ListingRepo = Depends(get_listing_repo),
     notify_repo: NotificationRepo = Depends(get_notification_repo),
+    retention_repo: RetentionRepo = Depends(get_retention_repo),
 ) -> dict[str, Any]:
     """Idempotent expiry job. Auth: shared secret header (NOT a user token).
 
     Also fires expiry nudges: live listings within 48h / 12h of expiry get a
     nudge to the owner via the notify pipeline (per-mark dedupe refs keep
-    this idempotent across sweep runs).
+    this idempotent across sweep runs). The nudge scan is bounded to listings
+    expiring within 48h (M9) instead of iterating every live listing.
+
+    Retention (M19), all idempotent: notification_log older than 90d is
+    purged, resolved disputes older than 2y are purged, and photos of
+    terminal listings (completed/expired/cancelled) older than 180d are
+    garbage-collected from the uploads registry (unserved after the C7
+    registry gate) with the listing's photo list cleared. The credit ledger,
+    harvest_events, moderation_views, and reports/strikes/enforcement are
+    append-only by design and never purged (see module docstring).
     """
     secret = get_settings().sweep_secret
     if not secret:
@@ -748,7 +1128,7 @@ def sweep_expired(
     now = utcnow()
     n = repo.sweep_expired(now)
     nudged = {48: 0, 12: 0}
-    for row in repo.list_live():
+    for row in repo.list_live_expiring_before(now + timedelta(hours=48)):
         exp = _parse_expiry(row.get("expires_at"))
         if exp is None:
             continue
@@ -760,7 +1140,16 @@ def sweep_expired(
             continue
         result = on_listing_expiry_nudge(row, mark, notify_repo=notify_repo, now=now)
         nudged[mark] += result.get("delivered", 0)
-    return {"expired": n, "nudged_48h": nudged[48], "nudged_12h": nudged[12]}
+    retention = {
+        "notification_log_purged": retention_repo.purge_notification_log(
+            NOTIFICATION_LOG_RETENTION_DAYS),
+        "resolved_disputes_purged": retention_repo.purge_resolved_disputes(
+            RESOLVED_DISPUTE_RETENTION_DAYS),
+        "terminal_media_gc": retention_repo.gc_terminal_listing_media(
+            TERMINAL_LISTING_MEDIA_GC_DAYS),
+    }
+    return {"expired": n, "nudged_48h": nudged[48], "nudged_12h": nudged[12],
+            "retention": retention}
 
 
 def _parse_expiry(value: Any) -> datetime | None:

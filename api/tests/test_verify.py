@@ -16,7 +16,9 @@ def test_verify_rejects_token_without_phone_claim(mem_users, mock_verify):
     assert r.json()["code"] == "phone_verification_required"
 
 
-def test_verify_upserts_phone_hash_and_fingerprint(mem_users, mock_verify, auth_headers):
+def test_verify_ignores_device_fingerprint_header(mem_users, mock_verify, auth_headers):
+    """M17: the X-Device-Fingerprint header is no longer collected — it is
+    deliberately ignored when sent (nothing ever used it)."""
     from app.verify import phone_hash
 
     client, repo = mem_users
@@ -28,14 +30,14 @@ def test_verify_upserts_phone_hash_and_fingerprint(mem_users, mock_verify, auth_
     assert r.json() == {"uid": "alice", "verified": True}
     row = repo.get("alice")
     assert row["phone_hash"] == phone_hash("+15551234567")
-    assert row["device_fingerprint"] == "fp-123"
+    assert "device_fingerprint" not in row
 
 
 def test_verify_without_fingerprint_header_ok(mem_users, mock_verify, auth_headers):
     client, repo = mem_users
     r = client.post("/v1/auth/verify", headers=auth_headers)
     assert r.status_code == 200
-    assert repo.get("alice").get("device_fingerprint") is None
+    assert "device_fingerprint" not in repo.get("alice")
 
 
 def test_verify_rejects_duplicate_phone_safely(mem_users, mock_verify, auth_headers):

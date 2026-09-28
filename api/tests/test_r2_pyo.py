@@ -247,6 +247,9 @@ def test_claim_full_slot_409(mem_slots, mock_verify, auth_headers, monkeypatch):
     urepo = mem_slots[1]
     urepo.upsert("carol", display_name="Carol")
     crepo.add_entry("carol", 5, "seed", ref_id="t")
+    # M20b: solo slots require verified ID — verify both pickers first.
+    urepo.set_idv_status("bob", "verified")
+    urepo.set_idv_status("carol", "verified")
 
     login_as(monkeypatch, "bob")
     r = client.post(f"/v1/trees/{tid}/slots/{slot_id}/claim", headers=auth_headers)
@@ -402,3 +405,136 @@ def test_slot_fills_to_max_then_further_claims_409(mem_slots, mock_verify, auth_
     assert crepo.balance("bob") == 3
     assert crepo.balance("carol") == 3
     assert crepo.balance("dave") == 5
+
+
+# ---------------------------------------------------------------------------
+# w2-commerce fixes: H11 (double-spend), M20b (solo-slot IDV)
+# ---------------------------------------------------------------------------
+
+def test_solo_slot_requires_verified_idv(mem_slots, mock_verify, auth_headers, monkeypatch):
+    """M20b: PRD requires IDV for solo pick-your-own access — an unverified
+    picker gets 403 idv_required; a verified one goes through."""
+    client, tid, slot_id, crepo = _claim_setup(
+        mem_slots, mock_verify, auth_headers, max_pickers=1)
+    login_as(monkeypatch, "bob")
+
+    r = client.post(f"/v1/trees/{tid}/slots/{slot_id}/claim", headers=auth_headers)
+    assert r.status_code == 403, r.text
+    assert r.json()["code"] == "idv_required"
+    assert crepo.balance("bob") == 5  # not charged
+
+    mem_slots[1].set_idv_status("bob", "verified")
+    r = client.post(f"/v1/trees/{tid}/slots/{slot_id}/claim", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["slot"]["claimedCount"] == 1
+
+
+def test_group_slot_needs_no_idv(mem_slots, mock_verify, auth_headers, monkeypatch):
+    """M20b: the IDV gate applies to solo slots only, not group slots."""
+    client, tid, slot_id, crepo = _claim_setup(
+        mem_slots, mock_verify, auth_headers, max_pickers=3)
+    login_as(monkeypatch, "bob")
+
+    r = client.post(f"/v1/trees/{tid}/slots/{slot_id}/claim", headers=auth_headers)
+    assert r.status_code == 200, r.text
+
+
+def test_concurrent_slot_claims_no_double_spend(mem_slots, mock_verify, auth_headers,
+                                                monkeypatch):
+    """H11: two concurrent slot claims with balance == cost must serialize —
+    exactly one wins (200), the other 422s; the balance never goes negative."""
+    import threading
+
+    client, urepo, _, _, crepo, _ = mem_slots
+    urepo.upsert("alice", display_name="Alice")
+    urepo.upsert("bob", display_name="Bob")
+    tid = _make_tree(client, auth_headers)
+    slot_ids = []
+    for _ in range(2):
+        r = client.post(f"/v1/trees/{tid}/slots",
+                        json=_slot_payload(creditCost=2, maxPickers=5),
+                        headers=auth_headers)
+        assert r.status_code == 201, r.text
+        slot_ids.append(r.json()["slot"]["id"])
+    crepo.add_entry("bob", 2, "seed", ref_id="t")  # exactly one slot's cost
+    login_as(monkeypatch, "bob")
+
+    barrier = threading.Barrier(2)
+    results = []
+
+    def claim(slot_id):
+        barrier.wait()
+        r = client.post(f"/v1/trees/{tid}/slots/{slot_id}/claim",
+                        headers=auth_headers)
+        results.append(r.status_code)
+
+    threads = [threading.Thread(target=claim, args=(sid,)) for sid in slot_ids]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert sorted(results) == [200, 422]
+    assert crepo.balance("bob") == 0  # spent exactly once, never negative
+
+
+def test_serialize_spend_memory_lock():
+    """H11 unit: the memory-path guard serializes check-then-act per uid —
+    two racers, one winner."""
+    import threading
+
+    from app.claims import serialize_spend
+
+    class FakeRepo:  # no _conn -> memory path
+        pass
+
+    state = {"balance": 2}
+    won = []
+    barrier = threading.Barrier(2)
+
+    def attempt():
+        barrier.wait()
+        with serialize_spend("bob", FakeRepo()):
+            if state["balance"] < 2:
+                return
+            state["balance"] -= 2
+            won.append(1)
+
+    threads = [threading.Thread(target=attempt) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(won) == 1
+    assert state["balance"] == 0
+
+
+def test_serialize_spend_pg_path_uses_advisory_lock():
+    """H11 unit: the Postgres path takes pg_advisory_lock(hashtext(uid))
+    around the critical section and always unlocks, even on error."""
+    import pytest
+
+    from app.claims import serialize_spend
+
+    calls = []
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            calls.append((sql, params))
+
+    class FakeRepo:
+        _conn = FakeConn()
+
+    with serialize_spend("bob", FakeRepo()):
+        pass
+    assert calls[0][0] == "SELECT pg_advisory_lock(hashtext(%s))"
+    assert calls[0][1] == ("bob",)
+    assert calls[1][0] == "SELECT pg_advisory_unlock(hashtext(%s))"
+    assert calls[1][1] == ("bob",)
+
+    calls.clear()
+    with pytest.raises(ValueError):
+        with serialize_spend("bob", FakeRepo()):
+            raise ValueError("boom")
+    assert any("pg_advisory_unlock" in sql for sql, _ in calls)

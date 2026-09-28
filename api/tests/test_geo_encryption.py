@@ -44,7 +44,7 @@ LAT, LON = 33.4152, -111.8315
 
 
 def _create_listing(client, **over):
-    r = client.post("/v1/users", json={"display_name": "Alice"}, headers=ALICE)
+    r = client.post("/v1/users", json={"display_name": "Alice", "age_attestation": True}, headers=ALICE)
     assert r.status_code == 200, r.text
     payload = {
         "type": "seedling", "photos": ["https://example.com/t.jpg"],

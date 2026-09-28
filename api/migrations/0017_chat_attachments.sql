@@ -10,7 +10,24 @@ ALTER TABLE messages
     ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'text';
 ALTER TABLE messages
     ADD COLUMN IF NOT EXISTS photo_url TEXT;
-ALTER TABLE messages
-    DROP CONSTRAINT IF EXISTS messages_kind_check;
-ALTER TABLE messages
-    ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text', 'photo'));
+-- The kind CHECK is dropped and re-added so its definition is canonical even
+-- on databases where an earlier variant exists. The DO block makes the
+-- re-add idempotent: with two migration runners racing (H9), a bare
+-- "DROP IF EXISTS + ADD CONSTRAINT" pair fails the loser with a duplicate
+-- constraint; the pg_constraint guard skips the ADD when it already exists.
+-- (run_migrations also serializes runners with an advisory lock; this is
+-- belt-and-braces.)
+DO $$
+BEGIN
+    ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_kind_check;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE c.conname = 'messages_kind_check'
+          AND t.relname = 'messages'
+    ) THEN
+        ALTER TABLE messages
+            ADD CONSTRAINT messages_kind_check CHECK (kind IN ('text', 'photo'));
+    END IF;
+END $$;

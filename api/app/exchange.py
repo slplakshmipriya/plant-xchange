@@ -14,7 +14,7 @@
   does NOT short-circuit on the spend leg alone: it resumes the idempotent
   spend/earn/flip steps until the flip lands, so "recoverable by retry" is
   actually true.
-- ``GET /v1/wallet``: derived balance + full append-only history.
+- ``GET /v1/wallet``: derived balance + paginated append-only history.
 """
 
 from __future__ import annotations
@@ -22,12 +22,14 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .auth import get_current_uid
+from .claims import ClaimRepo, _enforce_claim_eligibility, get_claim_repo, serialize_spend
 from .credits import CreditRepo, get_credit_repo
 from .listings import ListingRepo, can_transition, get_listing_repo, public_listing
+from .moderation import ModerationRepo, get_moderation_repo
 from .users import UserRepo, get_user_repo
 
 router = APIRouter(prefix="/v1", tags=["credits"])
@@ -94,6 +96,8 @@ def claim_listing(
     repo: ListingRepo = Depends(get_listing_repo),
     user_repo: UserRepo = Depends(get_user_repo),
     credit_repo: CreditRepo = Depends(get_credit_repo),
+    claim_repo: ClaimRepo = Depends(get_claim_repo),
+    mod_repo: ModerationRepo = Depends(get_moderation_repo),
 ) -> dict[str, Any]:
     """Claim a live listing. Not the owner; needs balance >= credit_cost."""
     row = repo.get(listing_id)
@@ -108,6 +112,11 @@ def claim_listing(
     if user_repo.get(uid) is None:
         raise HTTPException(400, {"code": "profile_required",
                                   "message": "Create a profile (POST /v1/users) before claiming"})
+    # H6: the whole-listing claim must enforce the same suspension /
+    # anti-gaming rules as the partial-claim endpoint — otherwise a
+    # no-show-suspended user or a new-account claim-cap violator blocked
+    # on POST /v1/listings/{id}/claims can simply claim here instead.
+    _enforce_claim_eligibility(uid, claim_repo, user_repo, mod_repo)
     if credit_repo.balance(uid) < row["credit_cost"]:
         raise HTTPException(422, {"code": "insufficient_credits",
                                   "message": "Not enough credits — give before you claim"})
@@ -169,26 +178,30 @@ def confirm_exchange(
         # already posted under this key: it passed the check when first
         # posted and a re-post is a no-op, so a crash-recovery retry must not
         # be rejected (the claimer's balance already reflects the spend).
-        if (credit_repo.find_by_idempotency_key(spend_key) is None
-                and credit_repo.balance(row["claimer_uid"]) < cost):
-            raise HTTPException(422, {"code": "insufficient_credits",
-                                      "message": "Claimer no longer has enough credits"})
-        # Spend + earn + flip are one atomic transaction on the Postgres
-        # path (see _atomic), so a crash cannot strand partial state. Each
-        # leg is idempotent on its own key, and a retry with the same client
-        # key resumes here instead of short-circuiting (see the top of this
-        # function) — a mid-flight crash is recoverable by retry: re-adds
-        # are no-ops, then the flip completes.
-        with _atomic(repo, credit_repo):
-            credit_repo.add_entry(row["claimer_uid"], -cost, "exchange_spend",
-                                  ref_id=data.listing_id,
-                                  idempotency_key=spend_key)
-            credit_repo.add_entry(row["owner_uid"], cost, "exchange_earn",
-                                  ref_id=data.listing_id,
-                                  idempotency_key=f"{base_key}:earn")
-            completed = repo.complete_if_claimed(data.listing_id)
-            if completed is not None:
-                row = completed
+        # The recheck and the spend post are serialized per claimer (H11):
+        # two concurrent confirms would otherwise both pass the gate and
+        # both spend, driving the balance negative.
+        with serialize_spend(row["claimer_uid"], credit_repo):
+            if (credit_repo.find_by_idempotency_key(spend_key) is None
+                    and credit_repo.balance(row["claimer_uid"]) < cost):
+                raise HTTPException(422, {"code": "insufficient_credits",
+                                          "message": "Claimer no longer has enough credits"})
+            # Spend + earn + flip are one atomic transaction on the Postgres
+            # path (see _atomic), so a crash cannot strand partial state. Each
+            # leg is idempotent on its own key, and a retry with the same client
+            # key resumes here instead of short-circuiting (see the top of this
+            # function) — a mid-flight crash is recoverable by retry: re-adds
+            # are no-ops, then the flip completes.
+            with _atomic(repo, credit_repo):
+                credit_repo.add_entry(row["claimer_uid"], -cost, "exchange_spend",
+                                      ref_id=data.listing_id,
+                                      idempotency_key=spend_key)
+                credit_repo.add_entry(row["owner_uid"], cost, "exchange_earn",
+                                      ref_id=data.listing_id,
+                                      idempotency_key=f"{base_key}:earn")
+                completed = repo.complete_if_claimed(data.listing_id)
+                if completed is not None:
+                    row = completed
     return {
         "status": row["status"],
         "confirmed_by": sorted(confirmed),
@@ -200,10 +213,22 @@ def confirm_exchange(
 def get_wallet(
     uid: str = Depends(get_current_uid),
     credit_repo: CreditRepo = Depends(get_credit_repo),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
-    """Derived balance + full append-only history. No PII in entries."""
+    """Derived balance + paginated append-only history (M16). No PII in entries.
+
+    The ledger is unbounded, so the full history is never returned in one
+    response: callers page with ``limit``/``offset`` (default 50 per page).
+    """
+    all_entries = credit_repo.entries(uid)
+    total = len(all_entries)
+    page = all_entries[offset:offset + limit]
     return {
         "uid": uid,
         "balance": credit_repo.balance(uid),
-        "entries": [_serialize_entry(e) for e in credit_repo.entries(uid)],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "entries": [_serialize_entry(e) for e in page],
     }

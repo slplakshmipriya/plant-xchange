@@ -76,6 +76,24 @@ class WantRepo(Protocol):
     def update(self, want_id: str, fields: dict[str, Any]) -> dict[str, Any] | None: ...
     def delete(self, want_id: str) -> bool: ...
     def list_all(self) -> list[dict[str, Any]]: ...
+    def find_matches_for_listing(self, row: dict[str, Any]) -> list[dict[str, Any]]:
+        """Want-list entries matching a listing row (M9: DB-level, one query).
+
+        Same semantics as ``find_matches``: excludes the listing owner,
+        variety substring either direction (case-insensitive), listing type
+        in the entry's types (empty = any)."""
+        ...
+
+
+# L1b: column whitelist for PostgresWantRepo.update — the fixed WantPatch
+# model fields. Dict keys must never reach SQL unchecked.
+_WANT_UPDATE_COLUMNS = frozenset({"variety", "types"})
+
+
+def _like_escape(value: str) -> str:
+    """Escape LIKE metacharacters so a variety matches literally (the Python
+    matcher uses ``in``, not patterns)."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class PostgresWantRepo:
@@ -110,6 +128,10 @@ class PostgresWantRepo:
     def update(self, want_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
         if not fields:
             return self.get(want_id)
+        # L1b: column whitelist — dict keys must never reach SQL unchecked.
+        unknown = [k for k in fields if k not in _WANT_UPDATE_COLUMNS]
+        if unknown:
+            raise ValueError(f"refusing to update unknown want_list columns: {unknown}")
         sets = ", ".join(f"{k} = %s" for k in fields)
         self._conn.execute(
             f"UPDATE want_list SET {sets} WHERE id = %s", (*fields.values(), want_id)
@@ -124,6 +146,32 @@ class PostgresWantRepo:
 
     def list_all(self) -> list[dict[str, Any]]:
         rows = self._conn.execute("SELECT * FROM want_list").fetchall()
+        return [self._row(r) for r in rows]
+
+    def find_matches_for_listing(self, row: dict[str, Any]) -> list[dict[str, Any]]:
+        """DB-level match (M9): one indexed query instead of scanning the
+        whole want_list table in Python.
+
+        Semantics mirror ``find_matches`` exactly: owner excluded, variety
+        substring in EITHER direction (case-insensitive, literal — LIKE
+        metacharacters escaped), and the listing type must be in the entry's
+        types (empty array = any type). The ``lower(variety) LIKE '%…%'``
+        arm is served by the pg_trgm GIN index from migration 0030; the
+        ``position(...)`` arm covers the reverse direction literally.
+        """
+        variety = (row.get("variety") or "").strip()
+        if not variety:
+            return []
+        lowered = variety.lower()
+        rows = self._conn.execute(
+            "SELECT * FROM want_list "
+            "WHERE user_uid <> %s "
+            "AND variety <> '' "
+            "AND (lower(variety) LIKE '%%' || %s || '%%' ESCAPE '\\' "
+            "     OR position(lower(variety) in lower(%s)) > 0) "
+            "AND (cardinality(types) = 0 OR %s = ANY(types))",
+            (row.get("owner_uid"), _like_escape(lowered), lowered, row.get("type")),
+        ).fetchall()
         return [self._row(r) for r in rows]
 
 
@@ -156,6 +204,11 @@ class MemoryWantRepo:
     def list_all(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self._rows.values()]
 
+    def find_matches_for_listing(self, row: dict[str, Any]) -> list[dict[str, Any]]:
+        # Memory twin of the DB-level matcher: same pure function, so the
+        # memory and Postgres paths agree by construction.
+        return find_matches(row, self.list_all())
+
 
 def get_want_repo(conn=Depends(get_db_conn)) -> WantRepo:
     return PostgresWantRepo(conn)
@@ -181,9 +234,19 @@ def notify_matches(
     notify_repo: NotificationRepo,
 ) -> int:
     """Push one ``match`` notification per matching user. Returns count sent
-    (status sent/would_send; skips don't count)."""
+    (status sent/would_send; skips don't count).
+
+    M9: matching is DB-level (``find_matches_for_listing`` — one indexed
+    query) instead of scanning the whole want_list table with ~4 queries
+    per match. Fan-out itself stays synchronous on the request path by
+    design (pragmatic scope): each send runs the per-user guard chain
+    (dedupe, caps, quiet hours), which is inherently per-user work.
+    """
     n = 0
-    for entry in find_matches(row, want_repo.list_all()):
+    # getattr fallback keeps third-party WantRepo implementations working.
+    find = getattr(want_repo, "find_matches_for_listing", None)
+    matches = find(row) if find is not None else find_matches(row, want_repo.list_all())
+    for entry in matches:
         uid = entry["user_uid"]
         result = send_notification(
             uid,

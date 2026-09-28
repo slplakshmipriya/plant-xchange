@@ -164,9 +164,12 @@ the paid services layer later.
   - Both-side completion confirmation required; disputed completions freeze
     issuance pending review.
   - New accounts (< 14 days) capped at 5 claims/week.
-  - Device + phone verification at signup.
+  - Device fingerprinting removed — the `X-Device-Fingerprint` header is no
+    longer collected (privacy review M17); phone verification at signup.
 - **Negative balances:** not allowed. If a user has 0 credits, they must give
-  before claiming (or wait for seasonal starter refresh).
+  before claiming (starter credits are granted once per account, not
+  seasonally — reconciled per review M22; the credits module docstring is the
+  source of truth).
 - **Ledger:** append-only transaction log per user (earned/spent/expired with
   references to the exchange). Auditable by user; support can inspect.
 - **Supply-health metric:** active listings per weekly-active user, tracked as the

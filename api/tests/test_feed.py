@@ -96,3 +96,98 @@ def test_feed_geo_is_fuzzed_not_exact(mem_listings, mock_verify, auth_headers):
     r = client.get("/v1/feed", headers=auth_headers)
     item = r.json()["items"][0]
     assert (item["geo_lat"], item["geo_lon"]) != (33.4152, -111.8315)
+
+
+# ------------------------------------------------ M9: DB-level feed pagination
+
+def _feed_listing(i, now):
+    return {"id": f"f{i}", "owner_uid": "alice", "type": "seedling",
+            "photos": ["https://x/y.jpg"], "credit_cost": 1,
+            "spray_disclosure": "none", "status": "live",
+            "expires_at": (now + timedelta(days=i + 1)).isoformat()}
+
+
+def test_feed_pagination_is_db_level(mem_listings, mock_verify, auth_headers):
+    """M9: the feed fetches one page from the DB (limit/offset) — it no
+    longer loads the whole live set into memory."""
+    client, urepo, lrepo, _, _ = mem_listings
+    urepo.upsert("alice", display_name="Alice")
+    now = datetime.now(timezone.utc)
+    for i in range(3):
+        lrepo.create(_feed_listing(i, now))
+    r = client.get("/v1/feed?limit=2", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [i["id"] for i in body["items"]] == ["f0", "f1"]
+    assert body["next_cursor"]
+    r2 = client.get(f"/v1/feed?limit=2&cursor={body['next_cursor']}", headers=auth_headers)
+    body2 = r2.json()
+    assert [i["id"] for i in body2["items"]] == ["f2"]
+    assert body2["next_cursor"] is None
+
+
+def test_feed_page_query_uses_limit_offset(mock_verify):
+    """M9: the feed route passes limit/offset into the listing repo — a
+    repo that rejects unbounded listing queries still works."""
+    from fastapi.testclient import TestClient
+
+    from app.listings import MemoryListingRepo, get_listing_repo
+    from app.main import create_app
+    from app.sitter import MemorySitterRepo, get_sitter_repo
+    from app.users import MemoryUserRepo, get_user_repo
+    from app.wantlist import MemoryWantRepo, get_want_repo
+
+    class _BoundedRepo(MemoryListingRepo):
+        def list_live(self, limit=None, offset=0, listing_type=None):
+            assert limit is not None, "feed must pass a page size"
+            return super().list_live(limit=limit, offset=offset,
+                                      listing_type=listing_type)
+
+    app = create_app()
+    urepo, lrepo, wrepo = MemoryUserRepo(), _BoundedRepo(), MemoryWantRepo()
+    urepo.upsert("alice", display_name="Alice")
+    lrepo.create(_feed_listing(0, datetime.now(timezone.utc)))
+    app.dependency_overrides[get_user_repo] = lambda: urepo
+    app.dependency_overrides[get_listing_repo] = lambda: lrepo
+    app.dependency_overrides[get_want_repo] = lambda: wrepo
+    app.dependency_overrides[get_sitter_repo] = lambda: MemorySitterRepo()
+    client = TestClient(app)
+    r = client.get("/v1/feed?limit=10", headers={"Authorization": "Bearer good-token"})
+    assert r.status_code == 200, r.text
+    assert len(r.json()["items"]) == 1
+
+
+# ------------------------------------------------ M10c: batch sitting display names
+
+def test_batch_display_names_prefers_get_many():
+    """M10c: a repo with get_many() is called ONCE with deduped uids."""
+    from app.feed import _batch_display_names
+
+    calls = []
+
+    class _BatchRepo:
+        def get_many(self, uids):
+            calls.append(list(uids))
+            return {u: {"display_name": f"Name-{u}"} for u in uids}
+
+    names = _batch_display_names(_BatchRepo(), ["a", "b", "a"])
+    assert names == {"a": "Name-a", "b": "Name-b"}
+    assert calls == [["a", "b"]]  # one batched call, deduped
+
+
+def test_batch_display_names_falls_back_to_get():
+    """M10c compat: repos without get_many() still work via per-uid get()."""
+    from app.feed import _batch_display_names
+
+    class _LegacyRepo:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, uid):
+            self.calls.append(uid)
+            return {"display_name": f"N-{uid}"}
+
+    repo = _LegacyRepo()
+    names = _batch_display_names(repo, ["a", "b"])
+    assert names == {"a": "N-a", "b": "N-b"}
+    assert repo.calls == ["a", "b"]

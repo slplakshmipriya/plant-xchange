@@ -6,7 +6,7 @@ import pytest
 
 def test_unauthenticated_profile_write_rejected(mem_users):
     client, _ = mem_users
-    r = client.post("/v1/users", json={"display_name": "Alice"})
+    r = client.post("/v1/users", json={"display_name": "Alice", "age_attestation": True})
     assert r.status_code == 401
 
 
@@ -14,7 +14,8 @@ def test_upsert_creates_profile(mem_users, mock_verify, auth_headers):
     client, repo = mem_users
     r = client.post(
         "/v1/users",
-        json={"display_name": "Alice", "home_zip": "85281"},
+        json={"display_name": "Alice", "home_zip": "85281",
+              "age_attestation": True},
         headers=auth_headers,
     )
     assert r.status_code == 200
@@ -23,11 +24,13 @@ def test_upsert_creates_profile(mem_users, mock_verify, auth_headers):
     assert body["display_name"] == "Alice"
     assert body["home_zip"] == "85281"
     assert repo.get("alice")["display_name"] == "Alice"
+    assert repo.get("alice")["age_attested_at"]  # M20c: attestation recorded
 
 
 def test_patch_updates_only_sent_fields(mem_users, mock_verify, auth_headers):
     client, _ = mem_users
-    client.post("/v1/users", json={"display_name": "Alice", "home_zip": "85281"},
+    client.post("/v1/users", json={"display_name": "Alice", "home_zip": "85281",
+                                       "age_attestation": True},
                 headers=auth_headers)
     r = client.patch("/v1/users/me", json={"display_name": "Alicia"}, headers=auth_headers)
     assert r.status_code == 200
@@ -53,25 +56,23 @@ def test_invalid_zip_rejected(mem_users, mock_verify, auth_headers):
 def test_public_profile_hides_pii_and_zip(mem_users, mock_verify, auth_headers):
     client, repo = mem_users
     repo.upsert("alice", display_name="Alice", home_zip="85281",
-                phone_hash="ph", device_fingerprint="fp")
+                phone_hash="ph")
     # another user views alice's public profile
     r = client.get("/v1/users/alice", headers=auth_headers)
     assert r.status_code == 200
     body = r.json()
     assert "home_zip" not in body
     assert "phone_hash" not in body
-    assert "device_fingerprint" not in body
 
 
-def test_owner_profile_hides_phone_and_fingerprint(mem_users, mock_verify, auth_headers):
+def test_owner_profile_hides_phone_hash(mem_users, mock_verify, auth_headers):
     client, repo = mem_users
     repo.upsert("alice", display_name="Alice", home_zip="85281",
-                phone_hash="ph", device_fingerprint="fp")
+                phone_hash="ph")
     r = client.get("/v1/users/me", headers=auth_headers)
     body = r.json()
     assert body["home_zip"] == "85281"  # owner sees own zip
     assert "phone_hash" not in body
-    assert "device_fingerprint" not in body
 
 
 def test_duplicate_phone_hash_rejected_in_repo():
@@ -160,8 +161,8 @@ def _seed_alice_and_bob(client, repos):
         repos["users"], repos["listings"], repos["claims"], repos["want"],
         repos["notify"], repos["msg"], repos["credits"],
     )
-    client.post("/v1/users", json={"display_name": "Alice"}, headers=ALICE_HEADERS)
-    client.post("/v1/users", json={"display_name": "Bob"}, headers=BOB_HEADERS)
+    client.post("/v1/users", json={"display_name": "Alice", "age_attestation": True}, headers=ALICE_HEADERS)
+    client.post("/v1/users", json={"display_name": "Bob", "age_attestation": True}, headers=BOB_HEADERS)
 
     listings.create({"id": "a1", "owner_uid": "alice", "type": "harvest",
                      "title": "Tomatoes", "status": "live",
@@ -207,7 +208,7 @@ def test_delete_me_requires_auth(mem_c6):
 
 def test_delete_me_removes_profile(mem_c6):
     client, repos = mem_c6
-    client.post("/v1/users", json={"display_name": "Alice"}, headers=ALICE_HEADERS)
+    client.post("/v1/users", json={"display_name": "Alice", "age_attestation": True}, headers=ALICE_HEADERS)
     r = client.delete("/v1/users/me", headers=ALICE_HEADERS)
     assert r.status_code == 204
     assert repos["users"].get("alice") is None
@@ -218,7 +219,7 @@ def test_delete_me_removes_profile(mem_c6):
 
 def test_delete_me_is_idempotent(mem_c6):
     client, _ = mem_c6
-    client.post("/v1/users", json={"display_name": "Alice"}, headers=ALICE_HEADERS)
+    client.post("/v1/users", json={"display_name": "Alice", "age_attestation": True}, headers=ALICE_HEADERS)
     assert client.delete("/v1/users/me", headers=ALICE_HEADERS).status_code == 204
     assert client.delete("/v1/users/me", headers=ALICE_HEADERS).status_code == 204
 
@@ -315,7 +316,83 @@ def test_export_returns_only_own_data(mem_c6):
 
 def test_export_after_delete_404(mem_c6):
     client, _ = mem_c6
-    client.post("/v1/users", json={"display_name": "Alice"}, headers=ALICE_HEADERS)
+    client.post("/v1/users", json={"display_name": "Alice", "age_attestation": True}, headers=ALICE_HEADERS)
     assert client.delete("/v1/users/me", headers=ALICE_HEADERS).status_code == 204
     r = client.get("/v1/users/me/export", headers=ALICE_HEADERS)
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# M20c: age gate — 13+ attestation at onboarding
+# ---------------------------------------------------------------------------
+
+
+def test_profile_create_requires_age_attestation(mem_users, mock_verify, auth_headers):
+    client, repo = mem_users
+    r = client.post("/v1/users", json={"display_name": "Alice"}, headers=auth_headers)
+    assert r.status_code == 422
+    assert r.json()["code"] == "age_attestation_required"
+    assert repo.get("alice") is None  # gate fires before anything is written
+
+
+def test_profile_create_rejects_explicit_denial(mem_users, mock_verify, auth_headers):
+    client, _ = mem_users
+    r = client.post(
+        "/v1/users", json={"age_attestation": False}, headers=auth_headers
+    )
+    assert r.status_code == 422
+    assert r.json()["code"] == "age_attestation_required"
+
+
+def test_age_gate_applies_once_per_user(mem_users, mock_verify, auth_headers):
+    client, repo = mem_users
+    # onboarding with attestation
+    r = client.post(
+        "/v1/users", json={"display_name": "Alice", "age_attestation": True},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert repo.get("alice")["age_attested_at"]
+    # subsequent writes no longer need the field
+    r = client.post("/v1/users", json={"display_name": "Alicia"}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["display_name"] == "Alicia"
+    r = client.patch("/v1/users/me", json={"home_zip": "85281"}, headers=auth_headers)
+    assert r.status_code == 200
+
+
+def test_patch_gates_until_attestation_recorded(mem_users, mock_verify, auth_headers):
+    client, repo = mem_users
+    # row created by /v1/auth/verify (no profile, no attestation)
+    repo.upsert("alice", phone_hash="ph")
+    r = client.patch("/v1/users/me", json={"display_name": "Alice"}, headers=auth_headers)
+    assert r.status_code == 422
+    assert r.json()["code"] == "age_attestation_required"
+    r = client.patch(
+        "/v1/users/me",
+        json={"display_name": "Alice", "age_attestation": True},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert repo.get("alice")["age_attested_at"]
+
+
+# ---------------------------------------------------------------------------
+# L1c: upsert column whitelist
+# ---------------------------------------------------------------------------
+
+
+def test_upsert_rejects_unknown_columns_memory_repo():
+    from app.users import MemoryUserRepo
+
+    repo = MemoryUserRepo()
+    with pytest.raises(TypeError):
+        repo.upsert("alice", display_name="Alice", injected_col="x")
+
+
+def test_upsert_rejects_unknown_columns_postgres_repo():
+    from app.users import PostgresUserRepo
+
+    repo = PostgresUserRepo(conn=None)  # whitelist fires before any SQL
+    with pytest.raises(TypeError):
+        repo.upsert("alice", display_name="Alice", injected_col="x")

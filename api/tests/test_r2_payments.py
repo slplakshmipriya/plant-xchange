@@ -48,11 +48,18 @@ BOB = {"Authorization": "Bearer bob-token"}
 MALLORY = {"Authorization": "Bearer mallory-token"}
 
 
-def _setup_booking(client, srepo, price_cents: int | None = 10000):
-    """alice (owner) + bob (sitter) + accepted sitting request. Returns request."""
+def _setup_booking(client, urepo, srepo, price_cents: int | None = 10000,
+                   idv_verified: bool = True):
+    """alice (owner) + bob (sitter) + accepted sitting request. Returns request.
+
+    Paid sitting bookings require IDV (M20a): alice is verified by default;
+    pass ``idv_verified=False`` to exercise the 403 path.
+    """
     for headers, name in ((ALICE, "Alice"), (BOB, "Bob")):
-        r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+        r = client.post("/v1/users", json={"display_name": name, "age_attestation": True}, headers=headers)
         assert r.status_code == 200, r.text
+    if idv_verified:
+        urepo.set_idv_status("alice", "verified")
     r = client.put("/v1/sitters/me", json={"bio": "tomato whisperer"}, headers=BOB)
     assert r.status_code == 200, r.text
     r = client.post("/v1/sitting-requests", json={
@@ -149,9 +156,27 @@ def test_intent_401_unauthenticated(mem_payments):
     assert r.status_code == 401
 
 
+def test_intent_403_idv_not_verified(mem_payments):
+    # M20a: PRD requires IDV for paid sitting bookings.
+    client, urepo, srepo, _ = mem_payments
+    req = _setup_booking(client, urepo, srepo, idv_verified=False)
+    r = client.post("/v1/payments/sitting-intent",
+                    json={"bookingId": req["id"]}, headers=ALICE)
+    assert r.status_code == 403
+    assert r.json()["code"] == "idv_not_verified"
+
+
+def test_intent_403_idv_verified_owner_passes(mem_payments):
+    client, urepo, srepo, _ = mem_payments
+    req = _setup_booking(client, urepo, srepo)  # alice verified by default
+    r = client.post("/v1/payments/sitting-intent",
+                    json={"bookingId": req["id"]}, headers=ALICE)
+    assert r.status_code == 200, r.text
+
+
 def test_intent_403_not_owner(mem_payments):
-    client, _, srepo, _ = mem_payments
-    req = _setup_booking(client, srepo)
+    client, urepo, srepo, _ = mem_payments
+    req = _setup_booking(client, urepo, srepo)
     r = client.post("/v1/payments/sitting-intent",
                     json={"bookingId": req["id"]}, headers=MALLORY)
     assert r.status_code == 403
@@ -160,10 +185,11 @@ def test_intent_403_not_owner(mem_payments):
 
 @pytest.mark.parametrize("end_state", ["requested", "declined", "completed", "cancelled"])
 def test_intent_409_not_payable(mem_payments, end_state):
-    client, _, srepo, _ = mem_payments
+    client, urepo, srepo, _ = mem_payments
     for headers, name in ((ALICE, "Alice"), (BOB, "Bob")):
-        assert client.post("/v1/users", json={"display_name": name},
+        assert client.post("/v1/users", json={"display_name": name, "age_attestation": True},
                            headers=headers).status_code == 200
+    urepo.set_idv_status("alice", "verified")  # M20a gate: verify before 409 check
     assert client.put("/v1/sitters/me", json={}, headers=BOB).status_code == 200
     r = client.post("/v1/sitting-requests", json={
         "sitter_uid": "bob", "plant_count": 2,
@@ -189,8 +215,8 @@ def test_intent_409_not_payable(mem_payments, end_state):
 # ---------------------------------------------------------------------------
 
 def test_sitting_intent_stub_shape(mem_payments):
-    client, _, srepo, prepo = mem_payments
-    req = _setup_booking(client, srepo, price_cents=10000)
+    client, urepo, srepo, prepo = mem_payments
+    req = _setup_booking(client, urepo, srepo, price_cents=10000)
 
     r = client.post("/v1/payments/sitting-intent",
                     json={"bookingId": req["id"]}, headers=ALICE)
@@ -212,8 +238,8 @@ def test_sitting_intent_stub_shape(mem_payments):
 
 
 def test_sitting_intent_idempotent_per_booking(mem_payments):
-    client, _, srepo, prepo = mem_payments
-    req = _setup_booking(client, srepo, price_cents=5000)
+    client, urepo, srepo, prepo = mem_payments
+    req = _setup_booking(client, urepo, srepo, price_cents=5000)
 
     first = client.post("/v1/payments/sitting-intent",
                         json={"bookingId": req["id"]}, headers=ALICE).json()
@@ -225,8 +251,8 @@ def test_sitting_intent_idempotent_per_booking(mem_payments):
 
 
 def test_sitting_intent_unpriced_booking_quotes_zero(mem_payments):
-    client, _, srepo, _ = mem_payments
-    req = _setup_booking(client, srepo, price_cents=None)
+    client, urepo, srepo, _ = mem_payments
+    req = _setup_booking(client, urepo, srepo, price_cents=None)
     body = client.post("/v1/payments/sitting-intent",
                        json={"bookingId": req["id"]}, headers=ALICE).json()
     assert body["amountCents"] == 0
@@ -235,8 +261,8 @@ def test_sitting_intent_unpriced_booking_quotes_zero(mem_payments):
 
 
 def test_stripe_provider_fails_closed_501(mem_payments, monkeypatch):
-    client, _, srepo, _ = mem_payments
-    req = _setup_booking(client, srepo)
+    client, urepo, srepo, _ = mem_payments
+    req = _setup_booking(client, urepo, srepo)
     monkeypatch.setenv("PAYMENT_PROVIDER", "stripe")
     r = client.post("/v1/payments/sitting-intent",
                     json={"bookingId": req["id"]}, headers=ALICE)
@@ -257,3 +283,9 @@ def test_memory_payment_repo_roundtrip():
     assert repo.get_intent("pi_stub_b1") == rec
     assert repo.get_by_booking_id("b1") == rec
     assert repo.get_intent("missing") is None
+    # M8: a second create for the same booking returns the existing row
+    # (Postgres path: ON CONFLICT DO NOTHING + re-select).
+    again = repo.create_intent({
+        "id": "pi_stub_b1", "booking_id": "b1", "amount_cents": 999,
+        "fee_cents": 1, "client_secret": "pi_stub_b1_999"})
+    assert again == rec

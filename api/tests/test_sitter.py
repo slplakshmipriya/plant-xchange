@@ -36,7 +36,7 @@ MALLORY = {"Authorization": "Bearer mallory-token"}
 
 
 def _profile(client, headers, name):
-    r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+    r = client.post("/v1/users", json={"display_name": name, "age_attestation": True}, headers=headers)
     assert r.status_code == 200, r.text
 
 
@@ -204,3 +204,55 @@ def test_review_rules(mem_sitting):
     r = client.post(f"/v1/sitting-requests/{req2['id']}/reviews",
                     json={"rating": 6}, headers=ALICE)
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# W4 fixes: M12 date validation, L6 radius alignment + directory paging
+# ---------------------------------------------------------------------------
+
+def test_sitting_request_rejects_impossible_date(mem_sitting):
+    # M12: "2026-13-45" used to reach the DATE column and 500; now -> 422.
+    client, _, _ = mem_sitting
+    _profile(client, ALICE, "Alice")
+    _profile(client, BOB, "Bob")
+    _sitter(client, BOB)
+
+    for bad in ("2026-13-45", "2026-02-30", "10/10/2026", "not-a-date"):
+        r = client.post("/v1/sitting-requests", json={
+            "sitter_uid": "bob", "plant_count": 3,
+            "start_date": bad, "end_date": "2026-10-12"}, headers=ALICE)
+        assert r.status_code == 422, (bad, r.text)
+
+    # A real date still works.
+    r = client.post("/v1/sitting-requests", json={
+        "sitter_uid": "bob", "plant_count": 3,
+        "start_date": "2026-10-10", "end_date": "2026-10-12"}, headers=ALICE)
+    assert r.status_code == 201, r.text
+    assert r.json()["start_date"] == "2026-10-10"
+
+
+def test_service_radius_quantized_to_float32(mem_sitting):
+    # L6: the column is REAL, so the model quantizes to float32 on the way in.
+    import struct
+    client, _, _ = mem_sitting
+    _profile(client, BOB, "Bob")
+    body = _sitter(client, BOB, service_radius_miles=0.1 + 0.2)
+    expected = struct.unpack("f", struct.pack("f", 0.1 + 0.2))[0]
+    assert body["service_radius_miles"] == expected
+    assert body["service_radius_miles"] != 0.1 + 0.2  # would be the raw float64
+
+
+def test_sitter_directory_pagination_bound(mem_sitting):
+    # L6: unbounded list_active is gone — limit is capped, offset pages.
+    client, _, _ = mem_sitting
+    for headers, name in ((ALICE, "Alice"), (BOB, "Bob"), (MALLORY, "Mallory")):
+        _profile(client, headers, name)
+        _sitter(client, headers)
+
+    body = client.get("/v1/sitters?limit=2", headers=ALICE).json()
+    assert len(body["sitters"]) == 2
+    body = client.get("/v1/sitters?limit=2&offset=2", headers=ALICE).json()
+    assert len(body["sitters"]) == 1
+
+    r = client.get("/v1/sitters?limit=1000", headers=ALICE)
+    assert r.status_code == 422  # over the 500 cap

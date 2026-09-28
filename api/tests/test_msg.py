@@ -49,7 +49,7 @@ MALLORY = {"Authorization": "Bearer mallory-token"}
 def _setup(client):
     """Alice owns a listing; bob has a profile. Returns the listing id."""
     for headers, name in ((ALICE, "Alice"), (BOB, "Bob")):
-        r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+        r = client.post("/v1/users", json={"display_name": name, "age_attestation": True}, headers=headers)
         assert r.status_code == 200, r.text
     r = client.post("/v1/listings", json={
         "type": "seedling",
@@ -70,13 +70,14 @@ def test_thread_open_is_idempotent_and_scoped(mem_msg):
     lid = _setup(client)
 
     r = client.post("/v1/threads", json={"listing_id": lid}, headers=BOB)
-    assert r.status_code == 200, r.text
+    assert r.status_code == 201, r.text
     tid = r.json()["id"]
     assert r.json()["listing_id"] == lid
     assert r.json()["created_by"] == "bob"
 
-    # Opening again returns the same thread, not a duplicate.
+    # Opening again returns the same thread, not a duplicate (still 201).
     r = client.post("/v1/threads", json={"listing_id": lid}, headers=BOB)
+    assert r.status_code == 201, r.text
     assert r.json()["id"] == tid
 
     # Unknown listing -> 404.
@@ -146,3 +147,75 @@ def test_messaging_is_private_and_geo_free(mem_msg):
     blob += str(client.get(f"/v1/threads/{tid}/messages", headers=BOB).json())
     for leak in ("33.4152", "-111.8315", "geo_lat", "geo_lon"):
         assert leak not in blob
+
+
+def test_message_byte_limit_rejects_multibyte_overflow(mem_msg):
+    # H10: 2000 chars of emoji = 8000 bytes — within the 2000-char pydantic
+    # bound but past the 2800-byte API bound -> 422, not a DB CHECK 500.
+    client, _, _, _ = mem_msg
+    lid = _setup(client)
+    tid = client.post("/v1/threads", json={"listing_id": lid}, headers=BOB).json()["id"]
+
+    r = client.post(f"/v1/threads/{tid}/messages",
+                    json={"body": "🎉" * 2000}, headers=BOB)
+    assert r.status_code == 422, r.text
+    assert r.json()["code"] == "message_too_long"
+
+
+def test_message_byte_limit_allows_multibyte_within_bound(mem_msg):
+    # H10: multibyte text that fits the byte bound round-trips fine —
+    # 700 emoji = 2800 bytes exactly (boundary), plus an ASCII control.
+    client, _, _, _ = mem_msg
+    lid = _setup(client)
+    tid = client.post("/v1/threads", json={"listing_id": lid}, headers=BOB).json()["id"]
+
+    body = "🎉" * 700
+    assert len(body.encode("utf-8")) == 2800
+    r = client.post(f"/v1/threads/{tid}/messages", json={"body": body}, headers=BOB)
+    assert r.status_code == 201, r.text
+    r = client.get(f"/v1/threads/{tid}/messages", headers=BOB)
+    assert r.json()["messages"][0]["body"] == body
+
+    # One byte over -> 422.
+    r = client.post(f"/v1/threads/{tid}/messages",
+                    json={"body": body + "x"}, headers=BOB)
+    assert r.status_code == 422, r.text
+
+
+def test_serialize_message_null_body_fail_closed():
+    # M24b: a legacy NULL body raises the uniform RuntimeError envelope
+    # (fail closed), not an AttributeError on None.
+    import pytest
+
+    from app.msg import _serialize_message
+
+    with pytest.raises(RuntimeError):
+        _serialize_message({"id": "x", "thread_id": "t", "sender_uid": "u",
+                            "body": None, "created_at": None})
+
+
+def test_list_threads_batches_counts(mem_msg):
+    # M10a: correct counts across multiple threads (single batched query).
+    client, _, _, _ = mem_msg
+    lid = _setup(client)
+    tid1 = client.post("/v1/threads", json={"listing_id": lid}, headers=BOB).json()["id"]
+    # Second listing owned by alice -> second thread.
+    r = client.post("/v1/listings", json={
+        "type": "seedling", "photos": ["https://example.com/u.jpg"],
+        "variety": "Tomato", "quantity": 3, "unit": "starts",
+        "credit_cost": 1, "spray_disclosure": "unsprayed", "status": "live",
+    }, headers=ALICE)
+    assert r.status_code == 201, r.text
+    lid2 = r.json()["id"]
+    tid2 = client.post("/v1/threads", json={"listing_id": lid2}, headers=BOB).json()["id"]
+
+    for _ in range(3):
+        client.post(f"/v1/threads/{tid1}/messages", json={"body": "hi"}, headers=BOB)
+    client.post(f"/v1/threads/{tid2}/messages", json={"body": "yo"}, headers=BOB)
+
+    threads = client.get("/v1/threads", headers=BOB).json()["threads"]
+    counts = {t["id"]: t["message_count"] for t in threads}
+    assert counts == {tid1: 3, tid2: 1}
+    # Owner sees both threads with the same counts.
+    threads = client.get("/v1/threads", headers=ALICE).json()["threads"]
+    assert {t["id"]: t["message_count"] for t in threads} == {tid1: 3, tid2: 1}

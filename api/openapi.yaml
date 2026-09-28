@@ -420,9 +420,11 @@ paths:
 
         Atomic decrement — concurrent pickers cannot oversell. When the harvest
 
-        is fully picked (remaining hits 0) the listing completes via the legal
+        is fully picked (remaining hits ~0) the listing completes via one
 
-        live -> claimed -> completed path.'
+        conditional live -> completed flip (M6): a single commit, so a crash can
+
+        never strand the listing in claimed with no sweeper.'
       operationId: record_harvest_event_v1_harvest_events_post
       requestBody:
         content:
@@ -453,7 +455,12 @@ paths:
       - listings
       - listings
       summary: Get Harvest Events
-      description: Pick audit log for a harvest listing. Owner and authenticated viewers.
+      description: 'Pick audit log for a harvest listing.
+
+
+        Visible to any authenticated user (the route requires auth; the
+
+        recorder_uid values are the audit trail).'
       operationId: get_harvest_events_v1_listings__listing_id__harvest_events_get
       parameters:
       - name: listing_id
@@ -551,7 +558,24 @@ paths:
 
         nudge to the owner via the notify pipeline (per-mark dedupe refs keep
 
-        this idempotent across sweep runs).'
+        this idempotent across sweep runs). The nudge scan is bounded to listings
+
+        expiring within 48h (M9) instead of iterating every live listing.
+
+
+        Retention (M19), all idempotent: notification_log older than 90d is
+
+        purged, resolved disputes older than 2y are purged, and photos of
+
+        terminal listings (completed/expired/cancelled) older than 180d are
+
+        garbage-collected from the uploads registry (unserved after the C7
+
+        registry gate) with the listing''s photo list cleared. The credit ledger,
+
+        harvest_events, moderation_views, and reports/strikes/enforcement are
+
+        append-only by design and never purged (see module docstring).'
       operationId: sweep_expired_v1_internal_sweep_post
       responses:
         '200':
@@ -711,7 +735,9 @@ paths:
 
         ``FirebaseMessaging.getInstance().token`` rotates. Idempotent per
 
-        (user, token).'
+        (user, token). Returns a success flag — the token itself is a secret
+
+        and is never echoed back (L4d).'
       operationId: register_fcm_token_v1_users_me_fcm_token_post
       requestBody:
         content:
@@ -736,6 +762,42 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+    delete:
+      tags:
+      - notifications
+      summary: Delete Fcm Token
+      description: 'Deregister a device FCM registration token (M21).
+
+
+        Called by the Android client on sign-out / uninstall / token rotation.
+
+        Idempotent: removing a token that isn''t registered returns
+
+        ``removed: false`` (200), never 404.'
+      operationId: delete_fcm_token_v1_users_me_fcm_token_delete
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FcmTokenDeleteIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Delete Fcm Token V1 Users Me Fcm Token Delete
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /v1/feed:
     get:
       tags:
@@ -744,11 +806,21 @@ paths:
       description: 'Ranked discovery feed of live listings (fuzzed geo, no PII).
 
 
-        Without ``way``: the scored, cursor-paginated feed (API-021).
+        Without ``way``: the scored, cursor-paginated feed (API-021). Pagination
+
+        is DB-level (M9): one page of rows is fetched with limit/offset and only
+
+        that page is scored in Python, so per-request work stays bounded no
+
+        matter how large the listings table grows.
 
         With ``way`` (API-123): exact ``{"listings": [...]}`` for one Explore
 
-        way-card, ranked freshest-first by expiry ascending (nulls last).'
+        way-card, ranked freshest-first by expiry ascending (nulls last) —
+
+        except ``way=sitting``, which returns sitter profiles under a
+
+        ``{"sitters": [...]}`` key (L4c).'
       operationId: get_feed_v1_feed_get
       parameters:
       - name: limit
@@ -967,17 +1039,47 @@ paths:
       - credits
       - credits
       summary: Get Wallet
-      description: Derived balance + full append-only history. No PII in entries.
+      description: 'Derived balance + paginated append-only history (M16). No PII
+        in entries.
+
+
+        The ledger is unbounded, so the full history is never returned in one
+
+        response: callers page with ``limit``/``offset`` (default 50 per page).'
       operationId: get_wallet_v1_wallet_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                additionalProperties: true
                 type: object
+                additionalProperties: true
                 title: Response Get Wallet V1 Wallet Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
   /v1/listings/{listing_id}/claims:
@@ -1215,17 +1317,43 @@ paths:
       - sitting
       - sitting
       summary: List Sitters
-      description: Public directory of active sitters. PII-safe.
+      description: 'Public directory of active sitters. PII-safe. Page size is bounded
+
+        (L6) — the sitter directory can no longer be dumped in one request.'
       operationId: list_sitters_v1_sitters_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 100
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                additionalProperties: true
                 type: object
+                additionalProperties: true
                 title: Response List Sitters V1 Sitters Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
   /v1/sitting-requests:
@@ -1496,7 +1624,7 @@ paths:
               $ref: '#/components/schemas/ThreadIn'
         required: true
       responses:
-        '200':
+        '201':
           description: Successful Response
           content:
             application/json:
@@ -1661,16 +1789,35 @@ paths:
       - messaging
       - support
       summary: Support Read Messages
-      description: 'Support dashboard: full decrypted thread view for moderation.
+      description: 'Support dashboard: decrypted thread view for moderation.
 
 
         Support staff only (``SUPPORT_UIDS`` — 403 otherwise, fail closed).
 
-        Not participant-scoped: that is the point — a reported user''s
+        Not participant-scoped — that is the point — but H2-scoped: a thread is
 
-        conversation must be reviewable. Every message returned writes one
+        readable only while a report names its listing or one of its
 
-        audit row (viewer, thread, message, reason) into ``moderation_views``.'
+        participants, or an open dispute references the listing (403
+
+        ``no_open_case`` otherwise). ``reason`` is a controlled-vocabulary enum
+
+        (free text was self-reported and unauditable). Paginated: ``limit`` <=
+
+        100 with the same opaque cursor as the participant path (M2 — no more
+
+        10k-message decrypt-and-commit storms). Every message returned writes
+
+        one audit row (viewer, thread, message, reason) into
+
+        ``moderation_views`` in a single batched insert.
+
+
+        Android follow-ups (client-side, not implementable here): in-app copy
+
+        disclosing "Staff may review reported chats", and a user-visible
+
+        "viewed by support" notice on reviewed threads.'
       operationId: support_read_messages_v1_support_threads__thread_id__messages_get
       parameters:
       - name: thread_id
@@ -1683,12 +1830,28 @@ paths:
         in: query
         required: true
         schema:
-          type: string
-          minLength: 1
-          maxLength: 500
-          description: Why this thread is being reviewed (audit log)
-          title: Reason
-        description: Why this thread is being reviewed (audit log)
+          $ref: '#/components/schemas/SupportViewReason'
+          description: Controlled-vocabulary justification for the review (written
+            into the moderation_views audit log)
+        description: Controlled-vocabulary justification for the review (written into
+          the moderation_views audit log)
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
       responses:
         '200':
           description: Successful Response
@@ -1787,7 +1950,11 @@ paths:
 
         the ledger; claimed_count increments. Not the owner, not when suspended,
 
-        not when full, not when the wallet is short.'
+        not when full, not when the wallet is short. Solo slots (maxPickers 1)
+
+        additionally require a verified ID (PRD: IDV required for solo
+
+        pick-your-own access).'
       operationId: claim_slot_v1_trees__tree_id__slots__slot_id__claim_post
       parameters:
       - name: tree_id
@@ -1863,8 +2030,8 @@ paths:
       tags:
       - moderation
       summary: Create Report
-      description: File a report against a listing, user, or booking. Persists and
-        returns {}.
+      description: File a report against a listing, user, or booking. Returns the
+        id.
       operationId: create_report_v1_reports_post
       requestBody:
         content:
@@ -1873,7 +2040,7 @@ paths:
               $ref: '#/components/schemas/ReportIn'
         required: true
       responses:
-        '200':
+        '201':
           description: Successful Response
           content:
             application/json:
@@ -1881,6 +2048,47 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Create Report V1 Reports Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/support/moderation-views:
+    get:
+      tags:
+      - moderation
+      - support
+      summary: List Moderation Views
+      description: 'H3: review surface for the privileged-view audit log. Support
+        staff
+
+        only (``SUPPORT_UIDS`` — 403 otherwise, fail closed). Rows are
+
+        append-only (migration 0026) and hash-chained.'
+      operationId: list_moderation_views_v1_support_moderation_views_get
+      parameters:
+      - name: thread_id
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          description: Thread to review audit rows for
+          title: Thread Id
+        description: Thread to review audit rows for
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Moderation Views V1 Support Moderation Views
+                  Get
         '422':
           description: Validation Error
           content:
@@ -1925,12 +2133,22 @@ paths:
       tags:
       - moderation
       summary: Resolve Dispute
-      description: 'Resolve a dispute. Support staff only; on upheld + reversalCredits
-        > 0,
+      description: 'Resolve a dispute. Support staff only.
 
-        compensating ``dispute_reversal`` ledger entries are appended (the ledger
 
-        stays append-only — existing entries are never touched).'
+        M11: reversals are posted *before* the status flip, so an earn-cap
+
+        failure leaves the dispute open (409) instead of resolved-but-unreversed
+
+        — the dispute is retryable once the 7-day window frees up. The flip
+
+        itself is conditional (``status=''open''``): exactly one concurrent
+
+        resolve wins, the loser gets 409. Reversal entries are idempotency-keyed
+
+        (``dispute:{id}:reversal:{claimer,owner}``), so a retried resolve never
+
+        double-posts.'
       operationId: resolve_dispute_v1_disputes__dispute_id__resolve_post
       parameters:
       - name: dispute_id
@@ -2008,7 +2226,7 @@ components:
       properties:
         quantity:
           type: number
-          minimum: 1.0
+          exclusiveMinimum: 0.0
           title: Quantity
         pickupStartMs:
           type: integer
@@ -2075,6 +2293,17 @@ components:
       - upheld
       - rejected
       title: DisputeOutcome
+    FcmTokenDeleteIn:
+      properties:
+        token:
+          type: string
+          maxLength: 4096
+          minLength: 1
+          title: Token
+      type: object
+      required:
+      - token
+      title: FcmTokenDeleteIn
     FcmTokenIn:
       properties:
         token:
@@ -2280,7 +2509,7 @@ components:
         status:
           anyOf:
           - type: string
-            pattern: ^(draft|live|claimed|completed|cancelled)$
+            pattern: ^(draft|live|cancelled)$
           - type: 'null'
           title: Status
         visit_rules:
@@ -2410,6 +2639,12 @@ components:
             maxLength: 10
           - type: 'null'
           title: Home Zip
+        age_attestation:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Age Attestation
+          description: Attest the user is 13 or older. Required until recorded.
       type: object
       title: ProfileIn
     PublicProfile:
@@ -2575,13 +2810,11 @@ components:
           title: Plant Count
         start_date:
           type: string
-          maxLength: 10
-          minLength: 10
+          format: date
           title: Start Date
         end_date:
           type: string
-          maxLength: 10
-          minLength: 10
+          format: date
           title: End Date
         notes:
           type: string
@@ -2641,6 +2874,23 @@ components:
       required:
       - decision
       title: StubDecision
+    SupportViewReason:
+      type: string
+      enum:
+      - report_investigation
+      - dispute_evidence
+      - fraud_investigation
+      - safety_review
+      - appeal_review
+      title: SupportViewReason
+      description: 'Controlled vocabulary for the support message dashboard''s ``reason``.
+
+
+        H2: the free-text justification was self-reported and unauditable, so it
+
+        is now an enum — an invalid value is a 422, and every stored audit row
+
+        carries one of these exact strings.'
     TargetType:
       type: string
       enum:

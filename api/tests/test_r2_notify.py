@@ -261,12 +261,15 @@ def test_fcm_token_registration(mem_notify, mock_verify, auth_headers):
                     json={"token": "tok123", "platform": "android"},
                     headers=auth_headers)
     assert r.status_code == 201
-    assert r.json() == {"user_uid": "alice", "token": "tok123", "platform": "android"}
+    # L4d: the secret token is never echoed — success flag only.
+    assert r.json() == {"user_uid": "alice", "registered": True, "platform": "android"}
+    assert "token" not in r.json()
     assert repo.get_tokens("alice") == ["tok123"]
     # idempotent re-register
     r = client.post("/v1/users/me/fcm-token", json={"token": "tok123"},
                     headers=auth_headers)
     assert r.status_code == 201
+    assert r.json()["registered"] is True
     assert repo.get_tokens("alice") == ["tok123"]
 
 
@@ -293,3 +296,166 @@ def test_registered_token_gets_token_targeted_send(frozen, push_spy,
     assert out["delivered"] == 1
     assert [c["token"] for c in push_spy] == ["tok-alice"]
     assert out["results"][0]["via"] == "1_token(s)"
+
+
+# --- H13: topic fallback deprecation ------------------------------------------
+
+def _tree_payload(uids):
+    return {
+        "tree": {"id": "t1", "variety": "Fig", "owner_uid": "carol", "type": "tree"},
+        "user_uids": uids,
+    }
+
+
+def test_topic_fallback_still_default_when_no_tokens(frozen, mem_notify, monkeypatch):
+    # H13: default behavior preserved — no tokens -> legacy topic path.
+    from app.notify import _deliver_to_recipient
+
+    monkeypatch.delenv("FCM_TOPIC_FALLBACK_ENABLED", raising=False)
+    frozen(DAY_10AM_EDT)
+    _, repo = mem_notify
+    out = _deliver_to_recipient(
+        "alice", "harvestAlerts", "T", "B", {}, "ref-1", repo, DAY_10AM_EDT
+    )
+    assert out["via"] == "topic_fallback"
+    assert out["status"] == "would_send"  # no FCM creds in CI
+
+
+def test_topic_fallback_disabled_skips(frozen, mem_notify, monkeypatch):
+    # H13: FCM_TOPIC_FALLBACK_ENABLED=0 kills the topic path without
+    # breaking token sends.
+    from app.notify import _deliver_to_recipient
+
+    monkeypatch.setenv("FCM_TOPIC_FALLBACK_ENABLED", "0")
+    frozen(DAY_10AM_EDT)
+    _, repo = mem_notify
+    out = _deliver_to_recipient(
+        "alice", "harvestAlerts", "T", "B", {}, "ref-1", repo, DAY_10AM_EDT
+    )
+    assert out == {
+        "uid": "alice",
+        "status": "skipped",
+        "reason": "topic_fallback_disabled",
+    }
+
+
+def test_sensitive_send_refuses_topic_path(frozen, mem_notify, monkeypatch):
+    # H13 code-level guard: sensitive content never rides the ACL-less topic.
+    from app.notify import send_notification
+
+    monkeypatch.delenv("FCM_TOPIC_FALLBACK_ENABLED", raising=False)
+    frozen(DAY_10AM_EDT)
+    _, repo = mem_notify
+
+    out = dispatch_event(
+        "ripe_window_entry", _tree_payload(["alice"]),
+        notify_repo=repo, now=DAY_10AM_EDT, sensitive=True,
+    )
+    assert out["results"][0]["reason"] == "sensitive_not_routed_via_topic"
+    assert out["delivered"] == 0
+
+    out = send_notification(
+        "alice", "harvestAlerts", "T", "B", repo=repo, ref="s1", sensitive=True
+    )
+    assert out == {"status": "skipped", "reason": "sensitive_not_routed_via_topic"}
+
+
+def test_sensitive_send_allowed_with_explicit_token_sender(frozen, mem_notify):
+    # A caller-owned sender (e.g. token-targeted) is not blocked by the guard.
+    frozen(DAY_10AM_EDT)
+    _, repo = mem_notify
+    calls = []
+
+    def token_sender(uid, title, body, data):
+        calls.append(uid)
+
+    from app.notify import default_fcm_sender, send_notification
+
+    out = send_notification(
+        "alice", "harvestAlerts", "T", "B", repo=repo, ref="s2",
+        sender=token_sender, sensitive=True,
+    )
+    assert out["status"] == "sent"
+    assert calls == ["alice"]
+    assert token_sender is not default_fcm_sender
+
+
+# --- M21: deregistration + pruning --------------------------------------------
+
+def test_fcm_token_deregistration(mem_notify, mock_verify, auth_headers):
+    client, repo = mem_notify
+    client.post("/v1/users/me/fcm-token", json={"token": "tok123"},
+                headers=auth_headers)
+    r = client.request("DELETE", "/v1/users/me/fcm-token",
+                       json={"token": "tok123"}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json() == {"user_uid": "alice", "removed": True}
+    assert repo.get_tokens("alice") == []
+    # Idempotent: unknown token -> removed false, still 200 (never 404).
+    r = client.request("DELETE", "/v1/users/me/fcm-token",
+                       json={"token": "tok123"}, headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json()["removed"] is False
+
+
+def test_fcm_token_delete_requires_auth(client):
+    assert client.request(
+        "DELETE", "/v1/users/me/fcm-token", json={"token": "x"}
+    ).status_code == 401
+
+
+def test_prune_dead_token_on_unregistered(frozen, mem_notify, monkeypatch):
+    # M21: FCM unregistered-token errors prune the row.
+    from app.notify import _deliver_to_recipient
+
+    frozen(DAY_10AM_EDT)
+    _, repo = mem_notify
+    repo.register_token("alice", "dead-tok")
+    repo.register_token("alice", "live-tok")
+
+    def mixed_push(token, title, body, data=None):
+        if token == "dead-tok":
+            return {"status": "failed", "reason": "fcm_error", "prune_token": True}
+        return {"status": "sent", "reason": "delivered"}
+
+    monkeypatch.setattr(notify_mod, "send_push", mixed_push)
+    out = _deliver_to_recipient(
+        "alice", "harvestAlerts", "T", "B", {}, "ref-1", repo, DAY_10AM_EDT
+    )
+    assert out["status"] == "sent"
+    assert repo.get_tokens("alice") == ["live-tok"]  # dead one pruned
+
+
+def test_send_push_flags_prune_on_unregistered(monkeypatch):
+    # send_push surfaces prune_token=True for dead-token errors, False otherwise.
+    import sys
+    import types
+
+    class UnregisteredError(Exception):
+        pass
+
+    def boom(exc):
+        def _send(msg):
+            raise exc
+        return _send
+
+    fake_messaging = types.SimpleNamespace(
+        Message=lambda **kw: kw,
+        Notification=lambda **kw: kw,
+        UnregisteredError=UnregisteredError,
+        SenderIdMismatchError=type("SenderIdMismatchError", (Exception,), {}),
+        send=boom(UnregisteredError("registration-token-not-registered")),
+    )
+    fake_admin = types.ModuleType("firebase_admin")
+    fake_admin.get_app = lambda: object()
+    fake_admin.messaging = fake_messaging
+    monkeypatch.setitem(sys.modules, "firebase_admin", fake_admin)
+
+    out = send_push("tok123", "T", "B")
+    assert out["status"] == "failed"
+    assert out["prune_token"] is True
+
+    fake_messaging.send = boom(RuntimeError("internal"))
+    out = send_push("tok123", "T", "B")
+    assert out["status"] == "failed"
+    assert out["prune_token"] is False

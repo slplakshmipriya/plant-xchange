@@ -5,6 +5,7 @@ starlette==1.7.0
 uvicorn[standard]==0.35.0
 pydantic==2.11.7
 psycopg[binary]==3.2.9
+psycopg_pool==3.3.3
 firebase-admin==7.1.0
 PyYAML==6.0.2
 # Image validation + EXIF GPS stripping for listing photos (API-022)

@@ -67,7 +67,7 @@ MALLORY = {"Authorization": "Bearer mallory-token"}
 def _listing_id(client):
     """Alice owns a listing; bob has a profile."""
     for headers, name in ((ALICE, "Alice"), (BOB, "Bob")):
-        r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+        r = client.post("/v1/users", json={"display_name": name, "age_attestation": True}, headers=headers)
         assert r.status_code == 200, r.text
     r = client.post("/v1/listings", json={
         "type": "seedling",
@@ -85,7 +85,7 @@ def _listing_id(client):
 
 def _thread_id(client, lid):
     r = client.post("/v1/threads", json={"listing_id": lid}, headers=BOB)
-    assert r.status_code == 200, r.text
+    assert r.status_code == 201, r.text
     return r.json()["id"]
 
 

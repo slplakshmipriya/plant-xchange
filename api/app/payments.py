@@ -61,6 +61,7 @@ from .auth import get_current_uid
 from .config import get_settings
 from .db import get_db_conn
 from .sitter import SitterRepo, get_sitter_repo
+from .users import UserRepo, get_user_repo
 
 router = APIRouter(prefix="/v1", tags=["payments"])
 
@@ -177,14 +178,21 @@ class PostgresPaymentRepo:
         self._conn = conn
 
     def create_intent(self, row):
-        self._conn.execute(
+        """Idempotent per booking (M8): two concurrent creates race past the
+        read-then-write check; the loser lands on ON CONFLICT DO NOTHING and
+        re-reads the winner's row instead of 500ing on the unique constraint."""
+        inserted = self._conn.execute(
             """INSERT INTO payment_intents
                (id, booking_id, amount_cents, fee_cents, client_secret, status)
-               VALUES (%s,%s,%s,%s,%s,%s)""",
+               VALUES (%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (booking_id) DO NOTHING
+               RETURNING id""",
             (row["id"], row["booking_id"], row["amount_cents"],
              row["fee_cents"], row["client_secret"], row.get("status", "created")),
-        )
+        ).fetchone()
         self._conn.commit()
+        if inserted is None:
+            return self.get_by_booking_id(row["booking_id"])
         return self.get_intent(row["id"])
 
     def get_intent(self, intent_id):
@@ -209,6 +217,10 @@ class MemoryPaymentRepo:
         self._by_booking: dict[str, str] = {}
 
     def create_intent(self, row):
+        # Mirror the Postgres ON CONFLICT DO NOTHING semantics: one intent
+        # per booking, re-read on a race.
+        if row["booking_id"] in self._by_booking:
+            return self.get_by_booking_id(row["booking_id"])
         rec = {
             "id": row["id"],
             "booking_id": row["booking_id"],
@@ -254,6 +266,7 @@ def create_sitting_intent(
     uid: str = Depends(get_current_uid),
     sitter_repo: SitterRepo = Depends(get_sitter_repo),
     payment_repo: PaymentRepo = Depends(get_payment_repo),
+    user_repo: UserRepo = Depends(get_user_repo),
     gateway: PaymentGateway = Depends(get_payment_gateway),
 ) -> dict[str, Any]:
     """Create a payment hold for an accepted sitting booking.
@@ -268,6 +281,13 @@ def create_sitting_intent(
     if booking["owner_uid"] != uid:
         raise HTTPException(403, {"code": "not_the_booking_owner",
                                   "message": "Only the booking owner can pay"})
+    # M20a: PRD requires IDV for paid sitting bookings — the person creating
+    # the hold must be identity-verified.
+    owner = user_repo.get(uid)
+    if owner is None or owner.get("idv_status", "unverified") != "verified":
+        raise HTTPException(403, {"code": "idv_not_verified",
+                                  "message": "Paid sitting bookings require identity "
+                                             "verification; complete IDV first"})
     status = booking.get("status")
     if status not in PAYABLE_STATUSES:
         raise HTTPException(409, {"code": "booking_not_payable",

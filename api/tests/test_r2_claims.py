@@ -51,7 +51,7 @@ MALLORY = {"Authorization": "Bearer mallory-token"}
 
 
 def _profile(client, headers, name):
-    r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+    r = client.post("/v1/users", json={"display_name": name, "age_attestation": True}, headers=headers)
     assert r.status_code == 200, r.text
 
 
@@ -512,3 +512,126 @@ def test_cancel_accepted_claim_reverses_money_leg(mem_claims):
     r = client.post(f"/v1/listings/{lid}/claims/cancel", headers=BOB)
     assert r.status_code == 404, r.text
     assert len(_claim_entries(crepo, "bob", claim_id)) == 2
+
+
+# ---------------------------------------------------------------------------
+# w2-commerce fixes: H7, H8, M5b, L2, L3
+# ---------------------------------------------------------------------------
+
+def test_restore_quantity_concurrent_no_lost_update(mem_claims):
+    """H7: concurrent restores must not lose updates (memory-path lock)."""
+    import threading
+
+    from app import claims as claims_mod
+
+    client, _, lrepo, _, _ = mem_claims
+    lid = _make_listing(client, ALICE, quantity=100)
+    lrepo.update(lid, {"remaining_qty": 5.0})
+
+    barrier = threading.Barrier(8)
+
+    def restore():
+        barrier.wait()
+        claims_mod._restore_quantity(lid, 2.0, lrepo)
+
+    threads = [threading.Thread(target=restore) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    # 5 + 8*2 = 21 exactly; a read-modify-write race would land lower.
+    assert lrepo.get(lid)["remaining_qty"] == 21.0
+
+
+def test_restore_quantity_caps_at_listing_quantity(mem_claims):
+    """H7: a restore never inflates remaining_qty past the listing quantity."""
+    from app import claims as claims_mod
+
+    client, _, lrepo, _, _ = mem_claims
+    lid = _make_listing(client, ALICE, quantity=10)
+    lrepo.update(lid, {"remaining_qty": 9.0})
+    updated = claims_mod._restore_quantity(lid, 5.0, lrepo)
+    assert updated["remaining_qty"] == 10.0
+
+
+def test_set_status_conditional_flip(mem_claims):
+    """H8: set_status only flips pending/accepted claims; anything else
+    returns None so the route can 409 instead of double-restoring."""
+    _, _, _, _, claim_repo = mem_claims
+
+    row = claim_repo.create({"id": "c1", "listing_id": "l1",
+                             "claimer_uid": "bob", "quantity": 1,
+                             "pickup_start_ms": 1, "pickup_end_ms": 2,
+                             "notes": None})
+    assert claim_repo.set_status("c1", "accepted")["status"] == "accepted"
+    # accepted -> declined is a legal conditional flip...
+    assert claim_repo.set_status("c1", "declined")["status"] == "declined"
+    # ...but a second flip from a terminal state is refused (loser 409s).
+    assert claim_repo.set_status("c1", "accepted") is None
+    assert claim_repo.set_status("c1", "cancelled") is None
+    assert claim_repo.set_status("missing", "cancelled") is None
+    assert row["status"] == "pending"
+
+
+def test_accept_after_cancel_409(mem_claims):
+    """H8 route-level: once a claim is cancelled, accept is a 409, not a
+    silent double transition."""
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+    claim_id = _claim(client, lid, BOB)["claim"]["id"]
+
+    r = client.post(f"/v1/listings/{lid}/claims/cancel", json={}, headers=BOB)
+    assert r.status_code == 200, r.text
+    r = client.post(f"/v1/listings/{lid}/claims/accept",
+                    json={"claimId": claim_id}, headers=ALICE)
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "claim_not_pending"
+
+
+def test_fractional_quantity_claim(mem_claims):
+    """L3: a 0.5 kg listing can be claimed (ClaimIn minimum is now gt=0)."""
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE, quantity=0.5)
+    _profile(client, BOB, "Bob")
+
+    body = _claim(client, lid, BOB, quantity=0.5)
+    assert body["claim"]["quantity"] == 0.5
+    assert body["listing"]["remaining_qty"] == 0
+    assert body["listing"]["status"] == "completed"
+
+    # Zero / negative quantities are still rejected.
+    lid2 = _make_listing(client, ALICE, quantity=0.5)
+    r = client.post(f"/v1/listings/{lid2}/claims",
+                    json=_claim_body(quantity=0), headers=BOB)
+    assert r.status_code == 422, r.text
+    r = client.post(f"/v1/listings/{lid2}/claims",
+                    json=_claim_body(quantity=-0.5), headers=BOB)
+    assert r.status_code == 422, r.text
+
+
+def test_fractional_claim_chain_closes_listing(mem_claims):
+    """M5b: repeated fractional claims must reach the fully-picked
+    transition even if float dust remains (epsilon compare)."""
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE, quantity=0.3)
+    _profile(client, BOB, "Bob")
+
+    for _ in range(2):
+        body = _claim(client, lid, BOB, quantity=0.1)
+        assert body["listing"]["status"] == "live"
+    body = _claim(client, lid, BOB, quantity=0.1)
+    assert body["listing"]["status"] == "completed"
+
+
+def test_check_pillar_suspension_requires_explicit_repo():
+    """L2: no module-global repo fallback — a missing repo raises loudly
+    instead of reusing another request's connection."""
+    import pytest
+
+    from app import claims as claims_mod
+
+    with pytest.raises(RuntimeError):
+        claims_mod.check_pillar_suspension("bob", "claims", None)
+    with pytest.raises(RuntimeError):
+        claims_mod.check_pillar_suspension("bob", "claims")

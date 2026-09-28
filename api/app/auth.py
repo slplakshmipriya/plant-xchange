@@ -69,10 +69,15 @@ def init_firebase() -> None:
 
 
 def verify_id_token(token: str) -> dict:
-    """Thin wrapper around firebase-admin so tests can monkeypatch one symbol."""
+    """Thin wrapper around firebase-admin so tests can monkeypatch one symbol.
+
+    ``check_revoked=True`` (H14): a disabled/deleted user's ID token is
+    rejected immediately instead of lingering for up to ~1h. Costs one extra
+    identity-platform lookup per verification — correctness over cost.
+    """
     from firebase_admin import auth as fb_auth
 
-    return fb_auth.verify_id_token(token)
+    return fb_auth.verify_id_token(token, check_revoked=True)
 
 
 class FirebaseAuthMiddleware(BaseHTTPMiddleware):

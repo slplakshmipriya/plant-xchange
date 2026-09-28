@@ -12,18 +12,33 @@ listing ``photos[]`` entries reference.
   exact coordinates — SEC-010).
 - Keys are ``u/{uid}/{uuid}.{ext}``; ownership and path traversal are
   enforced on every operation.
+
+Pre-launch storage checklist (H5):
+  1. ``STORAGE_BACKEND=gcs`` and ``GCS_BUCKET`` are set; the
+     ``google-cloud-storage`` package is installed; the runtime service
+     account can ``storage.objects.get/create`` on the bucket.
+  2. ``ENVIRONMENT=production`` (or ``prod``) — the app refuses to boot with
+     ``STORAGE_BACKEND=local`` in prod (``validate_storage_config``); local
+     dev keeps the local stub default.
+  3. ``GCSStorage.finalize`` downloads -> validates -> strips GPS EXIF ->
+     re-uploads. Before launch, verify on one real photo: download the
+     public object and confirm the GPS IFD is gone.
+  4. ``GCSStorage.sign_upload`` is still a skeleton (V4 signed-PUT minting
+     not wired) — do NOT go live on the GCS backend until it is.
 """
 
 from __future__ import annotations
 
+import io
 import logging
 import mimetypes
+import os
 import re
 import uuid
 from pathlib import Path
 from typing import Protocol
 
-from .config import get_settings
+from .config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +89,42 @@ def _check_key_format(key: str) -> None:
         raise StorageError("malformed upload key")
 
 
+def _strip_gps_exif(data: bytes) -> tuple[bytes, bool, str]:
+    """Validate image bytes and strip GPS EXIF (H5/C7 pipeline core).
+
+    Shared by ``LocalStubStorage.finalize`` and ``GCSStorage.finalize`` so
+    the production path strips GPS exactly like the local one: download ->
+    validate -> strip -> re-upload. Returns ``(clean_bytes, gps_removed,
+    content_type)``. Raises ``StorageError`` on oversized / invalid /
+    corrupt input.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    if len(data) > MAX_IMAGE_BYTES:
+        raise StorageError("upload exceeds 8 MB")
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            img.verify()  # not a real image -> raises
+        with Image.open(io.BytesIO(data)) as img:
+            fmt = (img.format or "JPEG").lower()
+            img.load()
+            exif = img.getexif()
+            gps_removed = GPS_IFD_TAG in exif
+            if gps_removed:
+                del exif[GPS_IFD_TAG]
+            # Re-save: applies GPS stripping and normalizes the file.
+            buf = io.BytesIO()
+            img.save(buf, format=img.format or "JPEG", exif=exif)
+    except UnidentifiedImageError as exc:
+        raise StorageError("not a valid image") from exc
+    except StorageError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — corrupt image, safe 422
+        raise StorageError(f"image processing failed: {type(exc).__name__}") from exc
+    content_type = f"image/{'jpeg' if fmt == 'jpeg' else fmt}"
+    return buf.getvalue(), gps_removed, content_type
+
+
 class LocalStubStorage:
     """Dev/test backend: files under <root>/<key>, served by /v1/uploads/public."""
 
@@ -115,32 +166,12 @@ class LocalStubStorage:
         path.write_bytes(data)
 
     def finalize(self, uid: str, key: str) -> dict:
-        from PIL import Image, UnidentifiedImageError
-
         _check_key(key, uid)
         path = self._path(key)
         if not path.is_file():
             raise StorageError("upload not found — PUT bytes to upload_url first")
-        if path.stat().st_size > MAX_IMAGE_BYTES:
-            raise StorageError("upload exceeds 8 MB")
-        try:
-            with Image.open(path) as img:
-                img.verify()  # not a real image -> raises
-            with Image.open(path) as img:
-                fmt = (img.format or "JPEG").lower()
-                img.load()
-                exif = img.getexif()
-                gps_removed = GPS_IFD_TAG in exif
-                if gps_removed:
-                    del exif[GPS_IFD_TAG]
-                # Re-save: applies GPS stripping and normalizes the file.
-                img.save(path, format=img.format or "JPEG", exif=exif)
-        except UnidentifiedImageError as exc:
-            raise StorageError("not a valid image") from exc
-        except StorageError:
-            raise
-        except Exception as exc:  # noqa: BLE001 — corrupt image, safe 422
-            raise StorageError(f"image processing failed: {type(exc).__name__}") from exc
+        clean, gps_removed, content_type = _strip_gps_exif(path.read_bytes())
+        path.write_bytes(clean)
         if gps_removed:
             logger.info("stripped EXIF GPS from upload %s", key)
         public_url = f"/v1/uploads/public/{key}"
@@ -148,23 +179,73 @@ class LocalStubStorage:
             "key": key,
             "public_url": public_url,
             "thumb_url": public_url,  # stub: no separate thumbnail rendition
-            "size_bytes": path.stat().st_size,
-            "content_type": f"image/{'jpeg' if fmt == 'jpeg' else fmt}",
+            "size_bytes": len(clean),
+            "content_type": content_type,
             "gps_stripped": gps_removed,
         }
 
 
+class GCSBlobStore(Protocol):
+    """Seam for GCS blob I/O behind ``GCSStorage.finalize``.
+
+    The live adapter uses ``google-cloud-storage`` (lazy import); tests
+    inject a fake. Keeping blob I/O behind this seam is what lets the
+    download -> validate -> strip -> re-upload pipeline be unit-tested
+    without network or credentials.
+    """
+
+    def download(self, key: str) -> bytes:
+        """Blob bytes for ``key``. Raises ``StorageError`` when absent."""
+        ...
+
+    def upload(self, key: str, data: bytes, content_type: str) -> None:
+        """Replace the blob at ``key`` with ``data``."""
+        ...
+
+
+class _LiveGCSBlobStore:
+    """Real GCS I/O. Built lazily so importing this module never needs the
+    ``google-cloud-storage`` package (absent in dev/CI)."""
+
+    def __init__(self, bucket: str):
+        try:
+            from google.cloud import storage as gcs
+        except ImportError as exc:
+            raise StorageNotConfigured(
+                "STORAGE_BACKEND=gcs requires the google-cloud-storage package"
+            ) from exc
+        self._bucket = gcs.Client().bucket(bucket)
+
+    def download(self, key: str) -> bytes:
+        blob = self._bucket.blob(key)
+        data = blob.download_as_bytes()
+        if data is None:
+            raise StorageError("upload not found — PUT bytes to upload_url first")
+        return data
+
+    def upload(self, key: str, data: bytes, content_type: str) -> None:
+        self._bucket.blob(key).upload_from_string(data, content_type=content_type)
+
+
 class GCSStorage:
-    """Production skeleton (STORAGE_BACKEND=gcs). Structure only — no creds,
-    no network calls in this environment. sign_upload would mint a GCS V4
-    signed PUT URL; finalize would validate via a GCS download stream."""
+    """Production backend (STORAGE_BACKEND=gcs).
 
-    def __init__(self, bucket: str | None = None):
-        import os
+    ``finalize`` runs the full EXIF pipeline: download -> validate ->
+    strip GPS EXIF -> re-upload (H5: production photos must not keep GPS).
+    The GPS-stripping core is shared with the local stub via
+    ``_strip_gps_exif``; blob I/O goes through the ``GCSBlobStore`` seam.
+    """
 
+    def __init__(self, bucket: str | None = None, _blob_store: GCSBlobStore | None = None):
         self.bucket = bucket or os.environ.get("GCS_BUCKET")
         if not self.bucket:
             raise StorageNotConfigured("GCS_BUCKET is not set")
+        self._blob_store = _blob_store
+
+    def _store(self) -> GCSBlobStore:
+        if self._blob_store is not None:
+            return self._blob_store
+        return _LiveGCSBlobStore(self.bucket)
 
     def sign_upload(self, uid: str, content_type: str, size_bytes: int) -> dict:
         raise StorageNotConfigured("GCS signed-URL minting is not wired in this environment")
@@ -173,11 +254,58 @@ class GCSStorage:
         raise StorageNotConfigured("GCS backend has no local raw-PUT path")
 
     def finalize(self, uid: str, key: str) -> dict:
-        raise StorageNotConfigured("GCS finalize is not wired in this environment")
+        _check_key(key, uid)
+        store = self._store()
+        try:
+            data = store.download(key)
+        except StorageError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — client-lib errors, safe 422/502
+            raise StorageError(f"GCS download failed: {type(exc).__name__}") from exc
+        clean, gps_removed, content_type = _strip_gps_exif(data)
+        try:
+            store.upload(key, clean, content_type)
+        except Exception as exc:  # noqa: BLE001 — client-lib errors, safe 502
+            raise StorageError(f"GCS re-upload failed: {type(exc).__name__}") from exc
+        if gps_removed:
+            logger.info("stripped EXIF GPS from GCS upload %s", key)
+        public_url = f"https://storage.googleapis.com/{self.bucket}/{key}"
+        return {
+            "key": key,
+            "public_url": public_url,
+            "thumb_url": public_url,  # no separate thumbnail rendition (yet)
+            "size_bytes": len(clean),
+            "content_type": content_type,
+            "gps_stripped": gps_removed,
+        }
+
+
+def validate_storage_config(settings: Settings) -> None:
+    """Fail-closed storage deployment check (H5).
+
+    ``LocalStubStorage`` writes to the container's ephemeral filesystem —
+    on Cloud Run it vanishes at scale-to-zero, and listing photos are
+    required for live listings, so the core flow would silently break.
+    Refuse to boot ``STORAGE_BACKEND=local`` when ``ENVIRONMENT`` signals
+    production. Mirrors ``validate_idv_config`` in ``config.py``: call at
+    startup (lifespan), and ``get_storage()`` enforces it lazily too so the
+    stub backend can never be instantiated in prod even if startup
+    validation is skipped.
+    """
+    if settings.storage_backend == "local" and os.environ.get(
+        "ENVIRONMENT", ""
+    ).strip().lower() in ("production", "prod"):
+        raise RuntimeError(
+            "STORAGE_BACKEND=local with ENVIRONMENT=production: the local stub "
+            "writes to the ephemeral container filesystem and must never run "
+            "in production. Set STORAGE_BACKEND=gcs (and GCS_BUCKET)."
+        )
 
 
 def get_storage() -> StorageBackend:
-    backend = get_settings().storage_backend
+    settings = get_settings()
+    validate_storage_config(settings)  # H5: fail closed on local-in-prod
+    backend = settings.storage_backend
     if backend == "gcs":
         return GCSStorage()
     if backend == "local":

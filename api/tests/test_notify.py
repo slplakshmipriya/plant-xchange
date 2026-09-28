@@ -131,3 +131,26 @@ def test_log_records_every_attempt(frozen, recorder):
     send_notification("a", "c", "t", "b", repo=repo, sender=recorder, ref="r1")  # duplicate
     outcomes = [e["outcome"] for e in repo._log]
     assert outcomes == ["sent", "skipped_duplicate"]
+
+
+def test_bad_user_tz_falls_back_to_utc(monkeypatch, caplog):
+    # M14: a typo'd USER_TZ must not 500 every send — UTC fallback + warning.
+    from app.notify import in_quiet_hours, validate_user_tz
+    from app.config import get_settings
+
+    monkeypatch.setenv("USER_TZ", "Not/AZone")
+    with caplog.at_level("WARNING", logger="app.notify"):
+        # 10:00 UTC; default 21:00-08:00 window -> not quiet, and no raise.
+        assert in_quiet_hours(datetime(2026, 9, 28, 10, 0, tzinfo=timezone.utc)) is False
+        # 23:00 UTC falls inside 21:00-08:00 in the UTC fallback.
+        assert in_quiet_hours(datetime(2026, 9, 28, 23, 0, tzinfo=timezone.utc)) is True
+        validate_user_tz(get_settings())  # startup check: loud, not fatal
+    assert "USER_TZ" in caplog.text
+
+
+def test_valid_user_tz_still_honored(monkeypatch):
+    from app.notify import in_quiet_hours
+
+    monkeypatch.setenv("USER_TZ", "America/New_York")
+    # 02:00 UTC = 22:00 EDT -> inside default quiet window.
+    assert in_quiet_hours(NIGHT_10PM_EDT) is True

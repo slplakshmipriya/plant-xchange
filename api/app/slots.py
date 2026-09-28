@@ -23,10 +23,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .auth import ensure_owner, get_current_uid
+from .claims import serialize_spend
 from .credits import CreditRepo, get_credit_repo
 from .db import get_db_conn
 from .listings import ListingRepo, get_listing_repo
 from .moderation import ModerationRepo, get_moderation_repo, get_suspension
+from .users import UserRepo, get_user_repo
 
 router = APIRouter(prefix="/v1", tags=["trees"])
 
@@ -280,10 +282,13 @@ def claim_slot(
     slot_repo: SlotRepo = Depends(get_slot_repo),
     credit_repo: CreditRepo = Depends(get_credit_repo),
     mod_repo: ModerationRepo = Depends(get_moderation_repo),
+    user_repo: UserRepo = Depends(get_user_repo),
 ) -> dict[str, Any]:
     """Claim a spot in a slot. credit_cost credits move claimer -> owner via
     the ledger; claimed_count increments. Not the owner, not when suspended,
-    not when full, not when the wallet is short."""
+    not when full, not when the wallet is short. Solo slots (maxPickers 1)
+    additionally require a verified ID (PRD: IDV required for solo
+    pick-your-own access)."""
     _tree_or_404(tree_id, listing_repo)
     slot = slot_repo.get(slot_id)
     if slot is None or slot["tree_id"] != tree_id:
@@ -301,28 +306,42 @@ def claim_slot(
     if slot["claimed_count"] >= slot["max_pickers"]:
         raise HTTPException(409, {"code": "slot_full",
                                   "message": "This slot is full"})
+    if slot["max_pickers"] == 1:
+        # M20b: PRD requires IDV for solo pick-your-own access.
+        profile = user_repo.get(uid)
+        if profile is None or profile.get("idv_status") != "verified":
+            raise HTTPException(
+                403, {"code": "idv_required",
+                      "message": "Solo pick-your-own requires a verified ID "
+                                 "(complete ID verification first)"})
     cost = slot["credit_cost"]
-    if credit_repo.balance(uid) < cost:
-        raise HTTPException(422, {"code": "insufficient_credits",
-                                  "message": "Not enough credits — give before you claim"})
-    # Atomic claim: the (slot, claimer) record and the claimed_count
-    # increment happen in one transaction. A repeat claim by the same user
-    # raises AlreadyClaimed (409) instead of double-counting a spot that
-    # the idempotent ledger would never charge twice for.
-    try:
-        updated = slot_repo.claim_slot(slot_id, uid)
-    except AlreadyClaimed:
-        raise HTTPException(409, {"code": "already_claimed",
-                                  "message": "You already claimed a spot in this slot"})
-    if updated is None:
-        raise HTTPException(409, {"code": "slot_full",
-                                  "message": "This slot just filled up"})
-    # Credits move through the append-only ledger (same pattern as
-    # exchange.confirm). Idempotency keys include the claimer so each claim
-    # is a distinct spot purchase.
-    base_key = f"slot:{slot_id}:{uid}"
-    credit_repo.add_entry(uid, -cost, "slot_spend", ref_id=slot_id,
-                          idempotency_key=f"{base_key}:spend")
-    credit_repo.add_entry(slot["owner_uid"], cost, "slot_earn", ref_id=slot_id,
-                          idempotency_key=f"{base_key}:earn")
+    # H11: the balance gate and the spend post are serialized per claimer —
+    # two concurrent slot claims would otherwise both pass the gate and
+    # both post, driving the balance negative. The atomic spot claim runs
+    # inside the same critical section so a won spot is always paid for
+    # exactly once, and a lost race pays nothing.
+    with serialize_spend(uid, credit_repo):
+        if credit_repo.balance(uid) < cost:
+            raise HTTPException(422, {"code": "insufficient_credits",
+                                      "message": "Not enough credits — give before you claim"})
+        # Atomic claim: the (slot, claimer) record and the claimed_count
+        # increment happen in one transaction. A repeat claim by the same user
+        # raises AlreadyClaimed (409) instead of double-counting a spot that
+        # the idempotent ledger would never charge twice for.
+        try:
+            updated = slot_repo.claim_slot(slot_id, uid)
+        except AlreadyClaimed:
+            raise HTTPException(409, {"code": "already_claimed",
+                                      "message": "You already claimed a spot in this slot"})
+        if updated is None:
+            raise HTTPException(409, {"code": "slot_full",
+                                      "message": "This slot just filled up"})
+        # Credits move through the append-only ledger (same pattern as
+        # exchange.confirm). Idempotency keys include the claimer so each claim
+        # is a distinct spot purchase.
+        base_key = f"slot:{slot_id}:{uid}"
+        credit_repo.add_entry(uid, -cost, "slot_spend", ref_id=slot_id,
+                              idempotency_key=f"{base_key}:spend")
+        credit_repo.add_entry(slot["owner_uid"], cost, "slot_earn", ref_id=slot_id,
+                              idempotency_key=f"{base_key}:earn")
     return {"slot": public_slot(updated)}

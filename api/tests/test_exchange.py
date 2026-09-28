@@ -8,8 +8,10 @@ import pytest
 
 @pytest.fixture()
 def mem_exchange(client, monkeypatch):
+    from app import claims as claims_mod
     from app import exchange as exchange_mod
     from app import listings as listings_mod
+    from app import moderation as moderation_mod
     from app import notify as notify_mod
     from app import users as users_mod
     from app import wantlist as wantlist_mod
@@ -21,10 +23,14 @@ def mem_exchange(client, monkeypatch):
     crepo = wire_credit_repo(client)
     wrepo = wantlist_mod.MemoryWantRepo()
     nrepo = notify_mod.MemoryNotificationRepo()
+    claim_repo = claims_mod.MemoryClaimRepo()
+    mrepo = moderation_mod.MemoryModerationRepo()
     client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
     client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
     client.app.dependency_overrides[wantlist_mod.get_want_repo] = lambda: wrepo
     client.app.dependency_overrides[notify_mod.get_notification_repo] = lambda: nrepo
+    client.app.dependency_overrides[claims_mod.get_claim_repo] = lambda: claim_repo
+    client.app.dependency_overrides[moderation_mod.get_moderation_repo] = lambda: mrepo
 
     def fake(token: str) -> dict:
         if token == "good-token":
@@ -37,7 +43,7 @@ def mem_exchange(client, monkeypatch):
 
     monkeypatch.setattr(auth_mod, "verify_id_token", fake)
     assert exchange_mod is not None  # router registered on the app
-    return client, urepo, lrepo, crepo
+    return client, urepo, lrepo, crepo, claim_repo, mrepo
 
 
 ALICE = {"Authorization": "Bearer good-token"}
@@ -46,7 +52,7 @@ MALLORY = {"Authorization": "Bearer mallory-token"}
 
 
 def _profile(client, headers, name):
-    r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+    r = client.post("/v1/users", json={"display_name": name, "age_attestation": True}, headers=headers)
     assert r.status_code == 200, r.text
 
 
@@ -74,7 +80,7 @@ def _make_listing(client, cost=2):
 
 
 def test_starter_credits_on_profile_creation(mem_exchange):
-    client, _, _, crepo = mem_exchange
+    client, _, _, crepo, _, _ = mem_exchange
     _profile(client, ALICE, "Alice")
     body = client.get("/v1/wallet", headers=ALICE).json()
     assert body["balance"] == 3
@@ -86,7 +92,7 @@ def test_starter_credits_on_profile_creation(mem_exchange):
 
 
 def test_starter_credits_on_phone_verify_path(mem_exchange):
-    client, _, _, _ = mem_exchange
+    client, _, _, _, _, _ = mem_exchange
     r = client.post("/v1/auth/verify", headers=ALICE)
     assert r.status_code == 200, r.text
     # Verify-first user still gets exactly one bootstrap grant.
@@ -95,16 +101,17 @@ def test_starter_credits_on_phone_verify_path(mem_exchange):
 
 
 def test_wallet_has_no_pii(mem_exchange):
-    client, _, _, _ = mem_exchange
+    client, _, _, _, _, _ = mem_exchange
     _profile(client, ALICE, "Alice")
     body = client.get("/v1/wallet", headers=ALICE).json()
-    assert set(body) == {"uid", "balance", "entries"}
+    # M16: paginated ledger — total/limit/offset join the wire shape.
+    assert set(body) == {"uid", "balance", "total", "limit", "offset", "entries"}
     for e in body["entries"]:
         assert set(e) == {"id", "delta", "reason", "ref_id", "created_at"}
 
 
 def test_claim_and_two_party_confirm_moves_credits(mem_exchange):
-    client, _, _, _ = mem_exchange
+    client, _, _, _, _, _ = mem_exchange
     lid = _make_listing(client, cost=2)
     _profile(client, BOB, "Bob")
 
@@ -136,7 +143,7 @@ def test_claim_and_two_party_confirm_moves_credits(mem_exchange):
 
 
 def test_confirm_idempotent_on_key_and_after_completion(mem_exchange):
-    client, _, _, _ = mem_exchange
+    client, _, _, _, _, _ = mem_exchange
     lid = _make_listing(client, cost=1)
     _profile(client, BOB, "Bob")
     client.post(f"/v1/listings/{lid}/claim", headers=BOB)
@@ -159,7 +166,7 @@ def test_confirm_idempotent_on_key_and_after_completion(mem_exchange):
 
 
 def test_claim_rules(mem_exchange):
-    client, _, _, _ = mem_exchange
+    client, _, _, _, _, _ = mem_exchange
     lid = _make_listing(client, cost=2)
 
     # Owner cannot claim their own listing.
@@ -198,7 +205,7 @@ def test_claim_rules(mem_exchange):
 
 
 def test_confirm_rules(mem_exchange):
-    client, _, _, _ = mem_exchange
+    client, _, _, _, _, _ = mem_exchange
     lid = _make_listing(client, cost=2)
     _profile(client, BOB, "Bob")
 
@@ -224,7 +231,7 @@ def test_confirm_rules(mem_exchange):
 
 def test_atomic_claim_only_one_winner(mem_exchange):
     """Review: two claimants racing must not both win."""
-    client, urepo, lrepo, crepo = mem_exchange
+    client, urepo, lrepo, crepo, _, _ = mem_exchange
     _profile(client, ALICE, "Alice")
     _profile(client, BOB, "Bob")
     _profile(client, MALLORY, "Mallory")
@@ -238,7 +245,7 @@ def test_atomic_claim_only_one_winner(mem_exchange):
 def test_double_confirm_moves_credits_exactly_once(mem_exchange):
     """Review: both parties confirming twice (no idempotency key) still moves
     credits exactly once — deterministic server-side keys + atomic flip."""
-    client, urepo, lrepo, crepo = mem_exchange
+    client, urepo, lrepo, crepo, _, _ = mem_exchange
     _profile(client, ALICE, "Alice")
     _profile(client, BOB, "Bob")
     listing_id = _make_listing(client, cost=2)
@@ -261,7 +268,7 @@ def test_crash_between_spend_and_earn_recovers_on_retry(mem_exchange, monkeypatc
     resumes the earn/flip legs instead of short-circuiting, the earn posts
     exactly once, the listing completes, and the claimer is not
     double-charged."""
-    client, urepo, lrepo, crepo = mem_exchange
+    client, urepo, lrepo, crepo, _, _ = mem_exchange
     _profile(client, ALICE, "Alice")
     _profile(client, BOB, "Bob")
     listing_id = _make_listing(client, cost=2)
@@ -327,7 +334,7 @@ def test_crash_between_spend_and_earn_recovers_on_retry(mem_exchange, monkeypatc
 def test_confirm_rechecks_balance_at_confirm_time(mem_exchange):
     """Review: spending between claim and confirm must not drive a balance
     negative — confirm rechecks."""
-    client, urepo, lrepo, crepo = mem_exchange
+    client, urepo, lrepo, crepo, _, _ = mem_exchange
     _profile(client, ALICE, "Alice")
     _profile(client, BOB, "Bob")
     listing_id = _make_listing(client, cost=3)
@@ -341,3 +348,62 @@ def test_confirm_rechecks_balance_at_confirm_time(mem_exchange):
     assert r.json()["code"] == "insufficient_credits"
     assert lrepo.get(listing_id)["status"] == "claimed"  # not completed
     assert crepo.balance("bob") == 0  # never negative
+
+
+# ---------------------------------------------------------------- w2-commerce fixes
+
+def test_whole_claim_blocked_for_suspended_user(mem_exchange):
+    """H6: a no-show-suspended user blocked on the partial-claim endpoint
+    must also be blocked on the whole-listing claim."""
+    client, _, _, _, claim_repo, _ = mem_exchange
+    lid = _make_listing(client, cost=2)
+    _profile(client, BOB, "Bob")
+    claim_repo.record_no_show("bob")
+    claim_repo.record_no_show("bob")  # 2 strikes -> 30-day suspension
+    r = client.post(f"/v1/listings/{lid}/claim", headers=BOB)
+    assert r.status_code == 403, r.text
+    assert r.json()["code"] == "claim_suspended"
+    assert "no-show" in r.json()["message"] or "no-shows" in r.json()["message"]
+
+
+def test_whole_claim_blocked_for_new_account_claim_cap(mem_exchange):
+    """H6: a new account that exhausted its rolling claim cap on the
+    partial-claim endpoint cannot dodge it via the whole-listing claim."""
+    client, _, _, _, claim_repo, _ = mem_exchange
+    lid = _make_listing(client, cost=2)
+    _profile(client, BOB, "Bob")
+    for i in range(5):
+        claim_repo.create({"id": f"cap-{i}", "listing_id": lid,
+                           "claimer_uid": "bob", "quantity": 1,
+                           "pickup_start_ms": 1, "pickup_end_ms": 2,
+                           "notes": None})
+    r = client.post(f"/v1/listings/{lid}/claim", headers=BOB)
+    assert r.status_code == 403, r.text
+    assert r.json()["code"] == "new_account_claim_cap"
+
+
+def test_whole_claim_allowed_when_eligible(mem_exchange):
+    """H6: eligibility enforcement must not block a clean user."""
+    client, _, _, _, _, _ = mem_exchange
+    lid = _make_listing(client, cost=2)
+    _profile(client, BOB, "Bob")
+    r = client.post(f"/v1/listings/{lid}/claim", headers=BOB)
+    assert r.status_code == 200, r.text
+
+
+def test_wallet_pagination(mem_exchange):
+    """M16: GET /v1/wallet pages the ledger instead of dumping it whole."""
+    client, _, _, crepo, _, _ = mem_exchange
+    _profile(client, ALICE, "Alice")  # 1 starter entry
+    for i in range(60):
+        crepo.add_entry("alice", 1, "starter", ref_id=f"seed-{i}")
+    body = client.get("/v1/wallet", headers=ALICE).json()
+    assert body["total"] == 61
+    assert body["limit"] == 50 and body["offset"] == 0
+    assert len(body["entries"]) == 50  # default page, not the whole ledger
+    page = client.get("/v1/wallet?limit=10&offset=55", headers=ALICE).json()
+    assert page["total"] == 61 and page["limit"] == 10 and page["offset"] == 55
+    assert len(page["entries"]) == 6
+    assert client.get("/v1/wallet?limit=0", headers=ALICE).status_code == 422
+    assert client.get("/v1/wallet?limit=501", headers=ALICE).status_code == 422
+    assert client.get("/v1/wallet?offset=-1", headers=ALICE).status_code == 422

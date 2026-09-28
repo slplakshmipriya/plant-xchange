@@ -20,6 +20,7 @@ import contextvars
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -116,6 +117,17 @@ def _rate_limit_per_min() -> int:
     return get_settings().rate_limit_per_min
 
 
+#: Tighter per-endpoint rate limits for abuse-prone write endpoints (M3).
+#: (path regex, requests/minute), checked *in addition* to the global
+#: bucket — any denial returns 429. These apply automatically; main.py does
+#: not need to wire anything.
+ENDPOINT_RATE_LIMITS: tuple[tuple[str, int], ...] = (
+    (r"^/v1/reports", 20),                    # report spam / moderation griefing
+    (r"^/v1/threads/[^/]+/messages", 30),      # chat message flooding
+    (r"^/v1/auth/verify", 20),                # credential-stuffing shaped traffic
+)
+
+
 class TokenBucketLimiter:
     """In-memory token bucket. NOT shared across Cloud Run instances (see docstring)."""
 
@@ -127,15 +139,12 @@ class TokenBucketLimiter:
 
     @staticmethod
     def bucket_key(request: Request) -> str:
-        # Prefer the leftmost X-Forwarded-For entry: behind Cloud Run's
-        # load balancer request.client.host would otherwise be the LB's IP
-        # and every anonymous caller would share one bucket. (uvicorn also
-        # runs with --proxy-headers, which rewrites scope["client"]; reading
-        # XFF explicitly keeps this correct regardless of proxy config.)
-        xff = request.headers.get("x-forwarded-for", "")
-        client = xff.split(",")[0].strip() or (
-            request.client.host if request.client else "unknown"
-        )
+        # Key on request.client.host (M3). uvicorn runs with --proxy-headers
+        # (Dockerfile), so behind Cloud Run's LB this is the real client IP
+        # the LB appended — the leftmost X-Forwarded-For entry the old code
+        # used is attacker-spoofable (prepend arbitrary values, rotate
+        # buckets, evade the limit). When there is no peer (tests), "unknown".
+        client = request.client.host if request.client else "unknown"
         auth = request.headers.get("authorization", "")
         cred = hashlib.sha256(auth.encode()).hexdigest()[:16] if auth else "anon"
         return f"{client}:{cred}"
@@ -159,20 +168,34 @@ class TokenBucketLimiter:
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, per_minute: int | None = None):
+    def __init__(
+        self,
+        app,
+        per_minute: int | None = None,
+        endpoint_limits: tuple[tuple[str, int], ...] | None = None,
+    ):
         super().__init__(app)
         self.limiter = TokenBucketLimiter(
             per_minute if per_minute is not None else _rate_limit_per_min()
         )
+        patterns = ENDPOINT_RATE_LIMITS if endpoint_limits is None else endpoint_limits
+        self._endpoint_limiters = [
+            (re.compile(pat), TokenBucketLimiter(n)) for pat, n in patterns
+        ]
 
     async def dispatch(self, request: Request, call_next):
-        ok, retry_after = self.limiter.allow(TokenBucketLimiter.bucket_key(request))
-        if not ok:
-            return error_response(
-                request,
-                429,
-                "rate_limited",
-                "Too many requests — please slow down.",
-                headers={"Retry-After": str(max(1, int(retry_after + 0.5)))},
-            )
+        key = TokenBucketLimiter.bucket_key(request)
+        limiters = [self.limiter] + [
+            lim for pat, lim in self._endpoint_limiters if pat.match(request.url.path)
+        ]
+        for lim in limiters:
+            ok, retry_after = lim.allow(key)
+            if not ok:
+                return error_response(
+                    request,
+                    429,
+                    "rate_limited",
+                    "Too many requests — please slow down.",
+                    headers={"Retry-After": str(max(1, int(retry_after + 0.5)))},
+                )
         return await call_next(request)

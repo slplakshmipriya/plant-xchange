@@ -292,7 +292,7 @@ def test_sitter_roundtrip(pg_conn, users):
     assert req["status"] == "requested"
     assert req["start_date"] == "2026-10-05"
     assert repo.get_request(req["id"])["plant_count"] == 3
-    assert repo.set_request_status(req["id"], "accepted")["status"] == "accepted"
+    assert repo.set_request_status(req["id"], "accepted", "requested")["status"] == "accepted"
 
 
 def test_payments_roundtrip(pg_conn, users):

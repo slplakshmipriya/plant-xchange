@@ -7,7 +7,12 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from app.middleware import JsonFormatter, TokenBucketLimiter
+from app.middleware import (
+    ENDPOINT_RATE_LIMITS,
+    JsonFormatter,
+    RateLimitMiddleware,
+    TokenBucketLimiter,
+)
 
 
 @pytest.fixture()
@@ -126,7 +131,7 @@ def test_unauthorized_uses_envelope_with_request_id(client):
     assert r.headers["X-Request-ID"] == body["request_id"]
 
 
-def test_bucket_key_prefers_x_forwarded_for():
+def test_bucket_key_uses_client_host_not_xff():
     from starlette.requests import Request
 
     def make_request(xff: str | None):
@@ -138,19 +143,72 @@ def test_bucket_key_prefers_x_forwarded_for():
             "method": "GET",
             "path": "/me",
             "headers": headers,
-            "client": ("10.0.0.1", 1234),  # LB IP when behind a proxy
+            "client": ("10.0.0.1", 1234),  # LB-appended real IP (uvicorn --proxy-headers)
         }
         return Request(scope)
 
-    # Leftmost XFF entry wins; distinct clients get distinct buckets.
+    # M3: a spoofed leftmost XFF entry must NOT move the bucket — the key
+    # comes from request.client.host, which the LB set.
     assert TokenBucketLimiter.bucket_key(make_request("203.0.113.7, 10.0.0.1")).startswith(
-        "203.0.113.7:"
+        "10.0.0.1:"
     )
     assert TokenBucketLimiter.bucket_key(make_request("198.51.100.9")).startswith(
-        "198.51.100.9:"
+        "10.0.0.1:"
     )
-    # No XFF: falls back to the direct peer address.
-    assert TokenBucketLimiter.bucket_key(make_request(None)).startswith("10.0.0.1:")
+    # No peer address at all: falls back to "unknown".
+    scope_req = make_request(None)
+    scope_req.scope["client"] = None
+    assert TokenBucketLimiter.bucket_key(scope_req).startswith("unknown:")
+    # Credential fingerprint still partitions authed vs anonymous buckets.
+    authed = make_request(None)
+    authed.scope["headers"] = [(b"authorization", b"Bearer <redacted>")]
+    assert TokenBucketLimiter.bucket_key(authed).startswith("10.0.0.1:")
+    assert TokenBucketLimiter.bucket_key(authed) != TokenBucketLimiter.bucket_key(
+        make_request(None)
+    )
+
+
+def test_endpoint_specific_limits_apply_in_addition_to_global():
+    # M3: abuse-prone endpoints get tighter buckets that trip before the
+    # global one; other paths are unaffected.
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.add_middleware(
+        RateLimitMiddleware, per_minute=1000, endpoint_limits=[(r"^/v1/reports", 2)]
+    )
+
+    @app.post("/v1/reports")
+    def reports():
+        return {"ok": True}
+
+    @app.get("/v1/other")
+    def other():
+        return {"ok": True}
+
+    c = TestClient(app)
+    assert c.post("/v1/reports").status_code == 200
+    assert c.post("/v1/reports").status_code == 200
+    r = c.post("/v1/reports")
+    assert r.status_code == 429
+    assert r.headers["Retry-After"]
+    assert c.get("/v1/other").status_code == 200
+
+
+def test_default_endpoint_limits_cover_review_flagged_paths():
+    # The three paths the review flagged must match some default pattern.
+    import re
+
+    paths = ["/v1/reports", "/v1/threads/abc-123/messages", "/v1/auth/verify"]
+    for path in paths:
+        assert any(
+            re.compile(pat).match(path) for pat, _ in ENDPOINT_RATE_LIMITS
+        ), f"no default limit pattern matches {path}"
+    # Non-flagged paths match nothing.
+    assert not any(
+        re.compile(pat).match("/v1/listings") for pat, _ in ENDPOINT_RATE_LIMITS
+    )
 
 
 def test_healthz_trailing_slash_is_exempt(client):

@@ -12,11 +12,14 @@
 
 from __future__ import annotations
 
+import struct
 import uuid
+from datetime import date
 from typing import Any, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from psycopg import errors as pg_errors
+from pydantic import BaseModel, Field, field_validator
 
 from .auth import get_current_uid
 from .db import get_db_conn
@@ -40,10 +43,11 @@ def can_transition_request(from_status: str, to_status: str) -> bool:
 class SitterRepo(Protocol):
     def upsert_profile(self, uid: str, fields: dict[str, Any]) -> dict[str, Any]: ...
     def get_profile(self, uid: str) -> dict[str, Any] | None: ...
-    def list_active(self) -> list[dict[str, Any]]: ...
+    def list_active(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]: ...
     def create_request(self, row: dict[str, Any]) -> dict[str, Any]: ...
     def get_request(self, request_id: str) -> dict[str, Any] | None: ...
-    def set_request_status(self, request_id: str, status: str) -> dict[str, Any]: ...
+    def set_request_status(self, request_id: str, status: str,
+                           expected_status: str) -> dict[str, Any]: ...
     def create_review(self, row: dict[str, Any]) -> dict[str, Any]: ...
     def get_review_by_sitting(self, sitting_id: str) -> dict[str, Any] | None: ...
     def list_reviews_for_sitter(self, sitter_uid: str) -> list[dict[str, Any]]: ...
@@ -109,9 +113,11 @@ class PostgresSitterRepo:
             "SELECT * FROM sitter_profiles WHERE uid = %s", (uid,)).fetchone()
         return dict(row) if row else None
 
-    def list_active(self):
+    def list_active(self, limit=100, offset=0):
         rows = self._conn.execute(
-            "SELECT * FROM sitter_profiles WHERE active ORDER BY created_at").fetchall()
+            "SELECT * FROM sitter_profiles WHERE active ORDER BY created_at "
+            "LIMIT %s OFFSET %s",
+            (limit, offset)).fetchall()
         return [dict(r) for r in rows]
 
     def create_request(self, row):
@@ -137,9 +143,19 @@ class PostgresSitterRepo:
             d[k] = v.isoformat() if hasattr(v, "isoformat") else v
         return d
 
-    def set_request_status(self, request_id, status):
-        self._conn.execute(
-            "UPDATE sitting_requests SET status = %s WHERE id = %s", (status, request_id))
+    def set_request_status(self, request_id, status, expected_status):
+        """Atomic status flip (M7): the row only moves when it still holds
+        ``expected_status``. A concurrent accept/decline race resolves here —
+        the loser gets 409 instead of silently winning by commit order."""
+        row = self._conn.execute(
+            """UPDATE sitting_requests SET status = %s
+               WHERE id = %s AND status = %s RETURNING id""",
+            (status, request_id, expected_status)).fetchone()
+        if row is None:
+            self._conn.rollback()
+            raise _conflict("transition_conflict",
+                            "This request changed while you were acting; "
+                            "please refresh and retry")
         self._conn.commit()
         return self.get_request(request_id)
 
@@ -155,7 +171,11 @@ class PostgresSitterRepo:
             self._conn.commit()
         except Exception as exc:
             self._conn.rollback()
-            if "sitting_reviews_sitting_id_key" in str(exc):
+            # M15: match the structured diag, never the exception text —
+            # constraint names survive PG version/locale changes, text doesn't.
+            if (isinstance(exc, pg_errors.UniqueViolation)
+                    and getattr(exc.diag, "constraint_name", None)
+                    == "sitting_reviews_sitting_id_key"):
                 raise _conflict("duplicate_review",
                                 "This sitting already has a review") from exc
             raise
@@ -164,20 +184,24 @@ class PostgresSitterRepo:
     def get_review_by_sitting(self, sitting_id):
         row = self._conn.execute(
             "SELECT * FROM sitting_reviews WHERE sitting_id = %s", (sitting_id,)).fetchone()
-        if not row:
-            return None
-        d = dict(row)
-        c = d.get("created_at")
-        d["created_at"] = c.isoformat() if hasattr(c, "isoformat") else c
-        return d
+        return _review_row(row) if row else None
 
     def list_reviews_for_sitter(self, sitter_uid):
+        # M10b: one JOIN, no per-review re-query (was N+1 via get_review_by_sitting).
         rows = self._conn.execute(
             """SELECT r.* FROM sitting_reviews r
                JOIN sitting_requests s ON s.id = r.sitting_id
                WHERE s.sitter_uid = %s ORDER BY r.created_at""",
             (sitter_uid,)).fetchall()
-        return [self.get_review_by_sitting(str(r["sitting_id"])) for r in rows]
+        return [_review_row(r) for r in rows]
+
+
+def _review_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Shape a raw sitting_reviews DB row like get_review_by_sitting does."""
+    d = dict(row)
+    c = d.get("created_at")
+    d["created_at"] = c.isoformat() if hasattr(c, "isoformat") else c
+    return d
 
 
 def _conflict(code: str, message: str) -> HTTPException:
@@ -210,8 +234,9 @@ class MemorySitterRepo:
         row = self._profiles.get(uid)
         return dict(row) if row else None
 
-    def list_active(self):
-        return [dict(r) for r in self._profiles.values() if r.get("active", True)]
+    def list_active(self, limit=100, offset=0):
+        active = [r for r in self._profiles.values() if r.get("active", True)]
+        return [dict(r) for r in active[offset:offset + limit]]
 
     def create_request(self, row):
         from .listings import utcnow
@@ -229,9 +254,14 @@ class MemorySitterRepo:
         row = self._requests.get(request_id)
         return dict(row) if row else None
 
-    def set_request_status(self, request_id, status):
-        self._requests[request_id]["status"] = status
-        return dict(self._requests[request_id])
+    def set_request_status(self, request_id, status, expected_status):
+        rec = self._requests.get(request_id)
+        if rec is None or rec["status"] != expected_status:
+            raise _conflict("transition_conflict",
+                            "This request changed while you were acting; "
+                            "please refresh and retry")
+        rec["status"] = status
+        return dict(rec)
 
     def create_review(self, row):
         if row["sitting_id"] in self._review_by_sitting:
@@ -267,12 +297,22 @@ class SitterProfileIn(BaseModel):
     service_radius_miles: float = Field(default=5, gt=0, le=100)
     active: bool = True
 
+    @field_validator("service_radius_miles")
+    @classmethod
+    def _quantize_to_float32(cls, v: float) -> float:
+        """Align the model with the REAL column (L6): Postgres stores only
+        float32 precision, so quantize on the way in — the accepted value is
+        exactly the value the DB will hold, with no silent drift."""
+        return struct.unpack("f", struct.pack("f", v))[0]
+
 
 class SittingRequestIn(BaseModel):
     sitter_uid: str = Field(min_length=1)
     plant_count: int = Field(gt=0, le=500)
-    start_date: str = Field(min_length=10, max_length=10)  # YYYY-MM-DD
-    end_date: str = Field(min_length=10, max_length=10)
+    # M12: real dates, not strings — "2026-13-45" fails validation -> 422
+    # instead of reaching the DATE column and 500ing.
+    start_date: date  # YYYY-MM-DD
+    end_date: date
     notes: str = Field(default="", max_length=2000)
 
 
@@ -303,12 +343,15 @@ def upsert_sitter_profile(
 
 @router.get("/sitters", tags=["sitting"])
 def list_sitters(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     repo: SitterRepo = Depends(get_sitter_repo),
     user_repo: UserRepo = Depends(get_user_repo),
 ) -> dict[str, Any]:
-    """Public directory of active sitters. PII-safe."""
+    """Public directory of active sitters. PII-safe. Page size is bounded
+    (L6) — the sitter directory can no longer be dumped in one request."""
     return {"sitters": [_serialize_profile(r, _display_name(user_repo, r["uid"]))
-                        for r in repo.list_active()]}
+                        for r in repo.list_active(limit=limit, offset=offset)]}
 
 
 @router.post("/sitting-requests", status_code=201, tags=["sitting"])
@@ -348,7 +391,9 @@ def _transition(repo: SitterRepo, row: dict[str, Any], to: str) -> dict[str, Any
     if not can_transition_request(row["status"], to):
         raise HTTPException(422, {"code": "invalid_transition",
                                   "message": f"Cannot move a '{row['status']}' request to '{to}'"})
-    return _serialize_request(repo.set_request_status(row["id"], to))
+    # M7: pass the status we read — the repo only flips when it still holds,
+    # so a raced accept/decline resolves as 409 for the loser, not commit order.
+    return _serialize_request(repo.set_request_status(row["id"], to, row["status"]))
 
 
 @router.post("/sitting-requests/{request_id}/accept", tags=["sitting"])

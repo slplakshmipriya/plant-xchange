@@ -79,3 +79,25 @@ def test_ensure_owner_unit():
     with pytest.raises(Exception) as ei:
         ensure_owner("bob", "alice")
     assert ei.value.status_code == 403
+
+
+def test_verify_id_token_checks_revocation(monkeypatch):
+    # H14: disabled/deleted users must be rejected immediately, not for ~1h.
+    import sys
+    import types
+
+    import app.auth as auth_mod
+
+    captured = {}
+
+    def fake_verify(token, **kwargs):
+        captured.update(kwargs)
+        return {"uid": "alice"}
+
+    fake_admin = types.ModuleType("firebase_admin")
+    fake_admin.auth = types.SimpleNamespace(verify_id_token=fake_verify)
+    monkeypatch.setitem(sys.modules, "firebase_admin", fake_admin)
+
+    out = auth_mod.verify_id_token("tok")
+    assert out == {"uid": "alice"}
+    assert captured.get("check_revoked") is True

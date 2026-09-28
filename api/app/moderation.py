@@ -51,17 +51,18 @@ STABLE CONTRACT FOR OTHER TRACKS
 
 from __future__ import annotations
 
+import hashlib
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .auth import get_current_uid
-from .credits import CreditRepo, get_credit_repo
+from .credits import CreditRepo, EarnCapExceededError, get_credit_repo
 from .db import get_db_conn
 from .listings import ListingRepo, get_listing_repo
 
@@ -102,6 +103,21 @@ class ReportCategory(str, Enum):
 class DisputeOutcome(str, Enum):
     upheld = "upheld"
     rejected = "rejected"
+
+
+class SupportViewReason(str, Enum):
+    """Controlled vocabulary for the support message dashboard's ``reason``.
+
+    H2: the free-text justification was self-reported and unauditable, so it
+    is now an enum — an invalid value is a 422, and every stored audit row
+    carries one of these exact strings.
+    """
+
+    report_investigation = "report_investigation"
+    dispute_evidence = "dispute_evidence"
+    fraud_investigation = "fraud_investigation"
+    safety_review = "safety_review"
+    appeal_review = "appeal_review"
 
 
 class ReportIn(BaseModel):
@@ -147,6 +163,9 @@ class ModerationRepo(Protocol):
     def get_dispute(self, dispute_id: str) -> dict[str, Any] | None: ...
     def resolve_dispute(self, dispute_id: str, outcome: str, reversal_credits: int,
                         resolved_by: str, resolved_at: datetime) -> dict[str, Any] | None: ...
+    # H2: support message reads are scoped to threads with a live case.
+    def thread_has_open_case(self, listing_id: str,
+                             participant_uids: list[str]) -> bool: ...
 
 
 class PostgresModerationRepo:
@@ -233,14 +252,37 @@ class PostgresModerationRepo:
         return self._row(row) if row else None
 
     def resolve_dispute(self, dispute_id, outcome, reversal_credits, resolved_by, resolved_at):
+        # M11: conditional flip — exactly one concurrent resolve wins; the
+        # loser gets zero rows (route maps it to 409), never a silent outcome
+        # flip.
         row = self._conn.execute(
             "UPDATE disputes SET status = 'resolved', outcome = %s, "
             "reversal_credits = %s, resolved_by = %s, resolved_at = %s "
-            "WHERE id = %s RETURNING *",
+            "WHERE id = %s AND status = 'open' RETURNING *",
             (outcome, reversal_credits, resolved_by, resolved_at, dispute_id),
         ).fetchone()
         self._conn.commit()
         return self._row(row) if row else None
+
+    # -- H2: support read scoping ---------------------------------------
+    def thread_has_open_case(self, listing_id, participant_uids):
+        """A thread is support-readable only when a report names its listing
+        or one of its participants, or an open dispute references the
+        listing (a dispute's ``exchange_id`` is the listing id). Reports have
+        no resolved state in the schema, so any report links; disputes must
+        still be ``'open'``."""
+        row = self._conn.execute(
+            "SELECT (EXISTS ("
+            "  SELECT 1 FROM reports"
+            "   WHERE (target_type = 'LISTING' AND target_id = %s)"
+            "      OR (target_type = 'USER' AND target_id = ANY(%s))"
+            ") OR EXISTS ("
+            "  SELECT 1 FROM disputes"
+            "   WHERE status = 'open' AND exchange_id = %s"
+            ")) AS linked",
+            (listing_id, list(participant_uids), listing_id),
+        ).fetchone()
+        return bool(row["linked"])
 
 
 class MemoryModerationRepo:
@@ -311,14 +353,27 @@ class MemoryModerationRepo:
         return dict(row) if row else None
 
     def resolve_dispute(self, dispute_id, outcome, reversal_credits, resolved_by, resolved_at):
+        # M11: only an 'open' dispute flips; a concurrent double-resolve
+        # loses (returns None -> route 409s), never flips the outcome.
         row = self._disputes.get(dispute_id)
-        if row is None:
+        if row is None or row["status"] != "open":
             return None
         row.update({"status": "resolved", "outcome": outcome,
                     "reversal_credits": reversal_credits,
                     "resolved_by": resolved_by,
                     "resolved_at": resolved_at.isoformat()})
         return dict(row)
+
+    # -- H2: support read scoping ---------------------------------------
+    def thread_has_open_case(self, listing_id, participant_uids):
+        uids = set(participant_uids)
+        for r in self._reports:
+            if r["target_type"] == "LISTING" and r["target_id"] == listing_id:
+                return True
+            if r["target_type"] == "USER" and r["target_id"] in uids:
+                return True
+        return any(d["status"] == "open" and d["exchange_id"] == listing_id
+                   for d in self._disputes.values())
 
 
 def get_moderation_repo(conn=Depends(get_db_conn)) -> ModerationRepo:
@@ -405,16 +460,39 @@ def require_support(uid: str) -> None:
     _require_support(uid)
 
 
+def _chain_hash(prev_hash: str | None, viewer_uid: str, thread_id: str,
+                message_id: str | None, reason: str) -> str:
+    """H3: per-row hash chaining for the audit log. Each row's hash covers the
+    previous row's hash, so a tampered row invalidates every later one.
+    The UPDATE/DELETE trigger (migration 0026) enforces append-only at the
+    DB level; this chain detects row replacement / history rewriting.
+
+    Limitation: under concurrent inserts two rows can briefly share the same
+    ``prev_hash`` (both read the tail before either commits). The chain still
+    detects after-the-fact edits; it is tamper-evidence, not a total order.
+    """
+    payload = "\x1f".join(
+        [prev_hash or "", viewer_uid, str(thread_id), str(message_id or ""), reason])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 class ModerationViewRepo(Protocol):
     """Audit log of privileged plaintext views (support dashboard decrypts).
 
     Every time support staff views decrypted messages, one row is written
-    per message viewed, recording who looked at what and why. Read paths
-    exist so audits can be reviewed; there is no update/delete.
+    per message viewed, recording who looked at what and why. Rows are
+    chained (``prev_hash``/``row_hash``) and append-only: migration 0026
+    blocks UPDATE/DELETE at the DB level. Read paths exist so audits can be
+    reviewed; there is no update/delete.
     """
 
     def log_view(self, viewer_uid: str, thread_id: str, message_id: str | None,
                  reason: str) -> dict[str, Any]: ...
+    def log_views_batch(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Write one audit row per entry in a single transaction (M2: the
+        support dashboard no longer commits per message). Each entry holds
+        ``viewer_uid``, ``thread_id``, ``message_id``, ``reason``."""
+        ...
     def list_views_for_thread(self, thread_id: str) -> list[dict[str, Any]]: ...
 
 
@@ -429,14 +507,37 @@ class PostgresModerationViewRepo:
         d["viewed_at"] = v.isoformat() if hasattr(v, "isoformat") else v
         return d
 
-    def log_view(self, viewer_uid, thread_id, message_id, reason):
+    def _last_hash(self) -> str | None:
         row = self._conn.execute(
-            "INSERT INTO moderation_views (id, viewer_uid, thread_id, message_id, reason) "
-            "VALUES (%s,%s,%s,%s,%s) RETURNING *",
-            (str(uuid.uuid4()), viewer_uid, thread_id, message_id, reason),
+            "SELECT row_hash FROM moderation_views "
+            "ORDER BY viewed_at DESC, id DESC LIMIT 1"
         ).fetchone()
+        return row["row_hash"] if row else None
+
+    def log_view(self, viewer_uid, thread_id, message_id, reason):
+        return self.log_views_batch([{
+            "viewer_uid": viewer_uid, "thread_id": thread_id,
+            "message_id": message_id, "reason": reason,
+        }])[0]
+
+    def log_views_batch(self, entries):
+        # M2: one INSERT per row but a single commit for the whole batch.
+        # Chain each row to the previous tail row (H3).
+        rows = []
+        for e in entries:
+            prev_hash = self._last_hash()
+            row_hash = _chain_hash(prev_hash, e["viewer_uid"], e["thread_id"],
+                                   e.get("message_id"), e["reason"])
+            row = self._conn.execute(
+                "INSERT INTO moderation_views "
+                "(id, viewer_uid, thread_id, message_id, reason, prev_hash, row_hash) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                (str(uuid.uuid4()), e["viewer_uid"], e["thread_id"],
+                 e.get("message_id"), e["reason"], prev_hash, row_hash),
+            ).fetchone()
+            rows.append(self._row(row))
         self._conn.commit()
-        return self._row(row)
+        return rows
 
     def list_views_for_thread(self, thread_id):
         rows = self._conn.execute(
@@ -450,11 +551,25 @@ class MemoryModerationViewRepo:
         self._views: list[dict[str, Any]] = []
 
     def log_view(self, viewer_uid, thread_id, message_id, reason):
-        row = {"id": str(uuid.uuid4()), "viewer_uid": viewer_uid,
-               "thread_id": thread_id, "message_id": message_id,
-               "reason": reason, "viewed_at": _now().isoformat()}
-        self._views.append(row)
-        return dict(row)
+        return self.log_views_batch([{
+            "viewer_uid": viewer_uid, "thread_id": thread_id,
+            "message_id": message_id, "reason": reason,
+        }])[0]
+
+    def log_views_batch(self, entries):
+        rows = []
+        for e in entries:
+            prev_hash = self._views[-1]["row_hash"] if self._views else None
+            row = {"id": str(uuid.uuid4()), "viewer_uid": e["viewer_uid"],
+                   "thread_id": e["thread_id"], "message_id": e.get("message_id"),
+                   "reason": e["reason"], "prev_hash": prev_hash,
+                   "row_hash": _chain_hash(prev_hash, e["viewer_uid"],
+                                           e["thread_id"], e.get("message_id"),
+                                           e["reason"]),
+                   "viewed_at": _now().isoformat()}
+            self._views.append(row)
+            rows.append(dict(row))
+        return rows
 
     def list_views_for_thread(self, thread_id):
         return [dict(v) for v in self._views if v["thread_id"] == thread_id]
@@ -485,17 +600,44 @@ def _serialize_dispute(row: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/reports", status_code=200)
+@router.post("/reports", status_code=201)
 def create_report(
     data: ReportIn,
     uid: str = Depends(get_current_uid),
     repo: ModerationRepo = Depends(get_moderation_repo),
 ) -> dict[str, Any]:
-    """File a report against a listing, user, or booking. Persists and returns {}."""
-    repo.add_report(reporter_uid=uid, target_type=data.targetType.value,
-                    target_id=data.targetId, category=data.category.value,
-                    details=data.details)
-    return {}
+    """File a report against a listing, user, or booking. Returns the id."""
+    report = repo.add_report(reporter_uid=uid, target_type=data.targetType.value,
+                             target_id=data.targetId, category=data.category.value,
+                             details=data.details)
+    return {"id": str(report["id"])}
+
+
+def _serialize_view(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "viewer_uid": row["viewer_uid"],
+        "thread_id": str(row["thread_id"]),
+        "message_id": str(row["message_id"]) if row.get("message_id") else None,
+        "reason": row["reason"],
+        "viewed_at": row.get("viewed_at"),
+        "prev_hash": row.get("prev_hash"),
+        "row_hash": row.get("row_hash"),
+    }
+
+
+@router.get("/support/moderation-views", tags=["support"])
+def list_moderation_views(
+    thread_id: str = Query(min_length=1, description="Thread to review audit rows for"),
+    uid: str = Depends(get_current_uid),
+    view_repo: ModerationViewRepo = Depends(get_moderation_view_repo),
+) -> dict[str, Any]:
+    """H3: review surface for the privileged-view audit log. Support staff
+    only (``SUPPORT_UIDS`` — 403 otherwise, fail closed). Rows are
+    append-only (migration 0026) and hash-chained."""
+    require_support(uid)
+    views = view_repo.list_views_for_thread(thread_id)
+    return {"thread_id": thread_id, "views": [_serialize_view(v) for v in views]}
 
 
 @router.post("/disputes")
@@ -530,9 +672,15 @@ def resolve_dispute(
     listing_repo: ListingRepo = Depends(get_listing_repo),
     credit_repo: CreditRepo = Depends(get_credit_repo),
 ) -> dict[str, Any]:
-    """Resolve a dispute. Support staff only; on upheld + reversalCredits > 0,
-    compensating ``dispute_reversal`` ledger entries are appended (the ledger
-    stays append-only — existing entries are never touched)."""
+    """Resolve a dispute. Support staff only.
+
+    M11: reversals are posted *before* the status flip, so an earn-cap
+    failure leaves the dispute open (409) instead of resolved-but-unreversed
+    — the dispute is retryable once the 7-day window frees up. The flip
+    itself is conditional (``status='open'``): exactly one concurrent
+    resolve wins, the loser gets 409. Reversal entries are idempotency-keyed
+    (``dispute:{id}:reversal:{claimer,owner}``), so a retried resolve never
+    double-posts."""
     _require_support(uid)
     dispute = repo.get_dispute(dispute_id)
     if dispute is None:
@@ -541,24 +689,42 @@ def resolve_dispute(
     if dispute["status"] == "resolved":
         raise HTTPException(409, {"code": "dispute_already_resolved",
                                   "message": "This dispute is already resolved"})
-    resolved = repo.resolve_dispute(dispute_id=dispute_id, outcome=data.outcome.value,
-                                    reversal_credits=data.reversalCredits,
-                                    resolved_by=uid, resolved_at=_now())
     if data.outcome == DisputeOutcome.upheld and data.reversalCredits > 0:
         listing = listing_repo.get(dispute["exchange_id"])
         if listing is not None:
-            # Reverse credit flow: claimer gets credits back, giver is debited.
-            # Idempotency-keyed so a retried resolve never double-posts.
+            # Reverse credit flow: claimer gets credits back, giver is
+            # debited. Posted BEFORE the status flip (M11). Earn cap handled
+            # explicitly: credits.py is another track's file, so
+            # dispute_reversal cannot be exempted there — a capped claimer
+            # gets a 409 and the dispute stays open for retry.
             claimer = listing.get("claimer_uid")
             owner = listing.get("owner_uid")
-            if claimer:
-                credit_repo.add_entry(
-                    claimer, data.reversalCredits, "dispute_reversal",
-                    ref_id=dispute_id,
-                    idempotency_key=f"dispute:{dispute_id}:reversal:claimer")
-            if owner:
-                credit_repo.add_entry(
-                    owner, -data.reversalCredits, "dispute_reversal",
-                    ref_id=dispute_id,
-                    idempotency_key=f"dispute:{dispute_id}:reversal:owner")
+            try:
+                if claimer:
+                    credit_repo.add_entry(
+                        claimer, data.reversalCredits, "dispute_reversal",
+                        ref_id=dispute_id,
+                        idempotency_key=f"dispute:{dispute_id}:reversal:claimer")
+                if owner:
+                    credit_repo.add_entry(
+                        owner, -data.reversalCredits, "dispute_reversal",
+                        ref_id=dispute_id,
+                        idempotency_key=f"dispute:{dispute_id}:reversal:owner")
+            except EarnCapExceededError as exc:
+                raise HTTPException(
+                    409,
+                    {"code": "dispute_reversal_cap_blocked",
+                     "message": "Dispute left open: the reversal would exceed "
+                                "the claimer's 7-day earn cap. Resolve again "
+                                "after the window, or resolve with "
+                                "reversalCredits=0."},
+                ) from exc
+    resolved = repo.resolve_dispute(dispute_id=dispute_id, outcome=data.outcome.value,
+                                    reversal_credits=data.reversalCredits,
+                                    resolved_by=uid, resolved_at=_now())
+    if resolved is None:
+        # Lost a concurrent resolve race (conditional UPDATE flipped zero
+        # rows because another worker resolved first).
+        raise HTTPException(409, {"code": "dispute_already_resolved",
+                                  "message": "This dispute is already resolved"})
     return {"dispute": _serialize_dispute(resolved)}

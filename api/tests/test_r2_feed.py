@@ -90,8 +90,9 @@ def test_feed_way_sitting_lists_active_sitters(alice, mock_verify, auth_headers)
     r = alice.get("/v1/feed?way=sitting", headers=auth_headers)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert set(body.keys()) == {"listings"}
-    assert [s["uid"] for s in body["listings"]] == ["bob"]
+    # L4c: the response key reflects the payload type (sitters, not listings).
+    assert set(body.keys()) == {"sitters"}
+    assert [s["uid"] for s in body["sitters"]] == ["bob"]
 
 
 def test_feed_without_way_keeps_legacy_shape(alice, mock_verify, auth_headers):

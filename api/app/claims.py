@@ -34,9 +34,11 @@ moderation module after merge.
 
 from __future__ import annotations
 
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Protocol
+from typing import Any, Iterator, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -60,6 +62,11 @@ NO_SHOW_SUSPENSION_DAYS = 30
 NEW_ACCOUNT_AGE_DAYS = 14
 NEW_ACCOUNT_CLAIM_CAP = 5
 NEW_ACCOUNT_CLAIM_WINDOW_DAYS = 7
+
+# Tolerance for float dust in quantity comparisons (M5b): remaining_qty is
+# NUMERIC on the Postgres path but the decrement binds a Python float, so
+# the subtraction evaluates in float8 and can leave dust (e.g. 2.8e-17).
+_EPSILON = 1e-9
 
 
 # ---------------------------------------------------------------- repository
@@ -124,8 +131,14 @@ class PostgresClaimRepo:
         return self._row(row) if row else None
 
     def set_status(self, claim_id: str, status: str) -> dict[str, Any] | None:
+        # Conditional flip: only pending/accepted claims may move. Two
+        # concurrent cancels (or accept+decline racing) serialize here —
+        # the loser gets rowcount 0 -> None -> a 409 at the route layer,
+        # instead of both succeeding and restoring the quantity twice (H8).
         cur = self._conn.execute(
-            "UPDATE claims SET status = %s WHERE id = %s", (status, claim_id)
+            "UPDATE claims SET status = %s WHERE id = %s "
+            "AND status IN ('pending','accepted')",
+            (status, claim_id),
         )
         self._conn.commit()
         return self.get(claim_id) if (cur.rowcount or 0) > 0 else None
@@ -204,11 +217,15 @@ class MemoryClaimRepo:
         return dict(row) if row else None
 
     def set_status(self, claim_id: str, status: str) -> dict[str, Any] | None:
-        row = self._claims.get(claim_id)
-        if row is None:
-            return None
-        row["status"] = status
-        return dict(row)
+        # Memory-path equivalent of the conditional Postgres flip (H8):
+        # check-and-set under a lock so a concurrent transition can't
+        # slip between the read and the write.
+        with _memory_claim_lock:
+            row = self._claims.get(claim_id)
+            if row is None or row["status"] not in ("pending", "accepted"):
+                return None
+            row["status"] = status
+            return dict(row)
 
     def active_claim_for(self, listing_id: str, claimer_uid: str) -> dict[str, Any] | None:
         cands = [c for c in self._claims.values()
@@ -252,21 +269,17 @@ class MemoryClaimRepo:
 
 
 def get_claim_repo(conn=Depends(get_db_conn)) -> ClaimRepo:
-    return _register_repo(PostgresClaimRepo(conn))
+    return PostgresClaimRepo(conn)
 
 
 # ---------------------------------------------------------------- suspension
 
-# Module-level repo registration so the two-arg ``check_pillar_suspension(uid,
-# pillar)`` form works outside request handling. Endpoints pass the injected
-# repo explicitly; this is only the fallback.
-_current_repo: ClaimRepo | None = None
-
-
-def _register_repo(repo: ClaimRepo) -> ClaimRepo:
-    global _current_repo
-    _current_repo = repo
-    return repo
+# Guards for the memory-path equivalents of the atomic Postgres operations
+# (single process only — the Postgres path serializes in the database).
+_memory_claim_lock = threading.Lock()
+_restore_lock = threading.Lock()
+_spend_locks: dict[str, threading.Lock] = {}
+_spend_locks_guard = threading.Lock()
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -281,6 +294,37 @@ def _parse_dt(value: Any) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def _memory_spend_lock(uid: str) -> threading.Lock:
+    with _spend_locks_guard:
+        return _spend_locks.setdefault(uid, threading.Lock())
+
+
+@contextmanager
+def serialize_spend(uid: str, credit_repo: Any) -> Iterator[None]:
+    """Serialize a balance-check + spend-post sequence per uid (H11).
+
+    Without this, two concurrent spends by one user both pass the
+    ``balance < cost`` gate and both post, driving the derived balance
+    negative — nothing in the DB prevents it because the balance is
+    computed in Python.
+
+    Postgres path: ``pg_advisory_lock(hashtext(uid))`` held across the
+    check and the spend post (session-level lock; released in ``finally``).
+    Memory path (used by tests): a per-uid ``threading.Lock`` — the
+    single-process equivalent.
+    """
+    conn = getattr(credit_repo, "_conn", None)
+    if conn is None:
+        with _memory_spend_lock(uid):
+            yield
+        return
+    conn.execute("SELECT pg_advisory_lock(hashtext(%s))", (uid,))
+    try:
+        yield
+    finally:
+        conn.execute("SELECT pg_advisory_unlock(hashtext(%s))", (uid,))
+
+
 def check_pillar_suspension(
     uid: str, pillar: str, repo: ClaimRepo | None = None
 ) -> dict[str, Any] | None:
@@ -290,17 +334,18 @@ def check_pillar_suspension(
     Returns None when the user is clear, otherwise a suspension dict with
     ``pillar``, ``reason``, and the active ``until`` timestamp.
 
-    ``repo`` defaults to the module-registered repo (set by ``get_claim_repo``);
-    endpoints pass the injected repo explicitly. The coordinator rewires this
-    helper to the shared moderation module after merge — keep the
-    ``(uid, pillar)`` call shape stable.
+    ``repo`` is required — there is deliberately no module-global fallback:
+    reusing another request's connection would be unsafe (psycopg
+    connections aren't thread-safe), so a missing repo fails loudly (L2).
+    The coordinator rewires this helper to the shared moderation module
+    after merge — keep the ``(uid, pillar)`` call shape stable.
     """
     if pillar != "claims":
         return None
     if repo is None:
-        repo = _current_repo
-    if repo is None:
-        return None
+        raise RuntimeError(
+            "check_pillar_suspension requires an explicit repo (no global fallback)"
+        )
     strikes = repo.get_strikes(uid)
     if not strikes:
         return None
@@ -364,7 +409,9 @@ def _enforce_claim_eligibility(
 # ---------------------------------------------------------------- API models
 
 class ClaimIn(BaseModel):
-    quantity: float = Field(ge=1)
+    # gt=0 (not ge=1): harvest listings can be fractional (e.g. 0.5 kg),
+    # and such a listing could never be claimed with a minimum of 1 (L3).
+    quantity: float = Field(gt=0)
     pickupStartMs: int = Field(ge=1)
     pickupEndMs: int = Field(ge=1)
     notes: str | None = Field(default=None, max_length=1000)
@@ -430,11 +477,15 @@ def create_claim(
     if available is None:
         raise HTTPException(422, {"code": "quantity_not_tracked",
                                   "message": "This listing has no quantity to claim from"})
-    if data.quantity > available:
+    if data.quantity > available + _EPSILON:
         raise HTTPException(409, {"code": "insufficient_quantity",
                                   "message": f"Only {available:g} available to claim"})
+    # Clamp float dust: claiming the last of the pool when only dust
+    # remains decrements what is actually there (M5b) instead of
+    # spuriously 409ing inside decrement_remaining.
+    delta = min(data.quantity, available)
     # Atomic: concurrent claimants cannot oversell; the loser gets None.
-    updated = listing_repo.decrement_remaining(listing_id, data.quantity)
+    updated = listing_repo.decrement_remaining(listing_id, delta)
     if updated is None:
         raise HTTPException(409, {"code": "insufficient_quantity",
                                   "message": "Someone just claimed the remaining quantity"})
@@ -448,7 +499,13 @@ def create_claim(
         "notes": data.notes.strip() if data.notes else None,
     })
     remaining = float(updated.get("remaining_qty") or 0)
-    if remaining == 0:
+    # Epsilon compare (M5b): remaining_qty is NUMERIC on the Postgres path
+    # but the decrement binds a Python float, so the subtraction evaluates
+    # in float8 and a final exact-quantity claim can leave float dust
+    # (e.g. 2.8e-17) instead of exactly 0. ``== 0`` would then keep the
+    # listing live with ~0 quantity forever; the epsilon treats dust as
+    # fully picked.
+    if abs(remaining) < _EPSILON:
         # Fully claimed: walk the legal transitions, no state-machine bypass.
         listing_repo.set_status(listing_id, "claimed")
         updated = listing_repo.set_status(listing_id, "completed")
@@ -482,18 +539,42 @@ def _public_claim(claim: dict[str, Any]) -> dict[str, Any]:
 def _restore_quantity(
     listing_id: str, quantity: float, listing_repo: ListingRepo
 ) -> dict[str, Any]:
-    """Give the claimed quantity back to the listing's available pool."""
-    row = listing_repo.get(listing_id)
-    if row is None:
-        raise HTTPException(404, {"code": "listing_not_found", "message": "No such listing"})
-    base = row.get("remaining_qty")
-    if base is None:
-        base = row.get("quantity") or 0
-    new_remaining = float(base) + quantity
-    cap = float(row["quantity"]) if row.get("quantity") is not None else None
-    if cap is not None and new_remaining > cap:
-        new_remaining = cap
-    return listing_repo.update(listing_id, {"remaining_qty": new_remaining})
+    """Give the claimed quantity back to the listing's available pool.
+
+    Single atomic statement on the Postgres path (H7): the old
+    read-modify-write (get -> compute base + quantity -> update) lost
+    updates under concurrency (two concurrent +2 restores on base 5 ended
+    at 7.0, not 9.0). The delta is cast to ``::numeric`` so the addition
+    stays in the NUMERIC domain instead of float8 (M5b). The memory path
+    holds a module lock for the read-compute-write sequence — the
+    single-process equivalent.
+    """
+    conn = getattr(listing_repo, "_conn", None)
+    if conn is not None:
+        row = listing_repo.get(listing_id)
+        if row is None:
+            raise HTTPException(404, {"code": "listing_not_found",
+                                      "message": "No such listing"})
+        conn.execute(
+            "UPDATE listings SET remaining_qty = LEAST(COALESCE(quantity,0), "
+            "COALESCE(remaining_qty, quantity) + %s::numeric) WHERE id = %s",
+            (quantity, listing_id),
+        )
+        conn.commit()
+        return listing_repo.get(listing_id)
+    with _restore_lock:
+        row = listing_repo.get(listing_id)
+        if row is None:
+            raise HTTPException(404, {"code": "listing_not_found",
+                                      "message": "No such listing"})
+        base = row.get("remaining_qty")
+        if base is None:
+            base = row.get("quantity") or 0
+        new_remaining = float(base) + quantity
+        cap = float(row["quantity"]) if row.get("quantity") is not None else None
+        if cap is not None and new_remaining > cap:
+            new_remaining = cap
+        return listing_repo.update(listing_id, {"remaining_qty": new_remaining})
 
 
 @router.post("/listings/{listing_id}/claims/cancel", tags=["claims"])
@@ -532,6 +613,11 @@ def cancel_claim(
                               ref_id=claim["id"],
                               idempotency_key=f"claim:{claim['id']}:reversal:giver")
     claim = claim_repo.set_status(claim["id"], "cancelled")
+    if claim is None:
+        # Lost a race with a concurrent accept/decline (H8): the
+        # conditional flip in set_status refused the transition.
+        raise HTTPException(409, {"code": "claim_not_active",
+                                  "message": "Claim was already resolved by a concurrent action"})
     updated = _restore_quantity(listing_id, float(claim["quantity"]), listing_repo)
     return {"listing": public_listing(updated), "claim": _public_claim(claim)}
 
@@ -565,19 +651,26 @@ def accept_claim(
     claimer_uid = claim["claimer_uid"]
     # Balance can change between claim creation and accept — recheck so an
     # accept can never drive a balance negative (same as exchange.confirm).
-    if credit_repo.balance(claimer_uid) < cost:
-        raise HTTPException(422, {"code": "insufficient_credits",
-                                  "message": "Claimer no longer has enough credits"})
-    # Entries land before the status flip so a crash mid-flight is
-    # recoverable by retry: re-adds are idempotent no-ops, then the flip
-    # completes.
-    credit_repo.add_entry(claimer_uid, -cost, "claim_spend",
-                          ref_id=claim["id"],
-                          idempotency_key=f"claim:{claim['id']}:spend")
+    # The recheck and the spend post are serialized per claimer (H11): two
+    # concurrent accepts would otherwise both pass the gate and both spend.
+    with serialize_spend(claimer_uid, credit_repo):
+        if credit_repo.balance(claimer_uid) < cost:
+            raise HTTPException(422, {"code": "insufficient_credits",
+                                      "message": "Claimer no longer has enough credits"})
+        # Entries land before the status flip so a crash mid-flight is
+        # recoverable by retry: re-adds are idempotent no-ops, then the flip
+        # completes.
+        credit_repo.add_entry(claimer_uid, -cost, "claim_spend",
+                              ref_id=claim["id"],
+                              idempotency_key=f"claim:{claim['id']}:spend")
     credit_repo.add_entry(row["owner_uid"], cost, "claim_earn",
                           ref_id=claim["id"],
                           idempotency_key=f"claim:{claim['id']}:earn")
     claim = claim_repo.set_status(claim["id"], "accepted")
+    if claim is None:
+        # Lost a race with a concurrent cancel/decline (H8).
+        raise HTTPException(409, {"code": "claim_not_pending",
+                                  "message": "Claim is no longer pending"})
     return {"listing": public_listing(listing_repo.get(listing_id)),
             "claim": _public_claim(claim)}
 
@@ -604,6 +697,10 @@ def decline_claim(
         raise HTTPException(409, {"code": "claim_not_pending",
                                   "message": f"Cannot decline a '{claim['status']}' claim"})
     claim = claim_repo.set_status(claim["id"], "declined")
+    if claim is None:
+        # Lost a race with a concurrent cancel/accept (H8).
+        raise HTTPException(409, {"code": "claim_not_pending",
+                                  "message": "Claim is no longer pending"})
     updated = _restore_quantity(listing_id, float(claim["quantity"]), listing_repo)
     return {"listing": public_listing(updated), "claim": _public_claim(claim)}
 

@@ -25,9 +25,16 @@
   decrypted in ``_serialize_message`` — the single read boundary. Photo
   messages store the URL as the body, so the body is uniformly ciphertext.
 - ``GET /v1/support/threads/{id}/messages``: support-staff dashboard
-  (``SUPPORT_UIDS`` gate, same as dispute resolution). Returns the thread's
-  messages decrypted for moderation and writes one audit row per message
-  viewed into ``moderation_views`` (viewer, thread, message, reason).
+  (``SUPPORT_UIDS`` gate, same as dispute resolution). Support reads are
+  H2-scoped: a thread is readable only while a report names its listing or
+  one of its participants, or an open dispute references the listing —
+  otherwise 403. ``reason`` is a controlled-vocabulary enum
+  (``SupportViewReason``) written into ``moderation_views``. Paginated
+  (``limit`` <= 100, opaque cursor like the participant path), and audit
+  rows are written in one batched insert. The in-app disclosure
+  ("Staff may review reported chats") and the user-visible
+  "viewed by support" notice are Android-client follow-ups — they cannot be
+  done server-side; this endpoint provides the data for both.
 """
 
 from __future__ import annotations
@@ -36,6 +43,7 @@ import base64
 import uuid
 from typing import Any, Protocol
 
+import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -43,7 +51,14 @@ from .auth import get_current_uid
 from .crypto import MESSAGE_KEY_ENV, decrypt_text, encrypt_text
 from .db import get_db_conn
 from .listings import ListingRepo, get_listing_repo
-from .moderation import ModerationViewRepo, get_moderation_view_repo, require_support
+from .moderation import (
+    ModerationRepo,
+    ModerationViewRepo,
+    SupportViewReason,
+    get_moderation_repo,
+    get_moderation_view_repo,
+    require_support,
+)
 from .storage import (
     StorageError,
     StorageNotConfigured,
@@ -56,6 +71,13 @@ from .users import UserRepo, get_user_repo
 router = APIRouter(prefix="/v1", tags=["messaging"])
 
 PAGE_SIZE = 20
+
+# H10: plaintext byte bound for message bodies. The 2000-char pydantic bound
+# counts code points, but Fernet ciphertext size scales with UTF-8 *bytes*;
+# 2000 emoji = 8000 bytes = ~10.7k chars of ciphertext, past any sane CHECK.
+# 2800 bytes of plaintext encrypts to ~3.8k chars, comfortably under the
+# 16384-char DB CHECK (migration 0027) with headroom for key/token overhead.
+MAX_MESSAGE_BYTES = 2800
 
 
 def _encode_cursor(offset: int) -> str:
@@ -84,6 +106,8 @@ class MessageRepo(Protocol):
                     kind: str = "text", photo_url: str | None = None) -> dict[str, Any]: ...
     def list_messages(self, thread_id: str, offset: int, limit: int) -> list[dict[str, Any]]: ...
     def count_messages(self, thread_id: str) -> int: ...
+    # M10a: batched counts so list_threads doesn't issue one COUNT per thread.
+    def counts_for_threads(self, thread_ids: list[str]) -> dict[str, int]: ...
 
 
 def _serialize_thread(row: dict[str, Any], message_count: int = 0,
@@ -106,12 +130,17 @@ def _serialize_thread(row: dict[str, Any], message_count: int = 0,
 def _serialize_message(row: dict[str, Any]) -> dict[str, Any]:
     """Public message shape. The single read boundary: ``body`` is decrypted
     here (fail closed — tampered token or missing key raises)."""
+    body = row.get("body")
+    if not isinstance(body, str):
+        # M24b: fail closed with the uniform RuntimeError envelope, not an
+        # AttributeError on None (legacy NULL rows) — same as a bad token.
+        raise RuntimeError("message body is missing or not ciphertext — refusing to decrypt")
     return {
         "id": str(row["id"]),
         "thread_id": str(row["thread_id"]),
         "sender_uid": row["sender_uid"],
         "kind": row.get("kind", "text"),
-        "body": decrypt_text(row["body"], MESSAGE_KEY_ENV),
+        "body": decrypt_text(body, MESSAGE_KEY_ENV),
         "photo_url": row.get("photo_url"),
         "created_at": row.get("created_at"),
     }
@@ -164,11 +193,18 @@ class PostgresMessageRepo:
 
     def add_message(self, thread_id, sender_uid, body, kind="text", photo_url=None):
         mid = str(uuid.uuid4())
-        row = self._conn.execute(
-            "INSERT INTO messages (id, thread_id, sender_uid, body, kind, photo_url) "
-            "VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
-            (mid, thread_id, sender_uid, encrypt_text(body, MESSAGE_KEY_ENV),
-             kind, photo_url)).fetchone()
+        try:
+            row = self._conn.execute(
+                "INSERT INTO messages (id, thread_id, sender_uid, body, kind, photo_url) "
+                "VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
+                (mid, thread_id, sender_uid, encrypt_text(body, MESSAGE_KEY_ENV),
+                 kind, photo_url)).fetchone()
+        except psycopg.errors.CheckViolation as exc:
+            # H10: belt-and-suspenders behind the API byte bound — a message
+            # that somehow exceeds the ciphertext CHECK is a 422, never a 500.
+            self._conn.rollback()
+            raise HTTPException(422, {"code": "message_too_long",
+                                      "message": "Message exceeds the encrypted storage limit"}) from exc
         self._conn.commit()
         return self._row(row)
 
@@ -184,6 +220,16 @@ class PostgresMessageRepo:
             "SELECT COUNT(*) AS n FROM messages WHERE thread_id = %s",
             (thread_id,)).fetchone()
         return int(row["n"])
+
+    def counts_for_threads(self, thread_ids):
+        # M10a: one query for all counts instead of N.
+        if not thread_ids:
+            return {}
+        rows = self._conn.execute(
+            "SELECT thread_id, COUNT(*) AS n FROM messages "
+            "WHERE thread_id = ANY(%s) GROUP BY thread_id",
+            (list(thread_ids),)).fetchall()
+        return {str(r["thread_id"]): int(r["n"]) for r in rows}
 
 
 class MemoryMessageRepo:
@@ -234,6 +280,10 @@ class MemoryMessageRepo:
     def count_messages(self, thread_id):
         return len(self._messages.get(thread_id, []))
 
+    def counts_for_threads(self, thread_ids):
+        # M10a: one pass instead of N len() calls across the wire.
+        return {tid: len(self._messages.get(tid, [])) for tid in thread_ids}
+
 
 def get_message_repo(conn=Depends(get_db_conn)) -> MessageRepo:
     return PostgresMessageRepo(conn)
@@ -266,7 +316,7 @@ def _participant_or_403(thread: dict[str, Any] | None,
     return thread
 
 
-@router.post("/threads", status_code=200, tags=["messaging"])
+@router.post("/threads", status_code=201, tags=["messaging"])
 def open_thread(
     data: ThreadIn,
     uid: str = Depends(get_current_uid),
@@ -293,12 +343,22 @@ def list_threads(
     listing_repo: ListingRepo = Depends(get_listing_repo),
 ) -> dict[str, Any]:
     """Threads you opened plus threads on your listings."""
-    owned_ids = [l["id"] for l in listing_repo.list_by_owner(uid)]
+    # M10a: one listing query (the owned set) and one COUNT query for all
+    # threads. Threads the caller opened on *others'* listings still need
+    # one get each — a batched get_many on ListingRepo would remove that,
+    # but ListingRepo lives in listings.py (another track owns it).
+    owned = listing_repo.list_by_owner(uid)
+    owned_ids = [l["id"] for l in owned]
+    owned_map = {str(l["id"]): l for l in owned}
     threads = repo.list_threads_for(uid, owned_ids)
+    counts = repo.counts_for_threads([str(t["id"]) for t in threads])
     out = []
     for t in threads:
-        listing = listing_repo.get(str(t["listing_id"]))
-        out.append(_serialize_thread(t, repo.count_messages(t["id"]), listing))
+        lid = str(t["listing_id"])
+        listing = owned_map.get(lid)
+        if listing is None:
+            listing = listing_repo.get(lid)
+        out.append(_serialize_thread(t, counts.get(str(t["id"]), 0), listing))
     return {"threads": out}
 
 
@@ -318,6 +378,15 @@ def send_message(
     if not body:
         raise HTTPException(422, {"code": "empty_message",
                                   "message": "Message body cannot be blank"})
+    if len(body.encode("utf-8")) > MAX_MESSAGE_BYTES:
+        # H10: the 2000-char pydantic bound counts code points, but Fernet
+        # ciphertext grows with UTF-8 bytes — 2000 emoji would blow the DB
+        # CHECK and 500. Enforce the byte bound here (422); the
+        # CheckViolation catch in PostgresMessageRepo.add_message is the
+        # backstop.
+        raise HTTPException(422, {"code": "message_too_long",
+                                  "message": f"Message body exceeds {MAX_MESSAGE_BYTES} bytes "
+                                             "(multibyte characters count toward the limit)"})
     return _serialize_message(repo.add_message(thread_id, uid, body))
 
 
@@ -384,6 +453,10 @@ def attach_photo(
     registry.record_raw(key, uid)
     registry.mark_finalized(key)
     public_url = meta["public_url"]
+    # L7: public_url is ASCII by construction (scheme://host/path, with any
+    # non-ASCII percent-encoded), so storing it as the encrypted body stays
+    # well under the ciphertext CHECK — unlike free multibyte text, which is
+    # why H10 needs the separate plaintext byte bound.
     return _serialize_message(
         repo.add_message(thread_id, uid, public_url, kind="photo", photo_url=public_url))
 
@@ -413,29 +486,59 @@ def read_messages(
 @router.get("/support/threads/{thread_id}/messages", tags=["support"])
 def support_read_messages(
     thread_id: str,
-    reason: str = Query(min_length=1, max_length=500,
-                        description="Why this thread is being reviewed (audit log)"),
+    reason: SupportViewReason = Query(
+        description="Controlled-vocabulary justification for the review "
+                    "(written into the moderation_views audit log)"),
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
     uid: str = Depends(get_current_uid),
     repo: MessageRepo = Depends(get_message_repo),
+    listing_repo: ListingRepo = Depends(get_listing_repo),
+    mod_repo: ModerationRepo = Depends(get_moderation_repo),
     view_repo: ModerationViewRepo = Depends(get_moderation_view_repo),
 ) -> dict[str, Any]:
-    """Support dashboard: full decrypted thread view for moderation.
+    """Support dashboard: decrypted thread view for moderation.
 
     Support staff only (``SUPPORT_UIDS`` — 403 otherwise, fail closed).
-    Not participant-scoped: that is the point — a reported user's
-    conversation must be reviewable. Every message returned writes one
-    audit row (viewer, thread, message, reason) into ``moderation_views``.
+    Not participant-scoped — that is the point — but H2-scoped: a thread is
+    readable only while a report names its listing or one of its
+    participants, or an open dispute references the listing (403
+    ``no_open_case`` otherwise). ``reason`` is a controlled-vocabulary enum
+    (free text was self-reported and unauditable). Paginated: ``limit`` <=
+    100 with the same opaque cursor as the participant path (M2 — no more
+    10k-message decrypt-and-commit storms). Every message returned writes
+    one audit row (viewer, thread, message, reason) into
+    ``moderation_views`` in a single batched insert.
+
+    Android follow-ups (client-side, not implementable here): in-app copy
+    disclosing "Staff may review reported chats", and a user-visible
+    "viewed by support" notice on reviewed threads.
     """
     require_support(uid)
     thread = repo.get_thread(thread_id)
     if thread is None:
         raise HTTPException(404, {"code": "thread_not_found",
                                   "message": "No such thread"})
-    rows = repo.list_messages(thread_id, 0, 10_000)
-    messages = []
-    for m in rows:
-        message = _serialize_message(m)  # decrypts; fail closed
-        view_repo.log_view(viewer_uid=uid, thread_id=thread_id,
-                           message_id=str(m["id"]), reason=reason.strip())
-        messages.append(message)
-    return {"thread_id": thread_id, "messages": messages}
+    listing = listing_repo.get(str(thread["listing_id"]))
+    participants = {thread["created_by"]}
+    if listing is not None:
+        participants.add(listing["owner_uid"])
+    if not mod_repo.thread_has_open_case(str(thread["listing_id"]),
+                                         sorted(participants)):
+        raise HTTPException(403, {"code": "no_open_case",
+                                  "message": "Support reads are limited to threads "
+                                             "linked to an open report or dispute"})
+    offset = _decode_cursor(cursor)
+    rows = repo.list_messages(thread_id, offset, limit)
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    view_repo.log_views_batch([
+        {"viewer_uid": uid, "thread_id": thread_id,
+         "message_id": str(m["id"]), "reason": reason.value}
+        for m in page
+    ])
+    return {
+        "thread_id": thread_id,
+        "messages": [_serialize_message(m) for m in page],  # decrypts; fail closed
+        "next_cursor": _encode_cursor(offset + limit) if has_more else None,
+    }

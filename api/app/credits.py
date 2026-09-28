@@ -13,7 +13,15 @@ Seasonal expiry:
   DERIVED view over ``created_at`` (FIFO lots via ``_remaining_lots``) — the
   ledger is never mutated or deleted for expiry, so it stays append-only.
 - ``season_end_ms`` / ``expiry_warnings`` are pure helpers; the 30-day and
-  7-day warning windows feed ``GET /v1/users/me/credit-expiry``.
+  7-day warning windows feed ``GET /v1/users/me/credit-expiry``, which stays
+  surfaced as the canonical expiry outlook (M22).
+
+Starter grant (M22 reconciliation):
+- PRD.md:169 mentions a "seasonal starter refresh" for users at 0 credits.
+  That refresh does NOT exist: ``ensure_starter_credits`` grants the
+  3-credit bootstrap exactly once per user, ever. Until a refresh is
+  designed and implemented, this docstring — not the PRD line — is the
+  source of truth; the PRD wording still needs reconciling.
 
 Anti-gaming earn cap:
 - Max 10 credits earned per user per rolling 7 days, enforced inside
@@ -22,6 +30,9 @@ Anti-gaming earn cap:
   ``EarnCapExceededError`` (HTTP 409 ``earn_cap_exceeded``), which the app's
   exception handler renders in the standard error envelope. The starter
   bootstrap is not "earned" and is exempt.
+- H12: the cap check and the INSERT run inside a per-uid locked transaction
+  (``pg_advisory_xact_lock`` on Postgres; per-uid ``threading.Lock`` in the
+  memory repo), so concurrent earns can't both slip under the cap.
 
 - This module imports nothing from the users domain (users.py imports from
   here) so the dependency direction stays one-way.
@@ -29,6 +40,7 @@ Anti-gaming earn cap:
 
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -249,6 +261,12 @@ class PostgresCreditRepo:
             existing = self.find_by_idempotency_key(idempotency_key)
             if existing is not None:
                 return existing
+        # H12: serialize cap-check + insert per uid. pg_advisory_xact_lock is
+        # transaction-scoped — it releases automatically at the commit below,
+        # so a crashed request can't leave the lock held.
+        self._conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))", (f"credits:{uid}",)
+        )
         _check_earn_cap(uid, delta, reason, self, _now_ms())
         # Concurrent same-key inserts: exactly one wins; the loser re-reads.
         row = self._conn.execute(
@@ -301,19 +319,30 @@ class MemoryCreditRepo:
         self._entries: list[dict[str, Any]] = []
         self._by_key: dict[str, dict[str, Any]] = {}
         self._confirmations: dict[str, set[str]] = {}
+        # H12: per-uid locks — the memory equivalent of the Postgres
+        # advisory-lock serialization around cap-check + insert.
+        self._uid_locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    def _lock_for(self, uid: str) -> threading.Lock:
+        with self._locks_guard:
+            return self._uid_locks.setdefault(uid, threading.Lock())
 
     def add_entry(self, uid, delta, reason, ref_id=None, idempotency_key=None):
-        if idempotency_key and idempotency_key in self._by_key:
-            return dict(self._by_key[idempotency_key])
-        _check_earn_cap(uid, delta, reason, self, _now_ms())
-        row = {
-            "id": str(uuid.uuid4()), "uid": uid, "delta": delta, "reason": reason,
-            "ref_id": ref_id, "idempotency_key": idempotency_key,
-            "created_at": _utcnow().isoformat(),
-        }
-        self._entries.append(row)
-        if idempotency_key:
-            self._by_key[idempotency_key] = row
+        # The idempotency check lives INSIDE the lock: two threads racing the
+        # same key must not both slip past the check and double-insert.
+        with self._lock_for(uid):
+            if idempotency_key and idempotency_key in self._by_key:
+                return dict(self._by_key[idempotency_key])
+            _check_earn_cap(uid, delta, reason, self, _now_ms())
+            row = {
+                "id": str(uuid.uuid4()), "uid": uid, "delta": delta, "reason": reason,
+                "ref_id": ref_id, "idempotency_key": idempotency_key,
+                "created_at": _utcnow().isoformat(),
+            }
+            self._entries.append(row)
+            if idempotency_key:
+                self._by_key[idempotency_key] = row
         return dict(row)
 
     def find_by_idempotency_key(self, key):
@@ -344,9 +373,19 @@ def get_credit_repo(conn=Depends(get_db_conn)) -> CreditRepo:
 
 def ensure_starter_credits(uid: str, credit_repo: CreditRepo) -> None:
     """Grant the 3-credit bootstrap once per user. Idempotent — safe to call
-    from every user-creation path (profile upsert, phone verify)."""
+    from every user-creation path (profile upsert, phone verify).
+
+    H12: the grant carries the deterministic idempotency key
+    ``f"starter:{uid}"``, so concurrent calls collapse to one row via
+    ``ON CONFLICT DO NOTHING`` (Postgres) / key dedup (memory). Migration
+    0028 adds a unique partial index on ``(uid) WHERE reason='starter'`` as
+    defense-in-depth behind the key.
+    """
     if not any(e["reason"] == "starter" for e in credit_repo.entries(uid)):
-        credit_repo.add_entry(uid, STARTER_CREDITS, "starter", ref_id=uid)
+        credit_repo.add_entry(
+            uid, STARTER_CREDITS, "starter", ref_id=uid,
+            idempotency_key=f"starter:{uid}",
+        )
 
 
 # ---------------------------------------------------------------------------

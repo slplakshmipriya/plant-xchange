@@ -258,3 +258,85 @@ def test_unknown_backend_rejected(client, mock_verify, auth_headers, monkeypatch
                     json={"content_type": "image/jpeg", "size_bytes": 100},
                     headers=auth_headers)
     assert r.status_code == 501
+
+
+# --- H5: GCS finalize pipeline + local-in-prod guard --------------------------
+
+class _FakeGCSStore:
+    """Dict-backed GCSBlobStore: exercises the download -> validate ->
+    strip -> re-upload pipeline with no network."""
+
+    def __init__(self):
+        self.blobs: dict[str, tuple[bytes, str]] = {}
+
+    def download(self, key: str) -> bytes:
+        from app.storage import StorageError
+
+        try:
+            data, _ = self.blobs[key]
+        except KeyError:
+            raise StorageError("upload not found — PUT bytes to upload_url first")
+        return data
+
+    def upload(self, key: str, data: bytes, content_type: str) -> None:
+        self.blobs[key] = (data, content_type)
+
+
+def test_gcs_finalize_strips_gps_via_fake_store(monkeypatch):
+    from app.storage import GCSStorage
+
+    monkeypatch.setenv("GCS_BUCKET", "dummy-bucket")
+    store = GCSStorage(_blob_store=_FakeGCSStore())
+    key = "u/alice/abc123.jpg"
+    store._blob_store.blobs[key] = (_gps_jpeg(), "image/jpeg")
+
+    meta = store.finalize("alice", key)
+
+    assert meta["gps_stripped"] is True
+    assert meta["public_url"] == f"https://storage.googleapis.com/dummy-bucket/{key}"
+    assert meta["content_type"] == "image/jpeg"
+    # The re-uploaded bytes really have no GPS IFD.
+    data, content_type = store._blob_store.blobs[key]
+    assert content_type == "image/jpeg"
+    assert IFD.GPSInfo not in Image.open(io.BytesIO(data)).getexif()
+
+
+def test_gcs_finalize_rejects_bad_image_and_wrong_owner(monkeypatch):
+    from app.storage import GCSStorage, StorageError
+
+    monkeypatch.setenv("GCS_BUCKET", "dummy-bucket")
+    store = GCSStorage(_blob_store=_FakeGCSStore())
+    key = "u/alice/abc123.jpg"
+    store._blob_store.blobs[key] = (_gps_jpeg(), "image/jpeg")
+
+    with pytest.raises(StorageError):
+        store.finalize("bob", key)  # ownership enforced
+    with pytest.raises(StorageError):
+        store.finalize("alice", "u/alice/missing.jpg")  # nothing uploaded
+
+    store._blob_store.blobs["u/alice/bad.jpg"] = (b"not an image", "image/jpeg")
+    with pytest.raises(StorageError):
+        store.finalize("alice", "u/alice/bad.jpg")  # invalid image, not re-uploaded
+    data, _ = store._blob_store.blobs["u/alice/bad.jpg"]
+    assert data == b"not an image"  # original bytes untouched
+
+
+def test_validate_storage_config_refuses_local_in_prod(monkeypatch):
+    from app.config import get_settings
+    from app.storage import get_storage, validate_storage_config
+
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    with pytest.raises(RuntimeError, match="must never run"):
+        validate_storage_config(get_settings())
+    with pytest.raises(RuntimeError):
+        get_storage()  # lazy enforcement even if lifespan wiring is skipped
+
+    monkeypatch.delenv("ENVIRONMENT")
+    validate_storage_config(get_settings())  # dev default: no raise
+    assert isinstance(get_storage(), object)
+
+    monkeypatch.setenv("STORAGE_BACKEND", "gcs")
+    monkeypatch.setenv("ENVIRONMENT", "prod")
+    monkeypatch.setenv("GCS_BUCKET", "dummy-bucket")
+    validate_storage_config(get_settings())  # gcs in prod: fine

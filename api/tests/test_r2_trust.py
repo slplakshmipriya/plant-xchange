@@ -16,6 +16,7 @@ def mem_trust(client, monkeypatch):
     from app import notify as notify_mod
     from app import users as users_mod
     from app import wantlist as wantlist_mod
+    from app import claims as claims_mod
     from conftest import wire_credit_repo
     import app.auth as auth_mod
 
@@ -25,7 +26,9 @@ def mem_trust(client, monkeypatch):
     wrepo = wantlist_mod.MemoryWantRepo()
     nrepo = notify_mod.MemoryNotificationRepo()
     crepo = wire_credit_repo(client)
+    claim_repo = claims_mod.MemoryClaimRepo()
     client.app.dependency_overrides[moderation_mod.get_moderation_repo] = lambda: mrepo
+    client.app.dependency_overrides[claims_mod.get_claim_repo] = lambda: claim_repo
     client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
     client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
     client.app.dependency_overrides[wantlist_mod.get_want_repo] = lambda: wrepo
@@ -50,7 +53,7 @@ MALLORY = {"Authorization": "Bearer mallory-token"}
 
 
 def _profile(client, headers, name):
-    r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+    r = client.post("/v1/users", json={"display_name": name, "age_attestation": True}, headers=headers)
     assert r.status_code == 200, r.text
 
 
@@ -106,15 +109,17 @@ def test_report_bad_category_422(mem_trust):
     assert r.status_code == 422, r.text
 
 
-def test_report_ok_returns_empty_object(mem_trust):
+def test_report_ok_returns_id(mem_trust):
     client, mrepo, *_ = mem_trust
     r = client.post("/v1/reports", headers=ALICE,
                     json={"targetType": "USER", "targetId": "bob",
                           "category": "safety", "details": "threatening messages"})
-    assert r.status_code == 200, r.text
-    assert r.json() == {}
+    assert r.status_code == 201, r.text
+    rid = r.json()["id"]
+    assert rid
     assert len(mrepo._reports) == 1
     stored = mrepo._reports[0]
+    assert stored["id"] == rid
     assert stored["reporter_uid"] == "alice"
     assert stored["target_type"] == "USER"
     assert stored["category"] == "safety"
@@ -337,3 +342,45 @@ def test_dispute_resolve_unknown_id_404(mem_trust, monkeypatch):
     r = _resolve(client, "no-such-dispute",
                  {"outcome": "rejected", "reversalCredits": 0}, ALICE)
     assert r.status_code == 404, r.text
+
+
+def test_dispute_reversal_cap_blocked_leaves_dispute_open(mem_trust, monkeypatch):
+    # M11: reversals post BEFORE the status flip. If the claimer's earn cap
+    # (credits.py is another track's file — no exemption there) blocks the
+    # reversal, the dispute stays open (409) instead of resolved-but-unreversed.
+    client, mrepo, _, _, crepo = mem_trust
+    monkeypatch.setenv("SUPPORT_UIDS", "alice")
+    lid = _completed_exchange(client, cost=2)
+    # bob (claimer) earns 10 in the window -> the 1-credit reversal exceeds the cap.
+    crepo.add_entry("bob", 10, "welcome_bonus", idempotency_key="cap-fill")
+    did = client.post("/v1/disputes", headers=BOB,
+                      json={"exchangeId": lid, "reason": "wrong-item",
+                            "details": "got basil not tomato"}).json()["dispute"]["id"]
+    r = _resolve(client, did, {"outcome": "upheld", "reversalCredits": 1}, ALICE)
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "dispute_reversal_cap_blocked"
+    # Dispute is still open and no reversal was posted (retryable).
+    assert mrepo.get_dispute(did)["status"] == "open"
+    assert not [e for e in crepo._entries if e["reason"] == "dispute_reversal"]
+    # And it can still be resolved with reversalCredits=0.
+    r = _resolve(client, did, {"outcome": "rejected", "reversalCredits": 0}, ALICE)
+    assert r.status_code == 200, r.text
+    assert r.json()["dispute"]["status"] == "resolved"
+
+
+def test_dispute_resolve_race_loser_409(mem_trust, monkeypatch):
+    # M11: the conditional UPDATE means a resolve that finds the dispute
+    # already flipped (status != open) returns None -> route 409s. Simulate
+    # the loser by pre-resolving at the repo layer.
+    from datetime import datetime, timezone
+
+    client, mrepo, *_ = mem_trust
+    monkeypatch.setenv("SUPPORT_UIDS", "alice")
+    lid = _completed_exchange(client)
+    did = client.post("/v1/disputes", headers=BOB,
+                      json={"exchangeId": lid, "reason": "x",
+                            "details": "y"}).json()["dispute"]["id"]
+    mrepo.resolve_dispute(did, "rejected", 0, "alice", datetime.now(timezone.utc))
+    r = _resolve(client, did, {"outcome": "upheld", "reversalCredits": 1}, ALICE)
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "dispute_already_resolved"

@@ -1,7 +1,9 @@
 """SEC-010: PII minimization audit.
 
-The rule: NO API response may contain ``phone_hash``, ``device_fingerprint``,
-or exact geo coordinates. ``home_zip`` is visible only to the owner.
+The rule: NO API response may contain ``phone_hash`` or exact geo
+coordinates. ``home_zip`` is visible only to the owner.
+(M17: ``device_fingerprint`` was dropped from the schema — it was collected
+but never used.)
 This module audits every Wave 1 response schema two ways:
 
 1. Serializer-level: feed rows carrying ALL sensitive fields through each
@@ -16,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-FORBIDDEN_KEYS = {"phone_hash", "device_fingerprint"}
+FORBIDDEN_KEYS = {"phone_hash"}
 # home_zip may appear ONLY in owner-scoped responses (handled per-case below).
 
 
@@ -43,7 +45,6 @@ SENSITIVE_USER_ROW = {
     "display_name": "Alice",
     "avatar_url": "https://example.com/a.png",
     "home_zip": "85281",
-    "device_fingerprint": "FINGERPRINT-SECRET-456",
     "idv_status": "verified",
     "created_at": "2026-09-27T00:00:00+00:00",
 }
@@ -70,7 +71,6 @@ SENSITIVE_LISTING_ROW = {
 def _sensitive_values():
     return {
         SENSITIVE_USER_ROW["phone_hash"],
-        SENSITIVE_USER_ROW["device_fingerprint"],
         SENSITIVE_USER_ROW["home_zip"],
         str(SENSITIVE_LISTING_ROW["geo_lat"]),
         str(SENSITIVE_LISTING_ROW["geo_lon"]),
@@ -92,7 +92,7 @@ def test_owner_profile_serializer_leaks_nothing_sensitive():
 
     out = owner_profile(SENSITIVE_USER_ROW)
     # owner MAY see their own zip — but nothing else sensitive
-    values = {SENSITIVE_USER_ROW["phone_hash"], SENSITIVE_USER_ROW["device_fingerprint"]}
+    values = {SENSITIVE_USER_ROW["phone_hash"]}
     leaks = _find_leaks(out, FORBIDDEN_KEYS, values)
     assert leaks == [], leaks
     assert out["home_zip"] == "85281"  # owner-scoped: allowed
@@ -125,25 +125,25 @@ def test_verify_and_idv_responses_carry_no_pii(mem_users, mock_verify, auth_head
     monkeypatch.setenv("IDV_PROVIDER", "stub")
     monkeypatch.setenv("IDV_WEBHOOK_SECRET", "test-secret")
     client, repo = mem_users
-    repo.upsert("alice", phone_hash="PHASH-SECRET-123", device_fingerprint="FP-SECRET")
+    repo.upsert("alice", phone_hash="PHASH-SECRET-123")
 
     r = client.post("/v1/auth/verify", headers=auth_headers)
     assert r.status_code == 200
-    assert _find_leaks(r.json(), FORBIDDEN_KEYS, {"PHASH-SECRET-123", "FP-SECRET"}) == []
+    assert _find_leaks(r.json(), FORBIDDEN_KEYS, {"PHASH-SECRET-123"}) == []
 
     r = client.post("/v1/idv/stub/decide", json={"decision": "approved"}, headers=auth_headers)
     assert r.status_code == 200
-    assert _find_leaks(r.json(), FORBIDDEN_KEYS, {"PHASH-SECRET-123", "FP-SECRET"}) == []
+    assert _find_leaks(r.json(), FORBIDDEN_KEYS, {"PHASH-SECRET-123"}) == []
 
 
 def test_http_profile_endpoints_leak_nothing(mem_users, mock_verify, auth_headers):
     client, repo = mem_users
     repo.upsert("alice", display_name="Alice", home_zip="85281",
-                phone_hash="PHASH-SECRET-123", device_fingerprint="FP-SECRET")
+                phone_hash="PHASH-SECRET-123")
 
     for path in ("/v1/users/me", "/v1/users/alice"):
         body = client.get(path, headers=auth_headers).json()
-        leaks = _find_leaks(body, FORBIDDEN_KEYS, {"PHASH-SECRET-123", "FP-SECRET"})
+        leaks = _find_leaks(body, FORBIDDEN_KEYS, {"PHASH-SECRET-123"})
         assert leaks == [], (path, leaks)
     # public endpoint additionally hides home_zip
     assert "85281" not in str(client.get("/v1/users/alice", headers=auth_headers).json())

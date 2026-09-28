@@ -200,3 +200,117 @@ def test_feed_boosts_want_match(mem_all, mock_verify, auth_headers):
                   "created_at": now.isoformat()})
     r = client.get("/v1/feed", headers=auth_headers)
     assert [i["id"] for i in r.json()["items"]] == ["match", "plain"]
+
+
+# ------------------------------------------------ M9: DB-level want-list matching
+
+def test_find_matches_for_listing_agrees_with_find_matches():
+    """M9: the repo matcher has the same semantics as the pure function."""
+    from app.wantlist import MemoryWantRepo, find_matches
+
+    repo = MemoryWantRepo()
+    repo.create({"id": "w1", "user_uid": "carol", "variety": "tomato", "types": []})
+    repo.create({"id": "w2", "user_uid": "dave", "variety": "tom",
+                 "types": ["seedling"]})  # reverse substring
+    repo.create({"id": "w3", "user_uid": "alice", "variety": "tomato",
+                 "types": []})  # owner excluded
+    repo.create({"id": "w4", "user_uid": "erin", "variety": "tomato",
+                 "types": ["harvest"]})  # wrong type excluded
+    repo.create({"id": "w5", "user_uid": "frank", "variety": "", "types": []})
+    row = {"id": "l1", "owner_uid": "alice", "type": "seedling",
+           "variety": "Cherry Tomato"}
+    assert {e["user_uid"] for e in repo.find_matches_for_listing(row)} == {"carol", "dave"}
+    assert {e["user_uid"] for e in find_matches(row, repo.list_all())} == {"carol", "dave"}
+
+
+def test_postgres_find_matches_uses_single_indexed_query():
+    """M9: DB-level matching is ONE query with a trigram-friendly LIKE arm
+    (the pg_trgm GIN index from migration 0030 serves it); a blank variety
+    short-circuits without touching the DB at all."""
+    from app.wantlist import PostgresWantRepo
+
+    class _Conn:
+        def __init__(self):
+            self.queries = []
+
+        def execute(self, q, params=None):
+            self.queries.append((q, params))
+            return self
+
+        def fetchall(self):
+            return []
+
+        def commit(self):
+            pass
+
+    conn = _Conn()
+    repo = PostgresWantRepo(conn)
+    assert repo.find_matches_for_listing(
+        {"id": "l1", "owner_uid": "alice", "type": "seedling",
+         "variety": "Tomato"}) == []
+    assert len(conn.queries) == 1  # exactly one round trip
+    q, params = conn.queries[0]
+    assert "want_list" in q and "LIKE" in q
+    assert "user_uid <> %s" in q  # owner excluded in SQL
+    assert "cardinality(types) = 0" in q  # empty types = any type, in SQL
+    assert params[0] == "alice"
+
+    # Blank variety: no query at all.
+    conn.queries.clear()
+    assert repo.find_matches_for_listing(
+        {"owner_uid": "alice", "type": "seedling", "variety": "  "}) == []
+    assert conn.queries == []
+
+
+def test_notify_matches_uses_db_level_matcher():
+    """M9: notify_matches prefers find_matches_for_listing over list_all."""
+    from app.notify import MemoryNotificationRepo
+    from app.wantlist import MemoryWantRepo, notify_matches
+
+    class _SpyRepo(MemoryWantRepo):
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+
+        def find_matches_for_listing(self, row):
+            self.calls.append(row["id"])
+            return []
+
+    wrepo = _SpyRepo()
+    notify_matches({"id": "l9", "owner_uid": "alice", "type": "seedling",
+                    "variety": "tomato"},
+                   wrepo, MemoryNotificationRepo())
+    assert wrepo.calls == ["l9"]  # used the DB-level matcher
+
+
+def test_migration_0030_adds_trigram_index():
+    """M9: migration 0030 ships the pg_trgm index backing DB-level matching."""
+    from app.db import discover_migrations
+
+    versions = dict(discover_migrations())
+    assert 30 in versions
+    assert versions[30].name == "0030_want_variety_trgm.sql"
+    sql = versions[30].read_text()
+    assert "CREATE EXTENSION IF NOT EXISTS pg_trgm" in sql
+    assert "gin_trgm_ops" in sql
+    assert "lower(variety)" in sql
+
+
+# ------------------------------------------------ L1b: update column whitelist
+
+def test_want_update_rejects_unknown_column():
+    """L1b: update keys are whitelisted — an unknown column never reaches SQL."""
+    import pytest
+
+    from app.wantlist import PostgresWantRepo
+
+    class _NoExecConn:
+        def execute(self, q, params=None):
+            raise AssertionError("must not reach SQL")
+
+        def commit(self):
+            pass
+
+    with pytest.raises(ValueError, match="unknown want_list columns"):
+        PostgresWantRepo(_NoExecConn()).update("w1", {"variety": "x",
+                                                      "user_uid": "mallory"})

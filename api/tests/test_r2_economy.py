@@ -37,7 +37,9 @@ def frozen_time(monkeypatch):
 def mem_economy(client, monkeypatch):
     """In-memory user + listing + credit repos; alice/bob/mallory tokens."""
     from app import credits as credits_mod
+    from app import claims as claims_mod
     from app import listings as listings_mod
+    from app import moderation as moderation_mod
     from app import notify as notify_mod
     from app import users as users_mod
     from app import wantlist as wantlist_mod
@@ -49,10 +51,14 @@ def mem_economy(client, monkeypatch):
     crepo = wire_credit_repo(client)
     wrepo = wantlist_mod.MemoryWantRepo()
     nrepo = notify_mod.MemoryNotificationRepo()
+    claim_repo = claims_mod.MemoryClaimRepo()
+    mrepo = moderation_mod.MemoryModerationRepo()
     client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
     client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
     client.app.dependency_overrides[wantlist_mod.get_want_repo] = lambda: wrepo
     client.app.dependency_overrides[notify_mod.get_notification_repo] = lambda: nrepo
+    client.app.dependency_overrides[claims_mod.get_claim_repo] = lambda: claim_repo
+    client.app.dependency_overrides[moderation_mod.get_moderation_repo] = lambda: mrepo
 
     def fake(token: str) -> dict:
         if token == "good-token":
@@ -71,7 +77,7 @@ BOB = {"Authorization": "Bearer bob-token"}
 
 
 def _profile(client, headers, name):
-    r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+    r = client.post("/v1/users", json={"display_name": name, "age_attestation": True}, headers=headers)
     assert r.status_code == 200, r.text
 
 
@@ -318,7 +324,7 @@ def test_earn_cap_surfaces_as_409_through_exchange_confirm(mem_economy, frozen_t
 def test_starter_credits_granted_on_signup(mem_economy):
     client, _, _, _ = mem_economy
 
-    r = client.post("/v1/users", json={"display_name": "Alice"}, headers=ALICE)
+    r = client.post("/v1/users", json={"display_name": "Alice", "age_attestation": True}, headers=ALICE)
     assert r.status_code == 200, r.text
 
     body = client.get("/v1/wallet", headers=ALICE).json()
@@ -327,7 +333,7 @@ def test_starter_credits_granted_on_signup(mem_economy):
     assert len(starters) == 1 and starters[0]["delta"] == 3
 
     # Repeat signup is idempotent: no double grant.
-    r = client.post("/v1/users", json={"display_name": "Alice"}, headers=ALICE)
+    r = client.post("/v1/users", json={"display_name": "Alice", "age_attestation": True}, headers=ALICE)
     assert r.status_code == 200, r.text
     assert client.get("/v1/wallet", headers=ALICE).json()["balance"] == 3
 
@@ -360,3 +366,66 @@ def test_ledger_append_only_across_expiry(mem_economy, frozen_time):
     crepo.add_entry("alice", 1, "exchange_earn", ref_id="r2")
     assert crepo.balance("alice") == 1
     assert len(crepo.entries("alice")) == len(before) + 1
+
+
+# ---------------------------------------------------------------------------
+# H12: starter-grant and earn-cap races
+# ---------------------------------------------------------------------------
+
+def test_starter_grant_idempotent_under_concurrency():
+    """Concurrent ensure_starter_credits calls grant exactly once (the
+    deterministic idempotency key collapses the race)."""
+    import threading
+
+    from app.credits import MemoryCreditRepo, ensure_starter_credits
+
+    repo = MemoryCreditRepo()
+    threads = [
+        threading.Thread(target=ensure_starter_credits, args=("alice", repo))
+        for _ in range(16)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    starters = [e for e in repo.entries("alice") if e["reason"] == "starter"]
+    assert len(starters) == 1
+    assert repo.balance("alice") == 3
+
+
+def test_starter_uses_deterministic_idempotency_key():
+    from app.credits import MemoryCreditRepo, ensure_starter_credits
+
+    repo = MemoryCreditRepo()
+    ensure_starter_credits("alice", repo)
+    ensure_starter_credits("alice", repo)
+    starters = [e for e in repo.entries("alice") if e["reason"] == "starter"]
+    assert len(starters) == 1
+    assert starters[0]["idempotency_key"] == "starter:alice"
+
+
+def test_earn_cap_holds_under_concurrency():
+    """16 threads racing to earn 1 credit each: the per-uid lock serializes
+    cap-check + insert, so at most 10 succeed and the rest get 409."""
+    import threading
+
+    from app.credits import EarnCapExceededError, MemoryCreditRepo
+
+    repo = MemoryCreditRepo()
+    results = []
+
+    def earn(i):
+        try:
+            repo.add_entry("alice", 1, "exchange_earn", ref_id=f"r{i}",
+                           idempotency_key=f"earn:{i}")
+            results.append("ok")
+        except EarnCapExceededError:
+            results.append("capped")
+
+    threads = [threading.Thread(target=earn, args=(i,)) for i in range(16)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results.count("ok") == 10
+    assert results.count("capped") == 6

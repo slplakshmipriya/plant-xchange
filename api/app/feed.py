@@ -12,6 +12,9 @@
 
 Cursor pagination: opaque base64 offset cursor. Geo is fuzzed via
 ``listings.public_listing`` — true coordinates never leave the server.
+
+``way=sitting`` returns sitter profiles under a ``"sitters"`` key (not
+``"listings"``).
 """
 
 from __future__ import annotations
@@ -91,6 +94,23 @@ def _expiry_key(row: dict[str, Any]) -> tuple[bool, float, str]:
     return (dt is None, dt.timestamp() if dt else 0.0, str(row.get("id") or ""))
 
 
+def _batch_display_names(user_repo: UserRepo, uids: list[str]) -> dict[str, str | None]:
+    """Display names for many uids with a single batched read (M10c).
+
+    Prefers ``UserRepo.get_many`` when the repo offers it (one query for the
+    whole page of sitters); falls back to per-uid ``get`` otherwise. Uids are
+    de-duplicated so each user is read at most once per call.
+    """
+    unique = list(dict.fromkeys(uids))
+    get_many = getattr(user_repo, "get_many", None)
+    if callable(get_many):
+        rows = get_many(unique)
+        if isinstance(rows, dict):
+            return {u: (rows.get(u) or {}).get("display_name") for u in unique}
+        return {u: (r or {}).get("display_name") for u, r in zip(unique, rows)}
+    return {u: _display_name(user_repo, u) for u in unique}
+
+
 @router.get("/feed")
 def get_feed(
     limit: int = Query(default=PAGE_LIMIT, ge=1, le=MAX_LIMIT),
@@ -104,24 +124,30 @@ def get_feed(
 ) -> dict[str, Any]:
     """Ranked discovery feed of live listings (fuzzed geo, no PII).
 
-    Without ``way``: the scored, cursor-paginated feed (API-021).
+    Without ``way``: the scored, cursor-paginated feed (API-021). Pagination
+    is DB-level (M9): one page of rows is fetched with limit/offset and only
+    that page is scored in Python, so per-request work stays bounded no
+    matter how large the listings table grows.
     With ``way`` (API-123): exact ``{"listings": [...]}`` for one Explore
-    way-card, ranked freshest-first by expiry ascending (nulls last).
+    way-card, ranked freshest-first by expiry ascending (nulls last) —
+    except ``way=sitting``, which returns sitter profiles under a
+    ``{"sitters": [...]}`` key (L4c).
     """
     if way is not None:
         if way == "sitting":
-            profiles = [
-                _serialize_profile(r, _display_name(user_repo, r["uid"]))
-                for r in sitter_repo.list_active()
-            ]
-            return {"listings": profiles[:limit]}
-        live = [r for r in repo.list_live() if r.get("type") == _WAY_TO_LISTING_TYPE[way]]
+            profiles = sitter_repo.list_active()
+            # M10c: one batched display-name lookup, not one query per sitter.
+            names = _batch_display_names(user_repo, [r["uid"] for r in profiles])
+            return {"sitters": [_serialize_profile(r, names.get(r["uid"]))
+                                for r in profiles[:limit]]}
+        live = repo.list_live(limit=limit, listing_type=_WAY_TO_LISTING_TYPE[way])
         ranked = sorted(live, key=_expiry_key)
-        return {"listings": [public_listing(r) for r in ranked[:limit]]}
+        return {"listings": [public_listing(r, viewer_uid=uid) for r in ranked[:limit]]}
 
     offset = _decode_cursor(cursor)
     now = utcnow()
-    live = repo.list_live()
+    # M9: DB-level pagination — fetch one page, score only the page.
+    page = repo.list_live(limit=limit, offset=offset)
     # API-030: seedling listings matching the caller's want-list get a boost.
     wants = [w["variety"] for w in want_repo.list_for_user(uid)]
 
@@ -132,10 +158,10 @@ def get_feed(
             variety_matches(w, row.get("variety")) for w in wants
         ) else 0.0
 
-    ranked = sorted(live, key=lambda r: (-score_listing(r, now, boost(r)), r["id"]))
-    page = ranked[offset:offset + limit]
-    next_cursor = _encode_cursor(offset + limit) if offset + limit < len(ranked) else None
+    ranked = sorted(page, key=lambda r: (-score_listing(r, now, boost(r)), r["id"]))
+    total = repo.count_live()
+    next_cursor = _encode_cursor(offset + limit) if offset + limit < total else None
     return {
-        "items": [public_listing(r) for r in page],
+        "items": [public_listing(r, viewer_uid=uid) for r in ranked],
         "next_cursor": next_cursor,
     }

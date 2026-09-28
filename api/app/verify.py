@@ -7,7 +7,13 @@ verified phone number to the caller's uid:
 - phone numbers are stored only as a domain-separated SHA-256 hash.
 - one account per phone_hash: a hash claimed by another uid is a safe 409
   (the response never reveals the other uid).
-- ``X-Device-Fingerprint`` header is stored when present.
+
+M17 decision: ``device_fingerprint`` is NO LONGER collected. It was stored at
+signup but nothing ever read it (no anomaly detection, no enforcement), and
+the Android client never sent the ``X-Device-Fingerprint`` header. The
+column is dropped by migration 0029. The header is deliberately ignored if
+sent — collection without a documented use is data accumulation, not a
+trust signal.
 """
 
 from __future__ import annotations
@@ -47,9 +53,8 @@ def verify_phone(
                 "message": "This account has no verified phone number. Sign in with phone auth first.",
             },
         )
-    fingerprint = request.headers.get("x-device-fingerprint")
     try:
-        repo.upsert(uid, phone_hash=phone_hash(phone), device_fingerprint=fingerprint)
+        repo.upsert(uid, phone_hash=phone_hash(phone))
     except PhoneInUseError:
         # Safe error: do not reveal which uid holds the number.
         raise HTTPException(

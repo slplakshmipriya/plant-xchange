@@ -6,8 +6,19 @@
   and an in-memory one for tests. Route handlers depend on the
   ``get_user_repo`` factory; tests override it via ``dependency_overrides``.
 - SEC-010 (PII): ``public_profile()`` and ``owner_profile()`` are the ONLY
-  serializers. Neither emits ``phone_hash`` or ``device_fingerprint``.
-  ``home_zip`` is emitted only to the owner.
+  serializers. Neither emits ``phone_hash``. ``home_zip`` is emitted only
+  to the owner.
+- M17: ``device_fingerprint`` is gone — collected at signup but never used;
+  migration 0029 drops the column and ``verify.py`` no longer reads the
+  ``X-Device-Fingerprint`` header.
+- M18: ``home_zip`` is collected for the PLANNED zip-based listing search
+  (not yet implemented by any backend logic). Owner-visible only; see the
+  consent-copy follow-up note on ``ProfileIn.home_zip``.
+- M20c: age gate — onboarding (``POST /v1/users`` / ``PATCH /v1/users/me``)
+  requires an explicit 13+ attestation until ``age_attested_at`` is recorded
+  (migration 0029); missing attestation is 422 ``age_attestation_required``.
+- L1c: ``PostgresUserRepo.upsert`` whitelists columns — dict keys are never
+  interpolated into SQL unchecked.
 - C6: ``DELETE /v1/users/me`` removes the caller's account (immediate,
   irreversible — no grace period pre-launch) and ``GET /v1/users/me/export``
   returns a portable dump of everything stored about the caller.
@@ -32,13 +43,23 @@ router = APIRouter(prefix="/v1/users", tags=["users"])
 ZIP_RE = re.compile(r"^\d{5}$")
 
 # Fields that must never leave the server (SEC-010). Asserted by test_pii.py.
-_NEVER_EXPOSE = ("phone_hash", "device_fingerprint")
+# (M17: device_fingerprint was dropped from the schema — nothing to guard.)
+_NEVER_EXPOSE = ("phone_hash",)
 
 
 class ProfileIn(BaseModel):
     display_name: str | None = Field(default=None, max_length=80)
     avatar_url: str | None = Field(default=None, max_length=2048)
+    # M18: home_zip is collected for the PLANNED zip-based listing search
+    # (no backend logic consumes it yet). Owner-visible only.
+    # ANDROID FOLLOW-UP: add consent copy on the profile screen explaining
+    # that home_zip is used for nearby / zip-based search.
     home_zip: str | None = Field(default=None, max_length=10)
+    # M20c: 13+ age attestation. Required at onboarding until recorded.
+    age_attestation: bool | None = Field(
+        default=None,
+        description="Attest the user is 13 or older. Required until recorded.",
+    )
 
 
 class PublicProfile(BaseModel):
@@ -81,12 +102,23 @@ class PhoneInUseError(Exception):
     """phone_hash already claimed by a different uid (safe 409, no uid leaked)."""
 
 
+# L1c: column whitelist for upserts — column names are interpolated into SQL
+# in the Postgres path, so only these known columns may pass. Never derive
+# this from input. Both repos enforce it.
+_UPSERTABLE_COLUMNS = frozenset(
+    {"phone_hash", "display_name", "avatar_url", "home_zip", "age_attested_at"}
+)
+
+
 class UserRepo(Protocol):
     def upsert(self, uid: str, **fields: Any) -> dict[str, Any]:
         """Insert or update. Only non-None fields are written. Returns the row."""
         ...
 
     def get(self, uid: str) -> dict[str, Any] | None: ...
+    def get_many(self, uids: list[str]) -> dict[str, dict[str, Any]]:
+        """Batched read: one query for many uids (M10c). Returns {uid: row}."""
+        ...
     def get_by_phone_hash(self, phone_hash: str) -> dict[str, Any] | None: ...
     def set_idv_status(self, uid: str, status: str) -> None: ...
     def delete(self, uid: str) -> bool:
@@ -106,6 +138,9 @@ class PostgresUserRepo:
         import psycopg
 
         clean = {k: v for k, v in fields.items() if v is not None}
+        unknown = set(clean) - _UPSERTABLE_COLUMNS
+        if unknown:
+            raise TypeError(f"upsert() got unknown user columns: {sorted(unknown)}")
         try:
             if clean:
                 cols = ["uid", *clean.keys()]
@@ -134,6 +169,16 @@ class PostgresUserRepo:
         row = self._conn.execute("SELECT * FROM users WHERE uid = %s", (uid,)).fetchone()
         return dict(row) if row else None
 
+    def get_many(self, uids: list[str]) -> dict[str, dict[str, Any]]:
+        # M10c: one indexed query for a whole page of uids instead of N
+        # per-uid round trips.
+        if not uids:
+            return {}
+        rows = self._conn.execute(
+            "SELECT * FROM users WHERE uid = ANY(%s)", (list(uids),)
+        ).fetchall()
+        return {r["uid"]: dict(r) for r in rows}
+
     def get_by_phone_hash(self, phone_hash: str) -> dict[str, Any] | None:
         row = self._conn.execute(
             "SELECT * FROM users WHERE phone_hash = %s", (phone_hash,)
@@ -158,6 +203,9 @@ class MemoryUserRepo:
 
     def upsert(self, uid: str, **fields: Any) -> dict[str, Any]:
         clean = {k: v for k, v in fields.items() if v is not None}
+        unknown = set(clean) - _UPSERTABLE_COLUMNS
+        if unknown:
+            raise TypeError(f"upsert() got unknown user columns: {sorted(unknown)}")
         phash = clean.get("phone_hash")
         if phash:
             for other_uid, other in self._rows.items():
@@ -175,6 +223,9 @@ class MemoryUserRepo:
     def get(self, uid: str) -> dict[str, Any] | None:
         row = self._rows.get(uid)
         return dict(row) if row else None
+
+    def get_many(self, uids: list[str]) -> dict[str, dict[str, Any]]:
+        return {u: dict(self._rows[u]) for u in dict.fromkeys(uids) if u in self._rows}
 
     def get_by_phone_hash(self, phone_hash: str) -> dict[str, Any] | None:
         for row in self._rows.values():
@@ -342,6 +393,27 @@ def _validate_profile(data: ProfileIn) -> None:
         )
 
 
+def _attestation_gate(data: ProfileIn, row: dict[str, Any] | None) -> str | None:
+    """M20c age gate. Returns the ISO timestamp to store when this request
+    supplies the user's first 13+ attestation; ``None`` when attestation is
+    already recorded. Raises 422 ``age_attestation_required`` when the user
+    has not attested and this request doesn't either."""
+    if row is not None and row.get("age_attested_at"):
+        return None
+    if data.age_attestation is not True:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "age_attestation_required",
+                "message": (
+                    "GardenSwap is for users 13 and older. Confirm with "
+                    "age_attestation=true to continue. See Terms."
+                ),
+            },
+        )
+    return datetime.now(timezone.utc).isoformat()
+
+
 @router.post("", response_model=OwnerProfile, status_code=200)
 def upsert_profile(
     data: ProfileIn,
@@ -351,11 +423,14 @@ def upsert_profile(
 ) -> dict[str, Any]:
     """Create or update the caller's own profile. uid comes from the ID token."""
     _validate_profile(data)
+    # M20c: onboarding requires the 13+ attestation until it is recorded.
+    attested_at = _attestation_gate(data, repo.get(uid))
     row = repo.upsert(
         uid,
         display_name=data.display_name,
         avatar_url=data.avatar_url,
         home_zip=data.home_zip,
+        age_attested_at=attested_at,
     )
     # Idempotent: grants the 3-credit bootstrap exactly once, however the
     # user row was first created (profile upsert or phone verify).
@@ -389,11 +464,16 @@ def patch_me(
 ) -> dict[str, Any]:
     # /me is inherently owner-scoped: uid comes from the verified ID token.
     _validate_profile(data)
+    # M20c: the gate applies here too until the attestation is recorded
+    # (e.g. a user whose row was created by /v1/auth/verify but who never
+    # completed onboarding).
+    attested_at = _attestation_gate(data, repo.get(uid))
     row = repo.upsert(
         uid,
         display_name=data.display_name,
         avatar_url=data.avatar_url,
         home_zip=data.home_zip,
+        age_attested_at=attested_at,
     )
     out = owner_profile(row)
     _check_pii_leak(out)
