@@ -14,11 +14,13 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.gardenswap.app.R;
 import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
+import com.gardenswap.app.api.ClaimRequest;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.Listing;
 import com.gardenswap.app.util.ClaimSheetLogic;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 
+import java.util.Calendar;
 import java.util.Locale;
 
 /**
@@ -27,14 +29,12 @@ import java.util.Locale;
  *
  * <p>The sheet collects quantity (stepper, min 1, capped at the listing's
  * available quantity when known), a pickup window (preset chips), and an
- * optional note for the giver. Confirm calls
- * {@link GardenSwapApi#claimListing(String, GardenSwapApi.Callback)} exactly
- * as the pre-012 dialog did — the claim contract is unchanged, so quantity,
- * pickup window and notes are sheet-only for now and travel with the
- * claimer, not the request. On success the sheet dismisses, a
- * "Claimed!" toast shows, and the optional listener receives the updated
- * listing so the caller can re-render (mirroring the old
- * {@code listing = result; render();}).
+ * optional note for the giver. Confirm calls {@link GardenSwapApi#claimListing(String,
+ * ClaimRequest, GardenSwapApi.Callback)} — the quantity stepper, selected
+ * pickup window, and note now travel with the request (contract API-135).
+ * On success the sheet dismisses, a "Claimed!" toast shows, and the
+ * optional listener receives the updated listing so the caller can
+ * re-render (mirroring the old {@code listing = result; render();}).
  */
 public final class ClaimBottomSheet {
 
@@ -206,7 +206,15 @@ public final class ClaimBottomSheet {
             }
             error.setText("");
             claim.setEnabled(false); // no double-tap; same guard spirit as the old dialog.
-            ApiProvider.get().claimListing(listing.getId(),
+            // ClaimRequest.quantity is whole units/kilos; the stepper is integral
+            // by construction, so truncate (never round up past the available).
+            long[] window = pickupWindowMs(pickupIndex[0]);
+            ClaimRequest request = new ClaimRequest(
+                    (int) qty[0],
+                    window[0],
+                    window[1],
+                    noteText.isEmpty() ? null : noteText);
+            ApiProvider.get().claimListing(listing.getId(), request,
                     new GardenSwapApi.Callback<Listing>() {
                         @Override
                         public void onSuccess(Listing result) {
@@ -220,7 +228,10 @@ public final class ClaimBottomSheet {
                         @Override
                         public void onError(ApiException e) {
                             claim.setEnabled(true);
-                            error.setText(e.getMessage());
+                            String message = e.getMessage();
+                            error.setText(message == null || message.trim().isEmpty()
+                                    ? "Couldn't place the claim. Try again."
+                                    : message);
                         }
                     });
         });
@@ -240,6 +251,40 @@ public final class ClaimBottomSheet {
                 ? R.drawable.chip_sheet_selected : R.drawable.chip_sheet);
         Ui.textColor(activity, chip, selected
                 ? android.R.color.white : R.color.garden_sheet_ink);
+    }
+
+    /**
+     * Resolves a pickup-window chip index ({@link ClaimSheetLogic#PICKUP_OPTIONS})
+     * to a day-boundary [startMs, endMs] epoch window:
+     * "Today" is today 00:00–23:59, "Tomorrow" is the same for tomorrow, and
+     * "This weekend" is the upcoming Saturday 00:00 through Sunday 23:59
+     * (today→Sunday when today is Saturday, today only when Sunday).
+     */
+    private static long[] pickupWindowMs(int index) {
+        Calendar start = Calendar.getInstance();
+        Calendar end = Calendar.getInstance();
+        int dayOfWeek = start.get(Calendar.DAY_OF_WEEK);
+        if (index == 1) { // Tomorrow
+            start.add(Calendar.DAY_OF_YEAR, 1);
+            end.add(Calendar.DAY_OF_YEAR, 1);
+        } else if (index == 2) { // This weekend
+            if (dayOfWeek == Calendar.SUNDAY) {
+                // Window is today only; end stays on today.
+            } else {
+                int daysToSaturday = Calendar.SATURDAY - dayOfWeek; // 1..6, 0 on Saturday
+                start.add(Calendar.DAY_OF_YEAR, daysToSaturday);
+                end.add(Calendar.DAY_OF_YEAR, daysToSaturday + 1);
+            }
+        }
+        start.set(Calendar.HOUR_OF_DAY, 0);
+        start.set(Calendar.MINUTE, 0);
+        start.set(Calendar.SECOND, 0);
+        start.set(Calendar.MILLISECOND, 0);
+        end.set(Calendar.HOUR_OF_DAY, 23);
+        end.set(Calendar.MINUTE, 59);
+        end.set(Calendar.SECOND, 59);
+        end.set(Calendar.MILLISECOND, 999);
+        return new long[]{start.getTimeInMillis(), end.getTimeInMillis()};
     }
 
     private static String formatQty(double qty, String unit) {        String number = qty == Math.floor(qty)
