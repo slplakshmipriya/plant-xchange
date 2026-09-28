@@ -1,5 +1,6 @@
 package com.gardenswap.app.sitters;
 
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -18,6 +19,7 @@ import androidx.core.content.res.ResourcesCompat;
 import com.gardenswap.app.R;
 import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
+import com.gardenswap.app.api.Booking;
 import com.gardenswap.app.api.BookingStatus;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.Review;
@@ -26,7 +28,11 @@ import com.gardenswap.app.util.ReviewFormLogic;
 import com.gardenswap.app.util.ReviewGuard;
 import com.google.firebase.analytics.FirebaseAnalytics;
 
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -50,6 +56,7 @@ public class ReviewActivity extends AppCompatActivity {
     };
 
     private TextView statusText;
+    private TextView bookingCaption;
     private TextView[] starViews = new TextView[5];
     private TextView ratingLabel;
     private int rating;
@@ -57,11 +64,25 @@ public class ReviewActivity extends AppCompatActivity {
     private final Set<String> selectedTags = new LinkedHashSet<>();
     private String reviewerRole = "OWNER";
 
+    // Booking resolution (API-134): the review is attached to a completed
+    // booking looked up via listBookings. The verified flag is only true
+    // when the booking came from that API call.
+    private String resolvedBookingId;
+    private boolean bookingVerified;
+    private boolean bookingLookupDone;
+    private List<Booking> completedBookings;
+    private boolean pendingSubmit;
+    private int pendingRating;
+    private String pendingText;
+    private Button pendingButton;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        String bookingId = getIntent().getStringExtra(EXTRA_BOOKING_ID);
+        String bookingIdExtra = getIntent().getStringExtra(EXTRA_BOOKING_ID);
+        final String fallbackBookingId =
+                bookingIdExtra == null ? "mock-booking-1" : bookingIdExtra;
         String statusWire = getIntent().getStringExtra(EXTRA_BOOKING_STATUS);
         BookingStatus status = BookingStatus.fromString(statusWire);
         String roleExtra = getIntent().getStringExtra(EXTRA_REVIEWER_ROLE);
@@ -73,6 +94,9 @@ public class ReviewActivity extends AppCompatActivity {
         Ui.gap(root, this, 4);
         root.addView(Ui.body(this,
                 "Share how the sit went. Reviews are public and help other gardeners."));
+        Ui.gap(root, this, 8);
+        bookingCaption = Ui.caption(this, "");
+        root.addView(bookingCaption);
         Ui.gap(root, this, 8);
         statusText = Ui.status(this);
         root.addView(statusText);
@@ -113,10 +137,10 @@ public class ReviewActivity extends AppCompatActivity {
 
         Button submit = Ui.primaryButton(this, "Submit review");
         submit.setOnClickListener(v -> submit(
-                bookingId == null ? "mock-booking-1" : bookingId,
                 rating, textInput.getText().toString(), submit));
         root.addView(submit);
 
+        resolveVerifiedBooking(fallbackBookingId);
         setContentView(wrapInScroll(root));
     }
 
@@ -215,7 +239,79 @@ public class ReviewActivity extends AppCompatActivity {
         Ui.setChipSelected(this, chip, now);
     }
 
-    private void submit(String bookingId, int rating, String text, Button submit) {
+    /**
+     * Resolves the completed booking this review attaches to. The reviewer is
+     * the booking's owner side (reviewerRole), so bookings are listed with
+     * that role filtered to completed ones. One booking resolves silently;
+     * several wait for an explicit pick at submit time; lookup failure falls
+     * back to the caller-supplied id with no verified flag.
+     */
+    private void resolveVerifiedBooking(final String fallbackId) {
+        bookingCaption.setText("Checking completed bookings…");
+        String role = reviewerRole == null ? "owner"
+                : reviewerRole.toLowerCase(Locale.US);
+        ApiProvider.get().listBookings(role, true,
+                new GardenSwapApi.Callback<List<Booking>>() {
+                    @Override
+                    public void onSuccess(List<Booking> bookings) {
+                        completedBookings = new ArrayList<>();
+                        if (bookings != null) {
+                            for (Booking booking : bookings) {
+                                if (booking != null
+                                        && booking.getStatus() == BookingStatus.COMPLETED) {
+                                    completedBookings.add(booking);
+                                }
+                            }
+                        }
+                        bookingLookupDone = true;
+                        if (completedBookings.size() == 1) {
+                            Booking only = completedBookings.get(0);
+                            resolvedBookingId = only.getBookingId();
+                            bookingVerified = true;
+                            bookingCaption.setText("✓ Verified completed booking: "
+                                    + only.getBookingId());
+                        } else if (completedBookings.size() > 1) {
+                            bookingCaption.setText(completedBookings.size()
+                                    + " completed bookings found — you'll pick one "
+                                    + "when you submit.");
+                        } else {
+                            useFallbackBooking(fallbackId,
+                                    "No completed bookings found — "
+                                            + "submitting as an unverified review.");
+                        }
+                        if (pendingSubmit) {
+                            pendingSubmit = false;
+                            continueSubmit();
+                        }
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        // Endpoint not available yet (404 until the backend
+                        // lands): keep the previous hardcoded behavior, never
+                        // crash.
+                        bookingLookupDone = true;
+                        useFallbackBooking(fallbackId,
+                                "Booking history unavailable — "
+                                        + "submitting as an unverified review.");
+                        Toast.makeText(ReviewActivity.this,
+                                "Couldn't load booking history (" + e.getCode() + ")",
+                                Toast.LENGTH_LONG).show();
+                        if (pendingSubmit) {
+                            pendingSubmit = false;
+                            continueSubmit();
+                        }
+                    }
+                });
+    }
+
+    private void useFallbackBooking(String fallbackId, String caption) {
+        resolvedBookingId = fallbackId;
+        bookingVerified = false;
+        bookingCaption.setText(caption);
+    }
+
+    private void submit(int rating, String text, Button submitButton) {
         if (!ReviewGuard.isValidRating(rating)) {
             statusText.setText("Tap a star rating from 1 to 5.");
             return;
@@ -227,8 +323,61 @@ public class ReviewActivity extends AppCompatActivity {
         if (submitting) {
             return;
         }
+        pendingRating = rating;
+        pendingText = text;
+        pendingButton = submitButton;
+        if (!bookingLookupDone) {
+            // Lookup is still in flight; submit once it resolves.
+            statusText.setText("Finding your completed booking…");
+            pendingSubmit = true;
+            return;
+        }
+        continueSubmit();
+    }
+
+    private void continueSubmit() {
+        if (completedBookings != null && completedBookings.size() > 1
+                && resolvedBookingId == null) {
+            showBookingPicker();
+            return;
+        }
+        if (resolvedBookingId == null) {
+            resolvedBookingId = "mock-booking-1";
+        }
+        doSubmit(resolvedBookingId, pendingRating, pendingText, pendingButton);
+    }
+
+    /** Simple single-choice dialog: booking id + status + date per row. */
+    private void showBookingPicker() {
+        final SimpleDateFormat dayFormat =
+                new SimpleDateFormat("MMM d", Locale.US);
+        String[] labels = new String[completedBookings.size()];
+        for (int i = 0; i < completedBookings.size(); i++) {
+            Booking booking = completedBookings.get(i);
+            labels[i] = booking.getBookingId() + " · "
+                    + booking.getStatus().name() + " · "
+                    + dayFormat.format(booking.getStartMs());
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Which booking is this review for?")
+                .setItems(labels, (d, which) -> {
+                    Booking chosen = completedBookings.get(which);
+                    resolvedBookingId = chosen.getBookingId();
+                    bookingVerified = true;
+                    bookingCaption.setText("✓ Verified completed booking: "
+                            + chosen.getBookingId());
+                    doSubmit(resolvedBookingId, pendingRating, pendingText, pendingButton);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void doSubmit(String bookingId, int rating, String text, Button submitButton) {
+        if (submitting) {
+            return;
+        }
         submitting = true;
-        submit.setEnabled(false);
+        submitButton.setEnabled(false);
         statusText.setText("Submitting…");
         Review review = Review.builder(rating)
                 .tags(selectedTags.toArray(new String[0]))
@@ -239,7 +388,7 @@ public class ReviewActivity extends AppCompatActivity {
             @Override
             public void onSuccess(Void result) {
                 statusText.setText("Thanks! Your review is live.");
-                submit.setVisibility(View.GONE);
+                submitButton.setVisibility(View.GONE);
                 FirebaseAnalytics.getInstance(ReviewActivity.this)
                         .logEvent("review_submitted", null);
             }
@@ -247,12 +396,11 @@ public class ReviewActivity extends AppCompatActivity {
             @Override
             public void onError(ApiException e) {
                 submitting = false;
-                submit.setEnabled(true);
-                // The booking id is still the mock-phase placeholder until
-                // API-134 lands; surface the failure instead of failing silently.
+                submitButton.setEnabled(true);
                 statusText.setText("");
                 Toast.makeText(ReviewActivity.this,
-                        "Couldn't submit review — booking history unavailable",
+                        bookingVerified ? "Couldn't submit your review — please try again"
+                                : "Couldn't submit review — booking history unavailable",
                         Toast.LENGTH_LONG).show();
             }
         });
