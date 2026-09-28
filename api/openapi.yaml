@@ -590,6 +590,43 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/users/me/fcm-token:
+    post:
+      tags:
+      - notifications
+      summary: Register Fcm Token
+      description: 'Register (or refresh) a device FCM registration token for push.
+
+
+        Called by the Android client after sign-in and whenever
+
+        ``FirebaseMessaging.getInstance().token`` rotates. Idempotent per
+
+        (user, token).'
+      operationId: register_fcm_token_v1_users_me_fcm_token_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FcmTokenIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Register Fcm Token V1 Users Me Fcm Token Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /v1/feed:
     get:
       tags:
@@ -1275,6 +1312,22 @@ components:
       required:
       - listing_id
       title: ConfirmIn
+    FcmTokenIn:
+      properties:
+        token:
+          type: string
+          maxLength: 4096
+          minLength: 1
+          title: Token
+        platform:
+          type: string
+          maxLength: 32
+          title: Platform
+          default: android
+      type: object
+      required:
+      - token
+      title: FcmTokenIn
     FinalizeIn:
       properties:
         key:
@@ -1527,11 +1580,25 @@ components:
           type: object
           title: Categories
         quiet_hours:
-          type: boolean
+          anyOf:
+          - type: boolean
+          - type: 'null'
           title: Quiet Hours
-          default: true
+        quietHours:
+          anyOf:
+          - $ref: '#/components/schemas/QuietHoursWindow'
+          - type: 'null'
       type: object
       title: PrefsIn
+      description: 'PUT body. ``categories`` REPLACES the stored map (absent categories
+
+        default to opted-in at send time). ``quiet_hours`` is the legacy
+
+        snake_case toggle; ``quietHours`` is the new window object — an explicit
+
+        ``null`` disables quiet hours, an object enables them with that window.
+
+        When both are present, ``quietHours`` wins.'
     ProfileIn:
       properties:
         display_name:
@@ -1579,6 +1646,21 @@ components:
       - display_name
       - avatar_url
       title: PublicProfile
+    QuietHoursWindow:
+      properties:
+        start:
+          type: string
+          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+          title: Start
+        end:
+          type: string
+          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+          title: End
+      type: object
+      required:
+      - start
+      - end
+      title: QuietHoursWindow
     ReviewIn:
       properties:
         rating:

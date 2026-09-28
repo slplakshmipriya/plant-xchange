@@ -164,4 +164,4 @@ def test_notification_prefs_carry_no_pii(mem_notify, mock_verify, auth_headers):
                       json={"categories": {"harvest_alerts": True}, "quiet_hours": True},
                       headers=auth_headers).json()
     assert _find_leaks(body, FORBIDDEN_KEYS, set()) == []
-    assert set(body) == {"user_uid", "categories", "quiet_hours"}
+    assert set(body) == {"user_uid", "categories", "quiet_hours", "quietHours"}
