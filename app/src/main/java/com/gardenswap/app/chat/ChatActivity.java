@@ -21,6 +21,7 @@ import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.ChatMessage;
 import com.gardenswap.app.api.GardenSwapApi;
+import com.gardenswap.app.ui.ReportDialog;
 import com.gardenswap.app.ui.Ui;
 import com.gardenswap.app.util.ChatLogic;
 import com.gardenswap.app.util.CoordinateGuard;
@@ -52,20 +53,30 @@ public class ChatActivity extends AppCompatActivity {
     private LinearLayout messages;
     private EditText input;
     private String threadId;
+    private String otherName;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         threadId = getIntent().getStringExtra(EXTRA_THREAD_ID);
-        String otherName = getIntent().getStringExtra(EXTRA_OTHER_NAME);
+        otherName = getIntent().getStringExtra(EXTRA_OTHER_NAME);
         String context = getIntent().getStringExtra(EXTRA_CONTEXT);
         if (threadId == null) {
             threadId = "t1";
         }
 
         LinearLayout root = Ui.column(this, 24);
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = Ui.headline(this, otherName == null ? "Chat" : otherName);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button report = Ui.secondaryButton(this, "Report");
+        report.setOnClickListener(v -> openReport());
+        header.addView(title);
+        header.addView(report);
         if (context != null) {
             root.addView(Ui.eyebrow(this, context));
             Ui.gap(root, this, 4);
@@ -81,7 +92,7 @@ public class ChatActivity extends AppCompatActivity {
         Button send = Ui.primaryButton(this, "Send");
         send.setOnClickListener(v -> onSend());
 
-        root.addView(title);
+        root.addView(header);
         Ui.gap(root, this, 4);
         root.addView(statusText);
         Ui.gap(root, this, 4);
@@ -128,6 +139,17 @@ public class ChatActivity extends AppCompatActivity {
                 "Keep your exact location private — it stays hidden until an exchange is confirmed.");
         banner.addView(note);
         return banner;
+    }
+
+    /**
+     * Report entry point (AND-158). {@code ChatThread} carries no participant
+     * id — only a display name — so the name is passed as the report target
+     * and the backend resolves the participant from the thread. Follow-up:
+     * when the contract track adds a participant id to {@code ChatThread},
+     * pass it here instead.
+     */
+    private void openReport() {
+        new ReportDialog(this, "USER", otherName).show();
     }
 
     private void load() {
