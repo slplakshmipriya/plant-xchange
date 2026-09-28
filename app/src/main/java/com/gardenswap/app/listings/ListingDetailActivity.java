@@ -23,6 +23,7 @@ import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.Listing;
+import com.gardenswap.app.ui.ClaimBottomSheet;
 import com.gardenswap.app.ui.Ui;
 import com.gardenswap.app.ui.VerifiedBadgeView;
 import com.gardenswap.app.util.DetailViewLogic;
@@ -42,8 +43,8 @@ import java.util.List;
  * listing id (missing id toasts and finishes), loading is still via
  * {@code ApiProvider.get().getListing}, and the action row visibility is
  * still derived from {@link ListingDetailLogic} — only the presentation
- * changed. Claim routes through {@link #openClaimSheet()}, the UID-013
- * hook: Wave 3 replaces its body with the real bottom sheet.
+ * changed. Claim routes through {@link #openClaimSheet()}, which opens the
+ * UID-013 {@code ClaimBottomSheet}.
  *
  * <p>No bottom-nav attach: detail is not a top-level tab.
  */
@@ -273,12 +274,16 @@ public class ListingDetailActivity extends AppCompatActivity {
     }
 
     /**
-     * 012-T5: claim entry point — UID-013 hook. Wave 3 replaces this body
-     * with the real bottom sheet; until then it is a clearly-marked stub.
+     * 012-T5 / 013-T3: claim entry point — opens the claim bottom sheet.
+     * On a successful claim the returned listing replaces the local one and
+     * the detail re-renders, mirroring the pre-012 dialog's
+     * {@code listing = result; render();}.
      */
     private void openClaimSheet() {
-        // TODO UID-013: replace with ClaimBottomSheet.show(...)
-        Toast.makeText(this, "Claim flow lands in UID-013", Toast.LENGTH_SHORT).show();
+        ClaimBottomSheet.show(this, listing.getId(), result -> {
+            listing = result;
+            render();
+        });
     }
 
     private void confirmCancel() {
