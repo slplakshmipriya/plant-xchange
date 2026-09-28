@@ -78,8 +78,10 @@ public class ReviewActivity extends AppCompatActivity {
 
         root.addView(Ui.eyebrow(this, "Your rating"));
         Ui.gap(root, this, 4);
-        root.addView(starRow());
+        // ratingLabel must exist before starRow(): the row's initializer calls
+        // updateStars(), which writes the label.
         ratingLabel = Ui.caption(this, "");
+        root.addView(starRow());
         root.addView(ratingLabel);
         Ui.gap(root, this, 12);
 
