@@ -1,12 +1,14 @@
 package com.gardenswap.app.ui;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -58,6 +60,31 @@ public final class Ui {
         screen.addView(content, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return screen;
+    }
+
+    /**
+     * App brand row: leaf mark + "Garden Swap" wordmark. Used as the sticky
+     * header on every bottom-nav tab so the branding sits in the same
+     * position app-wide.
+     */
+    public static LinearLayout appTitleRow(Context context) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView mark = new ImageView(context);
+        mark.setImageResource(R.drawable.ic_leaf);
+        mark.setImageTintList(ColorStateList.valueOf(
+                ResourcesCompat.getColor(context.getResources(),
+                        R.color.garden_leaf, context.getTheme())));
+        int size = dp(context, 32);
+        row.addView(mark, new LinearLayout.LayoutParams(size, size));
+        TextView title = display(context, "Garden Swap");
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.leftMargin = dp(context, 8);
+        row.addView(title, params);
+        return row;
     }
 
     public static TextView label(Context context, String text) {

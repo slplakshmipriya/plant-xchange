@@ -49,14 +49,15 @@ public class ProfileActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Sticky title bar: "Profile" stays fixed while cards scroll.
+        // Sticky brand bar, same as Explore; the screen title scrolls below.
         LinearLayout header = Ui.column(this, 24);
-        header.addView(Ui.headline(this, "Profile"));
+        header.addView(Ui.appTitleRow(this));
         int pad = Ui.dp(this, 24);
         header.setPadding(pad, pad, pad, 0);
 
         LinearLayout root = Ui.column(this, 24);
         root.setPadding(pad, 0, pad, pad);
+        root.addView(Ui.headline(this, "Profile"));
         Ui.gap(root, this, 16);
 
         statusView = Ui.status(this);
