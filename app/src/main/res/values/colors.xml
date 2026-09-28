@@ -12,6 +12,7 @@
     <color name="garden_focus">#2A7C50</color>
     <color name="garden_nav">#163722</color>
     <color name="garden_nav_ink">#F3F8F1</color>
+    <color name="garden_nav_muted">#9DB3A1</color>
     <color name="garden_acid">#D8EE72</color>
     <color name="garden_yellow">#F0C44C</color>
     <color name="garden_orange">#F08A54</color>
