@@ -1,5 +1,7 @@
 package com.gardenswap.app.listings;
 
+import android.app.DatePickerDialog;
+import android.app.TimePickerDialog;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.InputType;
@@ -29,6 +31,7 @@ import com.gardenswap.app.util.CreditStepperLogic;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -234,9 +237,9 @@ public class CreateListingActivity extends AppCompatActivity {
         Ui.gap(root, this, 4);
         pickupStartInput = Ui.input(this, "Start, e.g. 2026-10-05 09:00", InputType.TYPE_CLASS_TEXT);
         pickupEndInput = Ui.input(this, "End, e.g. 2026-10-05 12:00", InputType.TYPE_CLASS_TEXT);
-        root.addView(pickupStartInput);
+        root.addView(dateTimeRow(pickupStartInput));
         Ui.gap(root, this, 4);
-        root.addView(pickupEndInput);
+        root.addView(dateTimeRow(pickupEndInput));
         Ui.gap(root, this, 12);
 
         // ---- Expiry ----
@@ -390,6 +393,56 @@ public class CreateListingActivity extends AppCompatActivity {
             sprayInput.setEnabled(true);
             sprayInput.setAlpha(1f);
         }
+    }
+
+    /**
+     * Horizontal row: editable text field (weight 1, free typing still works)
+     * + a "Pick" button that opens the date then time picker and writes the
+     * result back in {@link #DATE_PATTERN} format.
+     */
+    private LinearLayout dateTimeRow(EditText field) {
+        field.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button pick = Ui.secondaryButton(this, "Pick");
+        pick.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        pick.setOnClickListener(v -> showDateTimePicker(field));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(field);
+        row.addView(pick);
+        return row;
+    }
+
+    /** Date picker followed by time picker; writes "yyyy-MM-dd HH:mm". */
+    private void showDateTimePicker(EditText target) {
+        Calendar cal = Calendar.getInstance();
+        try {
+            Date existing = new SimpleDateFormat(DATE_PATTERN, Locale.US)
+                    .parse(target.getText().toString().trim());
+            if (existing != null) {
+                cal.setTime(existing);
+            }
+        } catch (Exception ignored) {
+            // Unparseable text — fall back to now.
+        }
+        new DatePickerDialog(this,
+                (dateView, year, month, day) -> {
+                    cal.set(year, month, day);
+                    new TimePickerDialog(this,
+                            (timeView, hour, minute) -> {
+                                cal.set(Calendar.HOUR_OF_DAY, hour);
+                                cal.set(Calendar.MINUTE, minute);
+                                target.setText(new SimpleDateFormat(DATE_PATTERN, Locale.US)
+                                        .format(cal.getTime()));
+                            },
+                            cal.get(Calendar.HOUR_OF_DAY),
+                            cal.get(Calendar.MINUTE), true).show();
+                },
+                cal.get(Calendar.YEAR), cal.get(Calendar.MONTH),
+                cal.get(Calendar.DAY_OF_MONTH)).show();
     }
 
     /**
