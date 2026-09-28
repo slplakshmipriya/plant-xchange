@@ -1,6 +1,7 @@
 package com.gardenswap.app.ui;
 
 import android.content.Context;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.util.AttributeSet;
 import android.view.Gravity;
@@ -8,10 +9,19 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
+import androidx.core.content.res.ResourcesCompat;
+
+import com.gardenswap.app.R;
 
 /**
  * Reusable verification badge (AND-011): colored dot + label. Used on the
  * profile, the IDV screen, and later on sitter cards.
+ *
+ * <p>UID-022 restyles the badge against the design-system tokens: leaf dot
+ * for verified states, orange for pending, muted for unverified. The
+ * {@link BadgeState} mapping in {@link com.gardenswap.app.util.IdvStatusMapper}
+ * is unchanged — FAILED still renders as the unverified badge, with the
+ * failure called out by the surrounding screen copy.
  */
 public class VerifiedBadgeView extends LinearLayout {
 
@@ -35,6 +45,10 @@ public class VerifiedBadgeView extends LinearLayout {
 
         label = new TextView(context);
         label.setTextSize(13);
+        label.setTypeface(
+                ResourcesCompat.getFont(context, R.font.dm_sans), Typeface.BOLD);
+        label.setTextColor(ResourcesCompat.getColor(
+                context.getResources(), R.color.garden_ink, context.getTheme()));
 
         addView(dot);
         addView(label);
@@ -42,30 +56,32 @@ public class VerifiedBadgeView extends LinearLayout {
     }
 
     public void setState(BadgeState state) {
-        int color;
+        int colorRes;
         String text;
         if (state == null) {
             state = BadgeState.UNVERIFIED;
         }
         switch (state) {
             case ID_VERIFIED:
-                color = 0xFF2E7D32;
+                colorRes = R.color.garden_leaf;
                 text = "ID verified";
                 break;
             case PHONE_VERIFIED:
-                color = 0xFF2E7D32;
+                colorRes = R.color.garden_leaf;
                 text = "Phone verified";
                 break;
             case PENDING:
-                color = 0xFFEF6C00;
+                colorRes = R.color.garden_orange;
                 text = "Verification pending";
                 break;
             case UNVERIFIED:
             default:
-                color = 0xFF9E9E9E;
+                colorRes = R.color.garden_muted;
                 text = "Not verified";
                 break;
         }
+        int color = ResourcesCompat.getColor(
+                getResources(), colorRes, getContext().getTheme());
         GradientDrawable background = new GradientDrawable();
         background.setShape(GradientDrawable.OVAL);
         background.setColor(color);

@@ -4,9 +4,11 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -20,6 +22,7 @@ import com.gardenswap.app.api.ListingInput;
 import com.gardenswap.app.api.ListingType;
 import com.gardenswap.app.ui.Ui;
 import com.gardenswap.app.util.CreateListingValidator;
+import com.gardenswap.app.util.CreditStepperLogic;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -28,19 +31,21 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Create-listing flow (AND-020): type picker → photos → variety → quantity →
- * credit stepper (1–3) → pickup window → expiry → spray disclosure (mandatory)
- * → publish. Draft autosaves to SharedPreferences.
+ * Create-listing flow (AND-020), restyled for UID-014: type picker → photos →
+ * variety → quantity → credit stepper (1–3) → pickup window → expiry → spray
+ * disclosure (mandatory) → visit rules → publish. Draft autosaves to
+ * SharedPreferences.
  *
  * <p>Photos are placeholder URIs in the mock phase; real capture/upload lands
- * with the photo pipeline integration (API-022).
+ * with the photo pipeline integration (API-022). Validation is owned entirely
+ * by {@link CreateListingValidator}; this activity only collects input.
  */
 public class CreateListingActivity extends AppCompatActivity {
 
     private static final String PREFS = "create_listing_draft";
     private static final String DATE_PATTERN = "yyyy-MM-dd HH:mm";
 
-    private final List<Button> typeButtons = new ArrayList<>();
+    private final List<TextView> typeChips = new ArrayList<>();
     private ListingType selectedType = ListingType.SEEDLING;
     private final List<String> photoUris = new ArrayList<>();
     private TextView photoCountView;
@@ -51,137 +56,198 @@ public class CreateListingActivity extends AppCompatActivity {
     private TextView creditView;
     private int creditCost = 1;
     private boolean freeListing = false;
+    private TextView freeChip;
     private LinearLayout creditRow;
     private EditText pickupStartInput;
     private EditText pickupEndInput;
     private EditText expiryDaysInput;
+    private TextView sprayNoneChip;
+    private TextView sprayUsedChip;
     private EditText sprayInput;
+    private EditText visitRulesInput;
     private TextView geoView;
     private Double geoLat;
     private Double geoLon;
     private TextView statusView;
-    private android.widget.CheckBox freeToggle;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         LinearLayout root = Ui.column(this, 20);
-        TextView title = Ui.label(this, "New listing");
-        title.setTextSize(20);
+        TextView title = Ui.headline(this, "New listing");
         title.setGravity(Gravity.CENTER);
         root.addView(title);
+        root.addView(Ui.caption(this, "Share seedlings, harvest, or pick-your-own with neighbors."));
         Ui.gap(root, this, 8);
 
-        root.addView(Ui.label(this, "Type"));
+        // ---- Type ----
+        root.addView(Ui.eyebrow(this, "Type"));
+        Ui.gap(root, this, 4);
+        LinearLayout typeCard = Ui.card(this);
         LinearLayout typeRow = new LinearLayout(this);
         typeRow.setOrientation(LinearLayout.HORIZONTAL);
         for (ListingType type : ListingType.values()) {
-            Button button = new Button(this);
-            button.setText(capitalize(type.name()));
-            button.setOnClickListener(v -> selectType(type));
-            typeRow.addView(button, new LinearLayout.LayoutParams(
+            TextView chip = Ui.chip(this, capitalize(type.name()));
+            chip.setOnClickListener(v -> selectType(type));
+            typeRow.addView(chip, new LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            typeButtons.add(button);
+            typeChips.add(chip);
         }
-        root.addView(typeRow);
-        Ui.gap(root, this, 8);
+        typeCard.addView(typeRow);
+        root.addView(typeCard);
+        Ui.gap(root, this, 12);
 
-        root.addView(Ui.label(this, "Photos (required)"));
-        photoCountView = Ui.label(this, "0 photos");
-        Button addPhotoButton = Ui.button(this, "Add photo");
+        // ---- Photos (014-T1) ----
+        root.addView(Ui.eyebrow(this, "Photos · required"));
+        Ui.gap(root, this, 4);
+        LinearLayout photoCard = Ui.card(this);
+        photoCountView = Ui.caption(this, "No photos yet — add at least one.");
+        photoCard.addView(photoCountView);
+        Ui.gap(photoCard, this, 8);
+        Button addPhotoButton = Ui.secondaryButton(this, "Add photos");
         addPhotoButton.setOnClickListener(v -> {
             // Mock phase: record a placeholder URI. Real camera/gallery +
             // upload lands with the API-022 integration.
             photoUris.add("content://mock/photo/" + System.currentTimeMillis());
-            photoCountView.setText(photoUris.size() + " photo(s)");
+            updatePhotoCount();
         });
-        root.addView(photoCountView);
-        root.addView(addPhotoButton);
-        Ui.gap(root, this, 8);
+        photoCard.addView(addPhotoButton);
+        root.addView(photoCard);
+        Ui.gap(root, this, 12);
 
-        root.addView(Ui.label(this, "Variety"));
+        // ---- Variety + quantity/unit (014-T2) ----
+        root.addView(Ui.eyebrow(this, "Variety"));
+        Ui.gap(root, this, 4);
         varietyInput = Ui.input(this, "e.g. Cherokee Purple tomato", InputType.TYPE_CLASS_TEXT);
         root.addView(varietyInput);
+        Ui.gap(root, this, 8);
 
-        root.addView(Ui.label(this, "Quantity (optional)"));
+        root.addView(Ui.eyebrow(this, "Quantity · optional"));
+        Ui.gap(root, this, 4);
         quantityInput = Ui.input(this, "e.g. 6",
                 InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         root.addView(quantityInput);
+        Ui.gap(root, this, 8);
 
-        root.addView(Ui.label(this, "Unit (optional)"));
+        root.addView(Ui.eyebrow(this, "Unit · optional"));
+        Ui.gap(root, this, 4);
         unitInput = Ui.input(this, "e.g. starts, lbs, bags", InputType.TYPE_CLASS_TEXT);
         root.addView(unitInput);
-        LinearLayout unitPresetRow = new LinearLayout(this);
-        unitPresetRow.setOrientation(LinearLayout.HORIZONTAL);
-        for (String preset : new String[]{"lbs", "bags", "each"}) {
-            Button presetButton = new Button(this);
-            presetButton.setText(preset);
-            presetButton.setOnClickListener(v -> unitInput.setText(preset));
-            unitPresetRow.addView(presetButton, new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        }
-        root.addView(unitPresetRow);
-        this.unitPresetRow = unitPresetRow;
-        Ui.gap(root, this, 8);
-
-        android.widget.CheckBox freeToggle = new android.widget.CheckBox(this);
-        freeToggle.setText("FREE — no credits needed (prominent)");
-        freeToggle.setTextSize(16);
-        this.freeToggle = freeToggle;
-        freeToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            freeListing = isChecked;
-            setCreditRowEnabled(!isChecked);
-            if (isChecked) {
-                creditView.setText("FREE");
-            } else {
-                setCredit(creditCost);
-            }
-        });
-        root.addView(freeToggle);
         Ui.gap(root, this, 4);
+        LinearLayout presetRow = new LinearLayout(this);
+        presetRow.setOrientation(LinearLayout.HORIZONTAL);
+        for (String preset : new String[]{"lbs", "bags", "each"}) {
+            TextView presetChip = Ui.chip(this, preset);
+            presetChip.setOnClickListener(v -> unitInput.setText(preset));
+            presetRow.addView(presetChip);
+            LinearLayout.LayoutParams params =
+                    (LinearLayout.LayoutParams) presetChip.getLayoutParams();
+            params.setMargins(0, 0, Ui.dp(this, 8), 0);
+            presetChip.setLayoutParams(params);
+        }
+        root.addView(presetRow);
+        this.unitPresetRow = presetRow;
+        Ui.gap(root, this, 12);
 
-        root.addView(Ui.label(this, "Credit cost (1–3)"));
-        LinearLayout creditRow = new LinearLayout(this);
-        creditRow.setOrientation(LinearLayout.HORIZONTAL);
-        Button minusButton = new Button(this);
-        minusButton.setText("−");
-        minusButton.setOnClickListener(v -> setCredit(creditCost - 1));
-        creditView = Ui.label(this, "1 credit");
+        // ---- Credit cost stepper (014-T3) ----
+        root.addView(Ui.eyebrow(this, "Credit cost"));
+        Ui.gap(root, this, 4);
+        LinearLayout creditCard = Ui.card(this);
+        LinearLayout stepperRow = new LinearLayout(this);
+        stepperRow.setOrientation(LinearLayout.HORIZONTAL);
+        stepperRow.setGravity(Gravity.CENTER_VERTICAL);
+        Button minusButton = Ui.secondaryButton(this, "−");
+        minusButton.setOnClickListener(v -> setCredit(
+                CreditStepperLogic.decrement(creditCost,
+                        CreditStepperLogic.MIN_CREDIT_COST,
+                        CreditStepperLogic.MAX_CREDIT_COST)));
+        creditView = Ui.title(this, "1 credit");
         creditView.setGravity(Gravity.CENTER);
-        Button plusButton = new Button(this);
-        plusButton.setText("+");
-        plusButton.setOnClickListener(v -> setCredit(creditCost + 1));
-        creditRow.addView(minusButton, new LinearLayout.LayoutParams(
+        Button plusButton = Ui.secondaryButton(this, "+");
+        plusButton.setOnClickListener(v -> setCredit(
+                CreditStepperLogic.increment(creditCost,
+                        CreditStepperLogic.MIN_CREDIT_COST,
+                        CreditStepperLogic.MAX_CREDIT_COST)));
+        stepperRow.addView(minusButton, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        creditRow.addView(creditView, new LinearLayout.LayoutParams(
+        stepperRow.addView(creditView, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f));
-        creditRow.addView(plusButton, new LinearLayout.LayoutParams(
+        stepperRow.addView(plusButton, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        root.addView(creditRow);
-        this.creditRow = creditRow;
-        Ui.gap(root, this, 8);
+        creditCard.addView(stepperRow);
+        Ui.gap(creditCard, this, 8);
+        freeChip = Ui.chip(this, "Free listing — no credits needed");
+        freeChip.setOnClickListener(v -> {
+            freeListing = !freeListing;
+            Ui.setChipSelected(this, freeChip, freeListing);
+            setCreditRowEnabled(!freeListing);
+            updateCreditLabel();
+        });
+        creditCard.addView(freeChip);
+        creditCard.addView(Ui.caption(this, "Free listings sit on the 1-credit floor."));
+        root.addView(creditCard);
+        this.creditRow = stepperRow;
+        Ui.gap(root, this, 12);
 
-        root.addView(Ui.label(this, "Pickup window (optional, " + DATE_PATTERN + ")"));
+        // ---- Pickup window ----
+        root.addView(Ui.eyebrow(this, "Pickup window · optional"));
+        Ui.gap(root, this, 4);
         pickupStartInput = Ui.input(this, "Start, e.g. 2026-10-05 09:00", InputType.TYPE_CLASS_TEXT);
         pickupEndInput = Ui.input(this, "End, e.g. 2026-10-05 12:00", InputType.TYPE_CLASS_TEXT);
         root.addView(pickupStartInput);
+        Ui.gap(root, this, 4);
         root.addView(pickupEndInput);
-        Ui.gap(root, this, 8);
+        Ui.gap(root, this, 12);
 
-        root.addView(Ui.label(this, "Expires in (days, optional)"));
+        // ---- Expiry ----
+        root.addView(Ui.eyebrow(this, "Expires in · days, optional"));
+        Ui.gap(root, this, 4);
         expiryDaysInput = Ui.input(this, "e.g. 7", InputType.TYPE_CLASS_NUMBER);
         root.addView(expiryDaysInput);
-        Ui.gap(root, this, 8);
+        Ui.gap(root, this, 12);
 
-        root.addView(Ui.label(this, "Spray disclosure (required)"));
+        // ---- Spray disclosure toggle (014-T4) ----
+        root.addView(Ui.eyebrow(this, "Spray disclosure · required"));
+        Ui.gap(root, this, 4);
+        LinearLayout sprayCard = Ui.card(this);
+        LinearLayout sprayRow = new LinearLayout(this);
+        sprayRow.setOrientation(LinearLayout.HORIZONTAL);
+        sprayNoneChip = Ui.chip(this, "No sprays used");
+        sprayNoneChip.setOnClickListener(v -> selectSprayMode(true));
+        sprayUsedChip = Ui.chip(this, "Sprays used");
+        sprayUsedChip.setOnClickListener(v -> selectSprayMode(false));
+        sprayRow.addView(sprayNoneChip);
+        sprayRow.addView(sprayUsedChip);
+        LinearLayout.LayoutParams sprayParams =
+                (LinearLayout.LayoutParams) sprayNoneChip.getLayoutParams();
+        if (sprayParams != null) {
+            sprayParams.setMargins(0, 0, Ui.dp(this, 8), 0);
+            sprayNoneChip.setLayoutParams(sprayParams);
+        }
+        sprayCard.addView(sprayRow);
+        Ui.gap(sprayCard, this, 8);
         sprayInput = Ui.input(this, "Pesticides used, or \"none\"", InputType.TYPE_CLASS_TEXT);
-        root.addView(sprayInput);
-        Ui.gap(root, this, 8);
+        sprayCard.addView(sprayInput);
+        root.addView(sprayCard);
+        Ui.gap(root, this, 12);
 
-        root.addView(Ui.label(this, "Location"));
-        geoView = Ui.label(this, "No location set");
-        Button geoButton = Ui.button(this, "Use approximate location");
+        // ---- Visit rules (014-T5) ----
+        root.addView(Ui.eyebrow(this, "Visit rules · optional"));
+        Ui.gap(root, this, 4);
+        visitRulesInput = Ui.input(this, "e.g. porch pickup only, weekends",
+                InputType.TYPE_CLASS_TEXT);
+        root.addView(visitRulesInput);
+        Ui.gap(root, this, 12);
+
+        // ---- Location ----
+        root.addView(Ui.eyebrow(this, "Location"));
+        Ui.gap(root, this, 4);
+        LinearLayout geoCard = Ui.card(this);
+        geoView = Ui.body(this, "No location set");
+        geoCard.addView(geoView);
+        Ui.gap(geoCard, this, 8);
+        Button geoButton = Ui.secondaryButton(this, "Use approximate location");
         geoButton.setOnClickListener(v -> {
             // Mock phase: coarse fixed coords. Real location lands with
             // the device-permission work; the backend fuzzes anyway.
@@ -189,22 +255,29 @@ public class CreateListingActivity extends AppCompatActivity {
             geoLon = -111.83;
             geoView.setText("Approximate location set");
         });
-        root.addView(geoView);
-        root.addView(geoButton);
+        geoCard.addView(geoButton);
+        root.addView(geoCard);
         Ui.gap(root, this, 12);
 
         statusView = Ui.status(this);
         root.addView(statusView);
         Ui.gap(root, this, 4);
 
-        Button publishButton = Ui.button(this, "Publish listing");
+        // ---- Publish (014-T6) ----
+        Button publishButton = Ui.primaryButton(this, "Publish listing");
         publishButton.setOnClickListener(v -> publish());
         root.addView(publishButton);
 
-        setContentView(root);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        scroll.addView(root);
+        setContentView(scroll);
+
         restoreDraft();
         selectType(selectedType);
         setCredit(creditCost);
+        updatePhotoCount();
     }
 
     @Override
@@ -215,14 +288,22 @@ public class CreateListingActivity extends AppCompatActivity {
 
     private void selectType(ListingType type) {
         selectedType = type;
-        for (int i = 0; i < typeButtons.size(); i++) {
-            typeButtons.get(i).setSelected(ListingType.values()[i] == type);
-            typeButtons.get(i).setAlpha(ListingType.values()[i] == type ? 1f : 0.5f);
+        for (int i = 0; i < typeChips.size(); i++) {
+            Ui.setChipSelected(this, typeChips.get(i), ListingType.values()[i] == type);
         }
         // Harvest listings get unit quick-picks (lbs/bags/each, AND-040).
         if (unitPresetRow != null) {
             unitPresetRow.setVisibility(
                     type == ListingType.HARVEST ? android.view.View.VISIBLE : android.view.View.GONE);
+        }
+    }
+
+    private void updatePhotoCount() {
+        if (photoUris.isEmpty()) {
+            photoCountView.setText("No photos yet — add at least one.");
+        } else {
+            photoCountView.setText(photoUris.size()
+                    + (photoUris.size() == 1 ? " photo added." : " photos added."));
         }
     }
 
@@ -237,8 +318,34 @@ public class CreateListingActivity extends AppCompatActivity {
     }
 
     private void setCredit(int value) {
-        creditCost = Math.max(1, Math.min(3, value));
-        creditView.setText(creditCost + (creditCost == 1 ? " credit" : " credits"));
+        creditCost = CreditStepperLogic.clamp(value,
+                CreditStepperLogic.MIN_CREDIT_COST,
+                CreditStepperLogic.MAX_CREDIT_COST);
+        updateCreditLabel();
+    }
+
+    private void updateCreditLabel() {
+        if (freeListing) {
+            creditView.setText("FREE");
+        } else {
+            creditView.setText(creditCost + (creditCost == 1 ? " credit" : " credits"));
+        }
+    }
+
+    private void selectSprayMode(boolean none) {
+        Ui.setChipSelected(this, sprayNoneChip, none);
+        Ui.setChipSelected(this, sprayUsedChip, !none);
+        if (none) {
+            sprayInput.setText("none");
+            sprayInput.setEnabled(false);
+            sprayInput.setAlpha(0.5f);
+        } else {
+            if ("none".equals(sprayInput.getText().toString().trim())) {
+                sprayInput.setText("");
+            }
+            sprayInput.setEnabled(true);
+            sprayInput.setAlpha(1f);
+        }
     }
 
     private void publish() {
@@ -262,6 +369,7 @@ public class CreateListingActivity extends AppCompatActivity {
                 .expiresAtMs(draft.expiresAtMs)
                 .geo(geoLat, geoLon)
                 .sprayDisclosure(sprayInput.getText().toString().trim())
+                .visitRules(blankToNull(visitRulesInput.getText().toString()))
                 .free(freeListing);
         try {
             builder.quantity(CreateListingValidator.parseQuantity(quantityInput.getText().toString()));
@@ -349,7 +457,8 @@ public class CreateListingActivity extends AppCompatActivity {
                 .putString("pickupEnd", pickupEndInput.getText().toString())
                 .putString("expiryDays", expiryDaysInput.getText().toString())
                 .putString("spray", sprayInput.getText().toString())
-                .putBoolean("free", freeToggle.isChecked())
+                .putString("visitRules", visitRulesInput.getText().toString())
+                .putBoolean("free", freeListing)
                 .apply();
     }
 
@@ -367,8 +476,18 @@ public class CreateListingActivity extends AppCompatActivity {
         pickupStartInput.setText(prefs.getString("pickupStart", ""));
         pickupEndInput.setText(prefs.getString("pickupEnd", ""));
         expiryDaysInput.setText(prefs.getString("expiryDays", ""));
-        sprayInput.setText(prefs.getString("spray", ""));
-        freeToggle.setChecked(prefs.getBoolean("free", false));
+        visitRulesInput.setText(prefs.getString("visitRules", ""));
+        String spray = prefs.getString("spray", "");
+        if ("none".equals(spray.trim())) {
+            selectSprayMode(true);
+        } else {
+            sprayInput.setText(spray);
+            selectSprayMode(false);
+        }
+        freeListing = prefs.getBoolean("free", false);
+        Ui.setChipSelected(this, freeChip, freeListing);
+        setCreditRowEnabled(!freeListing);
+        updateCreditLabel();
     }
 
     private void clearDraft() {

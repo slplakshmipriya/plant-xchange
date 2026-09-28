@@ -1,0 +1,145 @@
+UI DESIGN MATCH - TASK-LEVEL VIEW (all remaining work)
+======================================================
+File: docs/UI_TASK_BREAKDOWN.txt | Branch: feature/ui-design
+Ticket tree: docs/UI_DEPENDENCY_TREE.txt
+
+Notes:
+- Sizes are story points (rough). "->" = must precede.
+- All screens are programmatic (no res/layout); build with Ui.java
+  helpers + drawables from UID-003 (btn_primary, btn_secondary,
+  card_bg, chip_bg, chip_bg_selected).
+- Every ticket ends with a dark-mode check; listed explicitly only
+  where it is non-trivial.
+
+UID-004  bottom navigation [3]
+  004-T1  5 vector nav icons (explore, messages, swaps, care, profile) [0.5]
+  004-T2  BottomNavigationView menu XML + style (nav-green #163722 bg,
+          selected acid/white, unselected muted) [0.5]            -> T1
+  004-T3  Host nav shell + route to existing activities [1]       -> T2
+  004-T4  Selected-state sync per destination; dark-mode [0.5]   -> T3
+  004-T5  Verify on all 5 top-level screens [0.5]                 -> T4
+
+UID-011  listing card + filter chips [5]
+  011-T1  ListingCardView: photo, kind tag, title, credits,
+          distance, urgency cue [1.5]
+  011-T2  RecyclerView adapter for card list [0.5]                -> T1
+  011-T3  Urgency-cue logic (low qty / ending soon) [0.5]         -> T1
+  011-T4  Filter chip row (All, Seedlings, Pick, Harvest, Care),
+          single-select with chip_bg_selected [1]
+  011-T5  Filter logic over MockGardenSwapApi data [0.5]         -> T2,T4
+  011-T6  Dark-mode check [0.5]                                  -> T5
+
+UID-010  explore home [8]   (needs UID-004 + UID-011)
+  010-T1  ExploreActivity: hero header (greeting + location) [1]
+  010-T2  Four "way" cards: Seedlings, Pick-your-own, Harvest,
+          Plant care [1.5]                                       -> T1
+  010-T3  Nearby listings section using 011 card + adapter [1]   -> T1
+  010-T4  Credit balance panel (reads Wallet) [1]                -> T1
+  010-T5  Want-list match panel (uses WantMatcher) [1]           -> T1
+  010-T6  Deep links: each card -> its flow (listings, trees,
+          harvest, sitters) [1]                                 -> T2
+  010-T7  Mock data wiring via MockGardenSwapApi [0.5]           -> T3,T4,T5
+  010-T8  Dark-mode + nav integration [1]                        -> T6,T7
+
+UID-012  listing detail [5]   (needs UID-011)
+  012-T1  Photo header [1]
+  012-T2  Variety / quantity / spray sections [1]                -> T1
+  012-T3  Visit-rules panel [1]                                  -> T1
+  012-T4  Owner row (avatar, name, VerifiedBadgeView) [0.5]      -> T1
+  012-T5  Claim CTA -> opens UID-013 sheet [0.5]                 -> T1
+  012-T6  Restyle ListingDetailActivity; keep ListingDetailLogic [1]
+                                                                     -> T2..T5
+
+UID-013  claim bottom sheet + toast [3]   (needs UID-012)
+  013-T1  BottomSheetDialog: quantity stepper, pickup window,
+          notes [1]
+  013-T2  Confirm action -> success toast [0.5]                   -> T1
+  013-T3  Wire from 012-T5 claim CTA [0.5]                       -> T2
+  013-T4  Dark-mode [0.5]                                        -> T3
+
+UID-014  create listing [5]
+  014-T1  Photo picker row [1]
+  014-T2  Variety + quantity/unit inputs [1]                     -> T1
+  014-T3  Credit cost stepper [0.5]                              -> T2
+  014-T4  Spray disclosure toggle [0.5]                          -> T2
+  014-T5  Visit-rules input; CreateListingValidator unchanged [1]-> T2
+  014-T6  Restyle CreateListingActivity end-to-end [1]           -> T3,T4,T5
+
+UID-015  wallet [5]
+  015-T1  Balance card with acid highlight [1]
+  015-T2  Ledger RecyclerView (LedgerEntry + LedgerFormatter) [1.5] -> T1
+  015-T3  Expiry cues [0.5]                                      -> T2
+  015-T4  Mock data via MockGardenSwapApi [0.5]                  -> T2
+  015-T5  Restyle WalletActivity [1]                             -> T3,T4
+  015-T6  Dark-mode [0.5]                                        -> T5
+
+UID-016  confirm exchange [3]
+  016-T1  Two-party confirmation layout [1]
+  016-T2  Confirm/decline buttons with mock state [0.5]          -> T1
+  016-T3  Restyle ConfirmExchangeActivity; keep
+          ExchangeConfirmation model [1]                         -> T2
+  016-T4  Entry points from chat/detail [0.5]                    -> T3
+
+UID-017  sitter list + profile [5]
+  017-T1  Sitter card: avatar, name, skills, rate [1]
+  017-T2  SitterListActivity list + adapter [1]                   -> T1
+  017-T3  SitterProfileActivity: skills, reviews, request CTA [1.5] -> T1
+  017-T4  Mock sitter data (SitterProfile) [0.5]                 -> T2,T3
+  017-T5  Dark-mode [0.5]                                        -> T4
+  017-T6  Request flow behavior unchanged [0.5]                  -> T3
+
+UID-018  review flow [3]   (soft after UID-017)
+  018-T1  Rating + text form layout [1]
+  018-T2  Submit; ReviewGuard gating unchanged [0.5]             -> T1
+  018-T3  Restyle ReviewActivity; entry from sitter profile [1]  -> T2
+  018-T4  Dark-mode [0.5]                                        -> T3
+
+UID-019  threads + chat [5]
+  019-T1  Thread row layout incl. unread styling
+          (ThreadListActivity) [1]
+  019-T2  Chat bubbles sent/received (ChatActivity) [1]
+  019-T3  Coordinate-leak warning banner (CoordinateGuard) stays
+          prominent [0.5]                                        -> T2
+  019-T4  Send/receive on mock data [1]                          -> T2
+  019-T5  Dark-mode [0.5]                                        -> T1,T3,T4
+
+UID-020  auth screen [3]
+  020-T1  Phone input styling (PhoneAuthActivity) [1]
+  020-T2  Continue-with-Google button styling [0.5]              -> T1
+  020-T3  Verify GoogleSignInClient flow unchanged [0.5]         -> T2
+  020-T4  Dark-mode [0.5]                                        -> T3
+
+UID-021  profile form + home ZIP [3]
+  021-T1  Form fields restyle (ProfileFormActivity) [1]
+  021-T2  Home ZIP field (HomeZipActivity) [0.5]                 -> T1
+  021-T3  OnboardingValidator unchanged [0.5]                    -> T1,T2
+  021-T4  Dark-mode [0.5]                                        -> T3
+
+UID-022  IDV [3]
+  022-T1  Explainer screen (IdvActivity) [1]
+  022-T2  Badge states via BadgeState / VerifiedBadgeView /
+          IdvStatusMapper [0.5]                                  -> T1
+  022-T3  Continue flow; stub journey unchanged [0.5]           -> T2
+  022-T4  Dark-mode [0.5]                                        -> T3
+
+UID-023  profile + my swaps [5]   (needs UID-004)
+  023-T1  Avatar + verification badge header [1]
+  023-T2  Stats row [0.5]                                        -> T1
+  023-T3  Active swaps list [1]                                  -> T1
+  023-T4  Completed swaps list [1]                               -> T1
+  023-T5  Mock data [0.5]                                        -> T3,T4
+  023-T6  Nav integration + dark-mode [1]                        -> T5
+
+UID-024  design QA pass [5]   (needs every ticket above)
+  024-T1  Screenshot every screen, light + dark [1.5]
+  024-T2  Side-by-side audit vs prototype [1.5]                   -> T1
+  024-T3  Fix pass [1.5]                                         -> T2
+  024-T4  Contrast + touch-target audit [0.5]                    -> T3
+
+TOTALS
+------
+  16 tickets, 82 tasks, ~73 points.
+  Wave 1: 004, 011 (11 tasks) - unblocked now.
+  Wave 2: 010, 012, 023 + 014,015,016,017,019,020,021,022 (51 tasks).
+  Wave 3: 013, 018 (8 tasks).
+  Wave 4: 024 (4 tasks).

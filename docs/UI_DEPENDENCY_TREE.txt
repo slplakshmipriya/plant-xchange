@@ -1,0 +1,76 @@
+UI DESIGN MATCH - DEPENDENCY TREE (all remaining work)
+===========================================================
+Branch: feature/ui-design. Completed tickets not listed as work:
+UID-001 (colors), UID-002 (typography), UID-003 (components).
+
+LEGEND
+------
+  A -> B    B cannot be done before A (hard dependency)
+  A ~> B    B should preferably follow A (soft dependency)
+
+TICKET DEPENDENCIES
+-------------------
+  UID-004  bottom navigation            -> UID-001/002/003 (done)
+  UID-010  explore home                 -> UID-004, UID-011
+  UID-011  listing card + filter chips  -> UID-003 (done)
+  UID-012  listing detail               -> UID-011
+  UID-013  claim bottom sheet + toast   -> UID-012
+  UID-014  create listing               -> UID-001/002/003 (done)
+  UID-015  wallet                       -> UID-001/002/003 (done)
+  UID-016  confirm exchange             -> UID-001/002/003 (done)
+  UID-017  sitter list + profile        -> UID-001/002/003 (done)
+  UID-018  review flow                  -> UID-001/002/003 (done); ~> UID-017
+  UID-019  threads + chat               -> UID-001/002/003 (done)
+  UID-020  auth screen                  -> UID-001/002/003 (done)
+  UID-021  profile form + home ZIP      -> UID-001/002/003 (done)
+  UID-022  IDV                          -> UID-001/002/003 (done)
+  UID-023  profile + my swaps           -> UID-004
+  UID-024  design QA pass               -> every ticket above
+
+TREE
+----
+                    UID-001/002/003 (done)
+                              |
+              +---------------+---------------+
+              |                               |
+       UID-004 (bottom nav)          UID-011 (listing card)
+              |                               |
+        +-----+-----+                  +------+------+
+        |           |                  |             |
+   UID-010 (*)  UID-023            UID-010 (*)   UID-012 (detail)
+                                                    |
+                                               UID-013 (claim)
+
+   (*) UID-010 needs BOTH UID-004 and UID-011.
+
+   Standalone - need only finished E1 work, fully parallelizable:
+     UID-014, UID-015, UID-016, UID-017,
+     UID-019, UID-020, UID-021, UID-022
+     UID-018 (standalone, soft after UID-017)
+
+   UID-024 (design QA) runs after every ticket above.
+
+WAVES
+-----
+  Wave 1 (unblocked now):      UID-004, UID-011
+  Wave 2 (after Wave 1):       UID-010, UID-012, UID-023
+                               + standalone batch:
+                               UID-014, UID-015, UID-016, UID-017,
+                               UID-019, UID-020, UID-021, UID-022
+  Wave 3 (after Wave 2):       UID-013, UID-018
+  Wave 4 (last):               UID-024
+
+CRITICAL PATH
+-------------
+  UID-011 -> UID-012 -> UID-013 -> UID-024
+  (longest chain: 4 tickets; sets the minimum schedule)
+
+NOTES
+-----
+  - UID-011 is the highest-leverage ticket: its card is reused by
+    Explore (UID-010) and listing detail (UID-012).
+  - UID-004 should land early: every top-level screen (Explore,
+    Messages, My swaps, Plant care, Profile) mounts the bottom nav,
+    so building screens without it risks rework.
+  - UID-018's soft dependency: the review form is standalone, but its
+    entry point is the sitter profile (UID-017).

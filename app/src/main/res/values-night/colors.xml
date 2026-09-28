@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Garden Swap design tokens — dark theme (UID-001). -->
+    <color name="garden_bg">#101512</color>
+    <color name="garden_surface">#18201A</color>
+    <color name="garden_ink">#EDF5EE</color>
+    <color name="garden_muted">#A8B4AA</color>
+    <color name="garden_line">#354139</color>
+    <color name="garden_leaf">#7FC996</color>
+    <color name="garden_leaf_dark">#091C11</color>
+    <color name="garden_focus">#94DDA9</color>
+    <color name="garden_nav">#091C11</color>
+    <color name="garden_nav_ink">#F3F8F1</color>
+    <color name="garden_nav_muted">#8A978D</color>
+    <color name="garden_acid">#BFDC5E</color>
+    <color name="garden_yellow">#E9BF45</color>
+    <color name="garden_orange">#E16F38</color>
+    <color name="garden_red">#BD4A3C</color>
+</resources>

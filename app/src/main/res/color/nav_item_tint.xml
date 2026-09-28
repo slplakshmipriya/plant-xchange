@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bottom-nav icon/text tint (UID-004): acid when selected, muted sage otherwise.
+     garden_acid / garden_nav_muted resolve per night mode. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true" android:color="@color/garden_acid" />
+    <item android:color="@color/garden_nav_muted" />
+</selector>

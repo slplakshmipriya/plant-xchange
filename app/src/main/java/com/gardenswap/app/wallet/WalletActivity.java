@@ -2,48 +2,68 @@ package com.gardenswap.app.wallet;
 
 import android.app.AlertDialog;
 import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.res.ResourcesCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
+import com.gardenswap.app.R;
 import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.LedgerEntry;
 import com.gardenswap.app.api.Wallet;
+import com.gardenswap.app.ui.LedgerAdapter;
 import com.gardenswap.app.ui.Ui;
 import com.gardenswap.app.util.LedgerFormatter;
+import com.gardenswap.app.util.WalletLogic;
+
+import java.util.Collections;
+import java.util.List;
 
 /**
- * Credit wallet (AND-060).
+ * Credit wallet (AND-060), restyled to the garden-swap-app-ui-design
+ * prototype (UID-015).
  *
- * <p>Balance hero (server-authoritative — rendered, never computed here),
- * ledger list, expiry countdown banner, weekly-cap line, starter-credits
- * note, and a "how credits work" explainer sheet. Client-side credit math
- * stays a UI mirror only; the backend ledger (API-060) is the source of
- * truth (SEC-060).
+ * <p>Balance hero card with an acid highlight strip (server-authoritative —
+ * rendered, never computed here), expiry cue, weekly-cap line,
+ * starter-credits note, "how credits work" explainer sheet, and the ledger
+ * as a RecyclerView. Client-side credit math stays a UI mirror only; the
+ * backend ledger (API-060) is the source of truth (SEC-060).
  */
 public class WalletActivity extends AppCompatActivity {
 
+    private static final long DAY_MS = 24 * 3_600_000L;
+
     private TextView statusText;
-    private LinearLayout content;
+    private LedgerAdapter adapter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        LinearLayout root = Ui.column(this, 24);
-        TextView title = Ui.label(this, "Wallet");
-        title.setTextSize(20);
+        LinearLayout root = Ui.column(this, 16);
+        TextView title = Ui.headline(this, "Wallet");
         statusText = Ui.status(this);
-        content = Ui.column(this, 0);
+
+        RecyclerView list = new RecyclerView(this);
+        list.setLayoutManager(new LinearLayoutManager(this));
+        adapter = new LedgerAdapter();
+        list.setAdapter(adapter);
+        list.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         root.addView(title);
-        Ui.gap(root, this, 8);
+        Ui.gap(root, this, 4);
         root.addView(statusText);
         Ui.gap(root, this, 8);
-        root.addView(content);
+        root.addView(list);
         setContentView(root);
 
         load();
@@ -71,44 +91,78 @@ public class WalletActivity extends AppCompatActivity {
     }
 
     private void render(Wallet wallet) {
+        if (wallet == null) {
+            statusText.setText("Couldn't load your wallet.");
+            return;
+        }
         statusText.setText("");
-        content.removeAllViews();
         long now = System.currentTimeMillis();
+        adapter.setHeader(buildHeader(wallet, now));
+        List<LedgerEntry> entries = wallet.getEntries();
+        adapter.setEntries(entries == null ? Collections.emptyList() : entries);
+    }
 
-        TextView balance = Ui.label(this, wallet.getBalance() + " credits");
-        balance.setTextSize(32);
-        content.addView(balance);
-        Ui.gap(content, this, 4);
+    /** Header: balance card, expiry cue, cap lines, explainer, history title. */
+    private View buildHeader(Wallet wallet, long nowMs) {
+        LinearLayout header = Ui.column(this, 0);
 
-        String banner = LedgerFormatter.expiryBanner(wallet.getNextExpiryMs(), now);
-        if (banner != null) {
-            TextView bannerView = Ui.label(this, banner);
-            content.addView(bannerView);
-            Ui.gap(content, this, 4);
+        // Balance hero card with acid highlight strip.
+        LinearLayout card = Ui.card(this);
+        View strip = new View(this);
+        strip.setBackgroundColor(ResourcesCompat.getColor(
+                getResources(), R.color.garden_acid, getTheme()));
+        strip.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 6)));
+        card.addView(strip);
+        Ui.gap(card, this, 12);
+        TextView balance = Ui.display(this, String.valueOf(wallet.getBalance()));
+        Ui.textColor(this, balance, R.color.garden_turquoise);
+        card.addView(balance);
+        TextView creditsEyebrow = Ui.eyebrow(this, "credits");
+        Ui.textColor(this, creditsEyebrow, R.color.garden_turquoise);
+        card.addView(creditsEyebrow);
+        header.addView(card);
+        Ui.gap(header, this, 12);
+
+        // Expiry cue: new WalletLogic rule first, legacy banner as fallback
+        // (covers the already-expired case LedgerFormatter owns).
+        String cue = WalletLogic.expiryCue(daysUntilExpiry(wallet, nowMs));
+        if (cue == null) {
+            cue = LedgerFormatter.expiryBanner(wallet.getNextExpiryMs(), nowMs);
+        }
+        if (cue != null) {
+            header.addView(Ui.body(this, cue));
+            Ui.gap(header, this, 8);
         }
 
-        content.addView(Ui.label(this, LedgerFormatter.weeklyCapLine(wallet.getEarnedThisWeek())));
-        Ui.gap(content, this, 4);
-        content.addView(Ui.label(this, LedgerFormatter.starterNote()));
-        Ui.gap(content, this, 8);
+        header.addView(Ui.caption(this,
+                LedgerFormatter.weeklyCapLine(wallet.getEarnedThisWeek())));
+        Ui.gap(header, this, 4);
+        header.addView(Ui.caption(this, LedgerFormatter.starterNote()));
+        Ui.gap(header, this, 12);
 
-        android.widget.Button explainerButton = Ui.button(this, "How credits work");
+        Button explainerButton = Ui.secondaryButton(this, "How credits work");
         explainerButton.setOnClickListener(v -> showExplainer());
-        content.addView(explainerButton);
-        Ui.gap(content, this, 12);
+        header.addView(explainerButton);
+        Ui.gap(header, this, 16);
 
-        TextView historyTitle = Ui.label(this, "History");
-        historyTitle.setTextSize(16);
-        content.addView(historyTitle);
-        Ui.gap(content, this, 4);
+        List<LedgerEntry> entries = wallet.getEntries();
+        if (entries == null || entries.isEmpty()) {
+            header.addView(Ui.body(this, "No activity yet."));
+        } else {
+            header.addView(Ui.headline(this, "History"));
+            Ui.gap(header, this, 8);
+        }
+        return header;
+    }
 
-        if (wallet.getEntries().isEmpty()) {
-            content.addView(Ui.label(this, "No activity yet."));
+    /** Whole days until the soonest expiry, or null when nothing is expiring. */
+    private static Integer daysUntilExpiry(Wallet wallet, long nowMs) {
+        Long nextExpiryMs = wallet.getNextExpiryMs();
+        if (nextExpiryMs == null) {
+            return null;
         }
-        for (LedgerEntry entry : wallet.getEntries()) {
-            content.addView(Ui.label(this, LedgerFormatter.formatEntry(entry)));
-            Ui.gap(content, this, 2);
-        }
+        return (int) ((nextExpiryMs - nowMs) / DAY_MS);
     }
 
     private void showExplainer() {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Primary pill for the claim bottom sheet: fixed dark-leaf fill. The sheet
+     always uses the Light dialog theme, so this intentionally ignores night
+     mode (the shared btn_primary would resolve too light in dark mode). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="999dp" />
+    <solid android:color="@color/garden_sheet_leaf" />
+    <padding android:left="24dp" android:right="24dp"
+        android:top="14dp" android:bottom="14dp" />
+</shape>

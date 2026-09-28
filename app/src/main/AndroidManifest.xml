@@ -10,6 +10,8 @@
     <application
         android:name=".GardenSwapApp"
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="Garden Swap"
         android:theme="@style/Theme.GardenSwap"
         android:supportsRtl="true">
@@ -24,6 +26,9 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".explore.ExploreActivity"
+            android:exported="false" />
         <activity
             android:name=".onboarding.PhoneAuthActivity"
             android:exported="false" />
@@ -74,6 +79,12 @@
             android:exported="false" />
         <activity
             android:name=".harvest.HarvestLogActivity"
+            android:exported="false" />
+        <activity
+            android:name=".profile.MySwapsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".profile.ProfileActivity"
             android:exported="false" />
 
     </application>

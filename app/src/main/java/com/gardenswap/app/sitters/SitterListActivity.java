@@ -2,51 +2,81 @@ package com.gardenswap.app.sitters;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.text.TextUtils;
+import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.SitterProfile;
+import com.gardenswap.app.ui.Nav;
+import com.gardenswap.app.ui.SitterCardAdapter;
 import com.gardenswap.app.ui.Ui;
-import com.gardenswap.app.ui.VerifiedBadgeView;
-import com.gardenswap.app.ui.BadgeState;
-import com.gardenswap.app.util.ReviewGuard;
+import com.gardenswap.app.util.NavRouter;
 
 import java.util.List;
 
 /**
- * Sitter discovery list (AND-070).
+ * Sitter discovery list (AND-070), restyled per the design prototype
+ * (UID-017).
  *
- * <p>Searches sitters by the signed-in user's home zip. Each card shows the
- * rate, coverage radius, ID-verification badge, and Bayesian-smoothed
- * rating. Tapping a card opens {@link SitterProfileActivity}.
+ * <p>Searches sitters by the signed-in user's home zip and renders them
+ * as {@link SitterCardAdapter} rows. Tapping a card opens
+ * {@link SitterProfileActivity} with {@link SitterProfileActivity#EXTRA_SITTER_ID}.
  */
 public class SitterListActivity extends AppCompatActivity {
 
     private TextView statusText;
-    private LinearLayout list;
+    private SitterCardAdapter adapter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        LinearLayout root = Ui.column(this, 24);
-        TextView title = Ui.label(this, "Find a plant sitter");
-        title.setTextSize(20);
-        statusText = Ui.status(this);
-        list = Ui.column(this, 0);
+        // Sticky brand bar, same as Explore; the screen title sits below it
+        // while the sitter list scrolls.
+        LinearLayout header = Ui.column(this, 24);
+        header.addView(Ui.appTitleRow(this));
+        int pad = Ui.dp(this, 24);
+        header.setPadding(pad, pad, pad, 0);
 
-        root.addView(title);
-        Ui.gap(root, this, 8);
-        root.addView(statusText);
-        Ui.gap(root, this, 8);
-        root.addView(list);
-        setContentView(root);
+        LinearLayout titleBlock = Ui.column(this, 24);
+        titleBlock.setPadding(pad, 0, pad, 0);
+        titleBlock.addView(Ui.headline(this, "Find a plant sitter"));
+        Ui.gap(titleBlock, this, 4);
+        titleBlock.addView(Ui.body(this, "Local sitters for watering, repotting, and vacation care."));
+        Ui.gap(titleBlock, this, 12);
+        statusText = Ui.status(this);
+        titleBlock.addView(statusText);
+        Ui.gap(titleBlock, this, 8);
+
+        LinearLayout listWrap = Ui.column(this, 24);
+        listWrap.setPadding(pad, 0, pad, pad);
+        RecyclerView list = new RecyclerView(this);
+        list.setLayoutManager(new LinearLayoutManager(this));
+        adapter = new SitterCardAdapter(null);
+        adapter.setOnSitterClickListener(sitter -> {
+            Intent intent = new Intent(this, SitterProfileActivity.class);
+            intent.putExtra(SitterProfileActivity.EXTRA_SITTER_ID, sitter.getSitterId());
+            startActivity(intent);
+        });
+        list.setAdapter(adapter);
+        listWrap.addView(list, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.addView(titleBlock);
+        content.addView(listWrap, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        setContentView(Ui.stickyHeaderScreen(this, header, content));
+        Nav.attach(this, NavRouter.Tab.CARE);
 
         load("85281"); // mock zip; real flow reads the profile's homeZip
     }
@@ -67,44 +97,11 @@ public class SitterListActivity extends AppCompatActivity {
     }
 
     private void render(List<SitterProfile> sitters) {
-        statusText.setText("");
-        list.removeAllViews();
-        if (sitters.isEmpty()) {
-            list.addView(Ui.label(this, "No sitters nearby yet — check back soon."));
-            return;
+        if (sitters == null || sitters.isEmpty()) {
+            statusText.setText("No sitters nearby yet — check back soon.");
+        } else {
+            statusText.setText("");
         }
-        for (SitterProfile sitter : sitters) {
-            list.addView(sitterCard(sitter));
-            Ui.gap(list, this, 12);
-        }
-    }
-
-    private LinearLayout sitterCard(SitterProfile sitter) {
-        LinearLayout card = Ui.column(this, 12);
-
-        TextView name = Ui.label(this, sitter.getDisplayName());
-        name.setTextSize(16);
-        card.addView(name);
-
-        VerifiedBadgeView badge = new VerifiedBadgeView(this);
-        badge.setState(sitter.isIdVerified() ? BadgeState.ID_VERIFIED : BadgeState.UNVERIFIED);
-        card.addView(badge);
-
-        card.addView(Ui.label(this,
-                ReviewGuard.formatPrice(sitter.getRatePerVisitCents()) + " / visit · "
-                        + sitter.getRadiusMiles() + " mi radius"));
-        card.addView(Ui.label(this,
-                ReviewGuard.ratingLine(sitter.getRating(), sitter.getReviewCount())
-                        + " · " + sitter.getCompletedSits() + " sits completed"));
-        card.addView(Ui.label(this, "Services: " + TextUtils.join(", ", sitter.getServices())));
-
-        android.widget.Button open = Ui.button(this, "View profile");
-        open.setOnClickListener(v -> {
-            Intent intent = new Intent(this, SitterProfileActivity.class);
-            intent.putExtra(SitterProfileActivity.EXTRA_SITTER_ID, sitter.getSitterId());
-            startActivity(intent);
-        });
-        card.addView(open);
-        return card;
+        adapter.setSitters(sitters);
     }
 }

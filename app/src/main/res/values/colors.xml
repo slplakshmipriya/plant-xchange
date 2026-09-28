@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Garden Swap design tokens — light theme (UID-001).
+         Extracted from the garden-swap-app-ui-design prototype. -->
+    <color name="garden_bg">#F3F5EF</color>
+    <color name="garden_surface">#FFFFFF</color>
+    <color name="garden_ink">#172018</color>
+    <color name="garden_muted">#5F6D61</color>
+    <color name="garden_line">#D8DED4</color>
+    <color name="garden_leaf">#175F3A</color>
+    <color name="garden_leaf_dark">#163722</color>
+    <color name="garden_focus">#2A7C50</color>
+    <color name="garden_nav">#163722</color>
+    <color name="garden_nav_ink">#F3F8F1</color>
+    <color name="garden_nav_muted">#9DB3A1</color>
+    <color name="garden_acid">#D8EE72</color>
+    <color name="garden_yellow">#F0C44C</color>
+    <color name="garden_orange">#F08A54</color>
+    <color name="garden_red">#EB8376</color>
+    <!-- Turquoise-blue accent for the credit-balance readout (readable on the
+         acid panel in both themes; the panel stays light at night). -->
+    <color name="garden_turquoise">#0E7490</color>
+    <!-- The claim bottom sheet always uses the fixed Light dialog theme, so
+         these intentionally have no values-night variants: dark text on the
+         light sheet in both modes. -->
+    <color name="garden_sheet_ink">#172018</color>
+    <color name="garden_sheet_muted">#4A554C</color>
+    <color name="garden_sheet_leaf">#175F3A</color>
+    <color name="garden_sheet_line">#D8DED4</color>
+    <color name="garden_sheet_surface">#FFFFFF</color>
+    <color name="garden_sheet_red">#B3261E</color>
+</resources>

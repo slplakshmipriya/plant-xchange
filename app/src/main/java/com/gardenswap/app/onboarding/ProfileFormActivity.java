@@ -90,34 +90,38 @@ public class ProfileFormActivity extends AppCompatActivity {
                 });
 
         LinearLayout root = Ui.column(this, 24);
-        TextView title = Ui.label(this, "Set up your profile");
-        title.setTextSize(20);
+        root.addView(Ui.headline(this, "Set up your profile"));
+        Ui.gap(root, this, 24);
+
+        root.addView(Ui.eyebrow(this, "Profile photo"));
+        Ui.gap(root, this, 8);
         avatarView = new ImageView(this);
         int avatarSize = Ui.dp(this, 96);
         avatarView.setLayoutParams(new LinearLayout.LayoutParams(avatarSize, avatarSize));
         avatarView.setContentDescription("Profile photo");
-        Button cameraButton = Ui.button(this, "Take photo");
+        root.addView(avatarView);
+        Ui.gap(root, this, 12);
+        Button cameraButton = Ui.secondaryButton(this, "Take photo");
         cameraButton.setOnClickListener(
                 v -> cameraPermissionLauncher.launch(Manifest.permission.CAMERA));
-        Button galleryButton = Ui.button(this, "Choose from gallery");
-        galleryButton.setOnClickListener(v -> galleryLauncher.launch("image/*"));
-        nameInput = Ui.input(this, "Display name", InputType.TYPE_CLASS_TEXT);
-        Button continueButton = Ui.button(this, "Continue");
-        continueButton.setOnClickListener(v -> onContinue());
-        statusText = Ui.status(this);
-
-        root.addView(title);
-        Ui.gap(root, this, 16);
-        root.addView(avatarView);
-        Ui.gap(root, this, 8);
         root.addView(cameraButton);
         Ui.gap(root, this, 8);
+        Button galleryButton = Ui.secondaryButton(this, "Choose from gallery");
+        galleryButton.setOnClickListener(v -> galleryLauncher.launch("image/*"));
         root.addView(galleryButton);
-        Ui.gap(root, this, 16);
+        Ui.gap(root, this, 24);
+
+        root.addView(Ui.eyebrow(this, "Display name"));
+        Ui.gap(root, this, 8);
+        nameInput = Ui.input(this, "Display name", InputType.TYPE_CLASS_TEXT);
         root.addView(nameInput);
-        Ui.gap(root, this, 16);
+        Ui.gap(root, this, 24);
+
+        Button continueButton = Ui.primaryButton(this, "Continue");
+        continueButton.setOnClickListener(v -> onContinue());
         root.addView(continueButton);
         Ui.gap(root, this, 16);
+        statusText = Ui.status(this);
         root.addView(statusText);
         setContentView(root);
     }

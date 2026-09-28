@@ -444,6 +444,24 @@ public class MockGardenSwapApi implements GardenSwapApi {
         emit(callback, WantMatcher.matches(new ArrayList<>(wants.values()), others));
     }
 
+    /**
+     * Nearby-listings feed for Explore (UID-010). Mock-phase only: live
+     * listings from other gardeners, insertion order. There is no feed
+     * endpoint in the API contract yet; when one lands this becomes a real
+     * {@link GardenSwapApi} method and the {@code instanceof} branch in
+     * ExploreActivity goes away. Existing behavior is unchanged.
+     */
+    public void getFeed(Callback<List<Listing>> callback) {
+        List<Listing> feed = new ArrayList<>();
+        for (Listing listing : listings.values()) {
+            if (!profile.getUserId().equals(listing.getOwnerUid())
+                    && listing.getStatus() == ListingStatus.LIVE) {
+                feed.add(listing);
+            }
+        }
+        emit(callback, feed);
+    }
+
     @Override
     public void getHarvestEvents(String listingId, Callback<List<HarvestEvent>> callback) {
         List<HarvestEvent> events = harvestEvents.get(listingId);
