@@ -5,6 +5,8 @@ import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -27,6 +29,7 @@ import com.gardenswap.app.util.CreditStepperLogic;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
@@ -45,6 +48,14 @@ public class CreateListingActivity extends AppCompatActivity {
     private static final String PREFS = "create_listing_draft";
     private static final String DATE_PATTERN = "yyyy-MM-dd HH:mm";
 
+    /** Variety autosuggest pool, shared with the want-list (AND-124). */
+    private static final String[] VARIETY_SUGGESTIONS = {
+            "Cherokee Purple tomato", "Roma tomato", "Genovese basil", "Thai basil",
+            "Meyer lemons", "Jalapeño pepper", "Bell pepper", "Zucchini",
+            "Cucumber", "Kale", "Spinach", "Carrots", "Rosemary", "Mint",
+            "Fig tree", "Peach tree", "Pomegranate",
+    };
+
     private final List<TextView> typeChips = new ArrayList<>();
     private ListingType selectedType = ListingType.SEEDLING;
     private final List<String> photoUris = new ArrayList<>();
@@ -53,6 +64,9 @@ public class CreateListingActivity extends AppCompatActivity {
     private EditText quantityInput;
     private EditText unitInput;
     private LinearLayout unitPresetRow;
+    private LinearLayout potAgeSection;
+    private EditText potSizeInput;
+    private EditText plantAgeInput;
     private TextView creditView;
     private int creditCost = 1;
     private boolean freeListing = false;
@@ -117,9 +131,19 @@ public class CreateListingActivity extends AppCompatActivity {
         Ui.gap(root, this, 12);
 
         // ---- Variety + quantity/unit (014-T2) ----
+        // Autosuggest (AND-124): same pool as the want-list, threshold 2.
+        // Free text is still allowed — suggestions are a convenience.
         root.addView(Ui.eyebrow(this, "Variety"));
         Ui.gap(root, this, 4);
-        varietyInput = Ui.input(this, "e.g. Cherokee Purple tomato", InputType.TYPE_CLASS_TEXT);
+        AutoCompleteTextView varietyAuto = new AutoCompleteTextView(this);
+        varietyAuto.setHint("e.g. Cherokee Purple tomato");
+        varietyAuto.setInputType(InputType.TYPE_CLASS_TEXT);
+        varietyAuto.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        varietyAuto.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_dropdown_item_1line, VARIETY_SUGGESTIONS));
+        varietyAuto.setThreshold(2);
+        varietyInput = varietyAuto;
         root.addView(varietyInput);
         Ui.gap(root, this, 8);
 
@@ -148,6 +172,21 @@ public class CreateListingActivity extends AppCompatActivity {
         }
         root.addView(presetRow);
         this.unitPresetRow = presetRow;
+        Ui.gap(root, this, 12);
+
+        // ---- Pot size / plant age (AND-125): seedlings only ----
+        potAgeSection = new LinearLayout(this);
+        potAgeSection.setOrientation(LinearLayout.VERTICAL);
+        potAgeSection.addView(Ui.eyebrow(this, "Pot size · optional"));
+        Ui.gap(potAgeSection, this, 4);
+        potSizeInput = Ui.input(this, "e.g. 4 in nursery pot", InputType.TYPE_CLASS_TEXT);
+        potAgeSection.addView(potSizeInput);
+        Ui.gap(potAgeSection, this, 8);
+        potAgeSection.addView(Ui.eyebrow(this, "Plant age · optional"));
+        Ui.gap(potAgeSection, this, 4);
+        plantAgeInput = Ui.input(this, "e.g. 6 weeks", InputType.TYPE_CLASS_TEXT);
+        potAgeSection.addView(plantAgeInput);
+        root.addView(potAgeSection);
         Ui.gap(root, this, 12);
 
         // ---- Credit cost stepper (014-T3) ----
@@ -296,6 +335,11 @@ public class CreateListingActivity extends AppCompatActivity {
             unitPresetRow.setVisibility(
                     type == ListingType.HARVEST ? android.view.View.VISIBLE : android.view.View.GONE);
         }
+        // Pot size / plant age are seedling-relevant (AND-125).
+        if (potAgeSection != null) {
+            potAgeSection.setVisibility(
+                    type == ListingType.SEEDLING ? android.view.View.VISIBLE : android.view.View.GONE);
+        }
     }
 
     private void updatePhotoCount() {
@@ -348,7 +392,36 @@ public class CreateListingActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Pickup window default (AND-126): when both fields are blank, pre-fill a
+     * 4-day window starting now so the user sees (and can edit) the default.
+     */
+    private void applyPickupWindowDefault() {
+        boolean startBlank = pickupStartInput.getText().toString().trim().isEmpty();
+        boolean endBlank = pickupEndInput.getText().toString().trim().isEmpty();
+        if (startBlank && endBlank) {
+            SimpleDateFormat format = new SimpleDateFormat(DATE_PATTERN, Locale.US);
+            long now = System.currentTimeMillis();
+            pickupStartInput.setText(format.format(new Date(now)));
+            pickupEndInput.setText(format.format(new Date(now + 4 * 86_400_000L)));
+        }
+    }
+
+    /**
+     * Expiry default (AND-127/128): harvest listings default to 2 days, all
+     * others to 7. The hard cap (5 / 14) is enforced by
+     * {@link CreateListingValidator} with an inline error.
+     */
+    private void applyExpiryDefault() {
+        if (expiryDaysInput.getText().toString().trim().isEmpty()) {
+            expiryDaysInput.setText(String.valueOf(
+                    selectedType == ListingType.HARVEST ? 2 : 7));
+        }
+    }
+
     private void publish() {
+        applyPickupWindowDefault();
+        applyExpiryDefault();
         CreateListingValidator.Draft draft = collectDraft();
         List<String> errors = CreateListingValidator.validate(draft, System.currentTimeMillis());
         if (!errors.isEmpty()) {
@@ -364,8 +437,11 @@ public class CreateListingActivity extends AppCompatActivity {
                 .photos(new ArrayList<>(photoUris))
                 .variety(varietyInput.getText().toString().trim())
                 .unit(blankToNull(unitInput.getText().toString()))
+                .potSize(blankToNull(potSizeInput.getText().toString()))
+                .plantAge(blankToNull(plantAgeInput.getText().toString()))
                 .creditCost(creditCost)
                 .pickupWindow(draft.pickupStartMs, draft.pickupEndMs)
+                .pickupWindowDays(4)
                 .expiresAtMs(draft.expiresAtMs)
                 .geo(geoLat, geoLon)
                 .sprayDisclosure(sprayInput.getText().toString().trim())
@@ -452,6 +528,8 @@ public class CreateListingActivity extends AppCompatActivity {
                 .putString("variety", varietyInput.getText().toString())
                 .putString("quantity", quantityInput.getText().toString())
                 .putString("unit", unitInput.getText().toString())
+                .putString("potSize", potSizeInput.getText().toString())
+                .putString("plantAge", plantAgeInput.getText().toString())
                 .putInt("credit", creditCost)
                 .putString("pickupStart", pickupStartInput.getText().toString())
                 .putString("pickupEnd", pickupEndInput.getText().toString())
@@ -472,6 +550,8 @@ public class CreateListingActivity extends AppCompatActivity {
         varietyInput.setText(prefs.getString("variety", ""));
         quantityInput.setText(prefs.getString("quantity", ""));
         unitInput.setText(prefs.getString("unit", ""));
+        potSizeInput.setText(prefs.getString("potSize", ""));
+        plantAgeInput.setText(prefs.getString("plantAge", ""));
         setCredit(prefs.getInt("credit", 1));
         pickupStartInput.setText(prefs.getString("pickupStart", ""));
         pickupEndInput.setText(prefs.getString("pickupEnd", ""));
