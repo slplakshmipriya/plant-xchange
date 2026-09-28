@@ -17,10 +17,10 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.gardenswap.app.R;
 import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
+import com.gardenswap.app.api.FeedRequest;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.Listing;
 import com.gardenswap.app.api.ListingType;
-import com.gardenswap.app.api.MockGardenSwapApi;
 import com.gardenswap.app.api.UserProfile;
 import com.gardenswap.app.api.Wallet;
 import com.gardenswap.app.listings.ListingDetailActivity;
@@ -41,8 +41,8 @@ import java.util.List;
 /**
  * Explore home screen (UID-010): hero header, four "way" cards, credit
  * balance panel, want-list match panel, and the nearby-listings feed with
- * working filter chips. All data comes from the mock API (UID-010-T7);
- * every callback is null-safe.
+ * working filter chips. The feed loads from the API contract
+ * ({@code getFeed}); every callback is null-safe.
  */
 public class ExploreActivity extends AppCompatActivity {
 
@@ -103,7 +103,7 @@ public class ExploreActivity extends AppCompatActivity {
         root.addView(list, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
-        emptyState = Ui.caption(this, "No listings here yet — check back soon.");
+        emptyState = Ui.caption(this, "No listings nearby yet — try another filter.");
         emptyState.setVisibility(TextView.GONE);
         root.addView(emptyState);
 
@@ -150,6 +150,15 @@ public class ExploreActivity extends AppCompatActivity {
     }
 
     private void onWayCardTap(String label) {
+        if (ExploreLogic.WAY_PICK.equals(label)) {
+            // TreeListActivity is owned by the pyo track; start it by
+            // explicit component name so this compiles before that class
+            // lands on the branch.
+            Intent pick = new Intent();
+            pick.setClassName(this, "com.gardenswap.app.trees.TreeListActivity");
+            startActivity(pick);
+            return;
+        }
         ListingType filter = ExploreLogic.filterForWayCard(label);
         if (filter == null) {
             // Plant care has no listing filter; it opens the sitter flow.
@@ -198,7 +207,12 @@ public class ExploreActivity extends AppCompatActivity {
     private void applyFilter(ListingType filter) {
         List<Listing> shown = ListingFilter.filter(allListings, filter);
         listingsAdapter.setListings(shown);
-        emptyState.setVisibility(shown.isEmpty() ? TextView.VISIBLE : TextView.GONE);
+        if (shown.isEmpty()) {
+            emptyState.setText("No listings nearby yet — try another filter.");
+            emptyState.setVisibility(TextView.VISIBLE);
+        } else {
+            emptyState.setVisibility(TextView.GONE);
+        }
     }
 
     private void loadProfile() {
@@ -267,26 +281,31 @@ public class ExploreActivity extends AppCompatActivity {
     }
 
     private void loadFeed() {
-        GardenSwapApi api = ApiProvider.get();
-        if (!(api instanceof MockGardenSwapApi)) {
-            // No feed endpoint in the API contract yet; nothing to show.
-            applyFilter(null);
-            return;
-        }
-        ((MockGardenSwapApi) api).getFeed(new GardenSwapApi.Callback<List<Listing>>() {
-            @Override
-            public void onSuccess(List<Listing> feed) {
-                allListings.clear();
-                if (feed != null) {
-                    allListings.addAll(feed);
-                }
-                applyFilter(chipRow.getSelectedFilter());
-            }
+        String way = ExploreLogic.wayForFilter(chipRow.getSelectedFilter());
+        ApiProvider.get().getFeed(new FeedRequest(way, 50),
+                new GardenSwapApi.Callback<List<Listing>>() {
+                    @Override
+                    public void onSuccess(List<Listing> feed) {
+                        allListings.clear();
+                        if (feed != null) {
+                            allListings.addAll(
+                                    ExploreLogic.sortByFreshness(feed));
+                        }
+                        emptyState.setOnClickListener(null);
+                        emptyState.setClickable(false);
+                        applyFilter(chipRow.getSelectedFilter());
+                    }
 
-            @Override
-            public void onError(ApiException e) {
-                applyFilter(null);
-            }
-        });
+                    @Override
+                    public void onError(ApiException e) {
+                        allListings.clear();
+                        listingsAdapter.setListings(new ArrayList<>());
+                        emptyState.setText(
+                                "Couldn't load listings — tap to retry.");
+                        emptyState.setVisibility(TextView.VISIBLE);
+                        emptyState.setClickable(true);
+                        emptyState.setOnClickListener(v -> loadFeed());
+                    }
+                });
     }
 }
