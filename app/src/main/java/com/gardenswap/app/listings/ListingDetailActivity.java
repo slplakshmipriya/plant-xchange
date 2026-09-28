@@ -23,6 +23,7 @@ import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.Listing;
+import com.gardenswap.app.api.ListingStatus;
 import com.gardenswap.app.ui.ClaimBottomSheet;
 import com.gardenswap.app.ui.Ui;
 import com.gardenswap.app.ui.VerifiedBadgeView;
@@ -155,6 +156,17 @@ public class ListingDetailActivity extends AppCompatActivity {
             Button cancelButton = Ui.secondaryButton(this, "Cancel listing");
             cancelButton.setOnClickListener(v -> confirmCancel());
             body.addView(cancelButton);
+            Ui.gap(body, this, 8);
+        }
+        // AND-133: claimer-side cancellation — only the claimer sees this,
+        // gated on CLAIMED status + claimerUid match client-side (the server
+        // enforces it again on the cancel endpoint).
+        if (listing.getStatus() == ListingStatus.CLAIMED
+                && viewerUid != null
+                && viewerUid.equals(listing.getClaimerUid())) {
+            Button cancelClaimButton = Ui.secondaryButton(this, "Cancel claim");
+            cancelClaimButton.setOnClickListener(v -> confirmCancelClaim());
+            body.addView(cancelClaimButton);
             Ui.gap(body, this, 8);
         }
         if (isOwnHarvestListing()) {
@@ -308,6 +320,41 @@ public class ListingDetailActivity extends AppCompatActivity {
                                     }
                                 }))
                 .setNegativeButton("Keep", null)
+                .show();
+    }
+
+    /**
+     * AND-133: claimer-side claim cancellation. The button only renders for
+     * the claimer (CLAIMED status + claimerUid match); the server enforces
+     * the same rule on the cancel endpoint. On success the returned listing
+     * replaces the local one and the detail re-renders.
+     */
+    private void confirmCancelClaim() {
+        new AlertDialog.Builder(this)
+                .setTitle("Cancel your claim?")
+                .setMessage("The listing will become available to other swappers again.")
+                .setPositiveButton("Cancel claim", (dialog, which) ->
+                        ApiProvider.get().cancelClaim(listing.getId(),
+                                new GardenSwapApi.Callback<Listing>() {
+                                    @Override
+                                    public void onSuccess(Listing result) {
+                                        listing = result;
+                                        Toast.makeText(ListingDetailActivity.this,
+                                                "Claim cancelled", Toast.LENGTH_SHORT).show();
+                                        render();
+                                    }
+
+                                    @Override
+                                    public void onError(ApiException e) {
+                                        String message = e.getMessage();
+                                        Toast.makeText(ListingDetailActivity.this,
+                                                message == null || message.trim().isEmpty()
+                                                        ? "Couldn't cancel the claim. Try again."
+                                                        : message,
+                                                Toast.LENGTH_LONG).show();
+                                    }
+                                }))
+                .setNegativeButton("Keep claim", null)
                 .show();
     }
 
