@@ -761,7 +761,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
 
     @Override
     public void listBookings(String role, boolean completedOnly,
-            Callback<List<Booking>> callback) {
+            Callback<java.util.List<Booking>> callback) {
         String path = "/v1/bookings?role=" + enc(role == null ? "" : role)
                 + "&completed=" + (completedOnly ? "true" : "false");
         authed("GET", path, null,
@@ -770,7 +770,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
-    public void listTreeSlots(String treeId, Callback<List<Slot>> callback) {
+    public void listTreeSlots(String treeId, Callback<java.util.List<Slot>> callback) {
         authed("GET", "/v1/trees/" + enc(treeId) + "/slots", null,
                 (status, json) -> callback.onSuccess(JsonParsers.parseSlots(json)),
                 callback);
