@@ -13,7 +13,10 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.res.ResourcesCompat;
 
@@ -48,6 +51,14 @@ public class ChatActivity extends AppCompatActivity {
     public static final String EXTRA_THREAD_ID = "thread_id";
     public static final String EXTRA_OTHER_NAME = "other_name";
     public static final String EXTRA_CONTEXT = "context";
+    /**
+     * Optional: the other participant's user id. When present, reports target
+     * this id directly ({@code ChatThread.getParticipantUserId()}); when
+     * absent, the report falls back to the display name and the backend
+     * resolves the participant from the thread. ThreadListActivity owns the
+     * thread object — it should pass this extra at launch time.
+     */
+    public static final String EXTRA_PARTICIPANT_ID = "participant_user_id";
 
     private ScrollView scroll;
     private TextView statusText;
@@ -55,6 +66,10 @@ public class ChatActivity extends AppCompatActivity {
     private EditText input;
     private String threadId;
     private String otherName;
+    private String participantUserId;
+
+    /** Gallery picker launcher (r2 chat): mirrors ProfileFormActivity's idiom. */
+    private ActivityResultLauncher<String> photoPicker;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -66,6 +81,17 @@ public class ChatActivity extends AppCompatActivity {
         if (threadId == null) {
             threadId = "t1";
         }
+        participantUserId = getIntent().getStringExtra(EXTRA_PARTICIPANT_ID);
+
+        // Gallery picker (ACTION_GET_CONTENT via GetContent contract, same as
+        // onboarding's ProfileFormActivity): no storage permission needed.
+        photoPicker = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri -> {
+                    if (uri != null) {
+                        sendPhoto(uri.toString());
+                    }
+                });
 
         LinearLayout root = Ui.column(this, 24);
         LinearLayout header = new LinearLayout(this);
@@ -90,8 +116,21 @@ public class ChatActivity extends AppCompatActivity {
 
         input = Ui.input(this, "Message…", InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        Button attach = Ui.secondaryButton(this, "Photo");
+        attach.setOnClickListener(v -> photoPicker.launch("image/*"));
         Button send = Ui.primaryButton(this, "Send");
         send.setOnClickListener(v -> onSend());
+
+        LinearLayout inputRow = new LinearLayout(this);
+        inputRow.setOrientation(LinearLayout.HORIZONTAL);
+        inputRow.setGravity(Gravity.CENTER_VERTICAL);
+        inputRow.addView(attach);
+        inputRow.addView(ChatViews.hGap(this, 8));
+        input.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        inputRow.addView(input);
+        inputRow.addView(ChatViews.hGap(this, 8));
+        inputRow.addView(send);
 
         root.addView(header);
         Ui.gap(root, this, 4);
@@ -102,12 +141,23 @@ public class ChatActivity extends AppCompatActivity {
         Ui.gap(root, this, 8);
         root.addView(locationBanner());
         Ui.gap(root, this, 8);
-        root.addView(input);
+        root.addView(maskingNotice());
         Ui.gap(root, this, 8);
-        root.addView(send);
+        root.addView(inputRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(root);
 
         load();
+    }
+
+    /**
+     * Static phone-masking notice above the input (r2 chat). Informational
+     * only — there is no agreement-to-share flow yet.
+     */
+    private TextView maskingNotice() {
+        return Ui.caption(this,
+                "Phone numbers stay masked until both of you agree to share.");
     }
 
     /**
@@ -143,14 +193,16 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     /**
-     * Report entry point (AND-158). {@code ChatThread} carries no participant
-     * id — only a display name — so the name is passed as the report target
-     * and the backend resolves the participant from the thread. Follow-up:
-     * when the contract track adds a participant id to {@code ChatThread},
-     * pass it here instead.
+     * Report entry point (AND-158). The report target is the other
+     * participant's user id when the thread carries one
+     * ({@link com.gardenswap.app.api.ChatThread#getParticipantUserId()},
+     * passed in as {@link #EXTRA_PARTICIPANT_ID}); otherwise it falls back to
+     * the display name and the backend resolves the participant from the
+     * thread.
      */
     private void openReport() {
-        new ReportDialog(this, "USER", otherName).show();
+        String target = participantUserId != null ? participantUserId : otherName;
+        new ReportDialog(this, "USER", target).show();
     }
 
     private void load() {
@@ -223,6 +275,35 @@ public class ChatActivity extends AppCompatActivity {
                     public void onError(ApiException e) {
                         input.setEnabled(true);
                         statusText.setText("Couldn't send (" + e.getCode() + ").");
+                    }
+                });
+    }
+
+    /**
+     * Sends a picked photo as a chat attachment (r2 chat). The app has no
+     * upload helper yet, so the picked content URI's string form is passed as
+     * {@code photoUrl}; the mock echoes it back and
+     * {@link ChatViews#bubbleRow} renders {@link ChatMessage.Kind#PHOTO}
+     * messages as "[photo] &lt;url&gt;". On error a toast is shown and nothing
+     * is appended; nothing here throws.
+     */
+    private void sendPhoto(String photoUrl) {
+        ApiProvider.get().sendAttachment(threadId, photoUrl,
+                new GardenSwapApi.Callback<ChatMessage>() {
+                    @Override
+                    public void onSuccess(ChatMessage message) {
+                        messages.addView(ChatViews.bubbleRow(ChatActivity.this, message));
+                        Ui.gap(messages, ChatActivity.this, 4);
+                        scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+                        FirebaseAnalytics.getInstance(ChatActivity.this)
+                                .logEvent("chat_photo_sent", null);
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        Toast.makeText(ChatActivity.this,
+                                "Couldn't send photo (" + e.getCode() + ").",
+                                Toast.LENGTH_LONG).show();
                     }
                 });
     }
