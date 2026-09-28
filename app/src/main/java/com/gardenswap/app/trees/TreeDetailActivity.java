@@ -1,6 +1,8 @@
 package com.gardenswap.app.trees;
 
 import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -87,12 +89,7 @@ public class TreeDetailActivity extends AppCompatActivity {
         content.addView(countdown);
         Ui.gap(content, this, 12);
 
-        // Spray disclosure is mandatory and prominent (PRD §6: no silent pesticide use).
-        TextView sprayTitle = Ui.label(this, "Spray disclosure");
-        sprayTitle.setTextSize(14);
-        content.addView(sprayTitle);
-        content.addView(Ui.label(this, tree.getSprayDisclosure()));
-        Ui.gap(content, this, 12);
+        renderSprayDisclosure();
 
         content.addView(Ui.label(this, "Per-picker limit: " + tree.getPerPickerLimit()));
         Ui.gap(content, this, 8);
@@ -123,6 +120,76 @@ public class TreeDetailActivity extends AppCompatActivity {
                     "First 3 visits: the owner must be present (per design board).");
             content.addView(gate);
         }
+    }
+
+    /**
+     * Spray disclosure is mandatory and prominent (PRD §6: no silent
+     * pesticide use). The stored string is mapped onto the required
+     * four-option field ({@link TreeListing#SPRAY_NONE},
+     * {@link TreeListing#SPRAY_ORGANIC}, {@link TreeListing#SPRAY_SYNTHETIC},
+     * {@link TreeListing#SPRAY_UNKNOWN}) rendered as chips with the matching
+     * one highlighted. Blank/unknown data shows an explicit undisclosed
+     * state; free-text detail beyond the four options is kept visible
+     * underneath.
+     */
+    private void renderSprayDisclosure() {
+        TextView sprayTitle = Ui.label(this, "Spray disclosure");
+        sprayTitle.setTextSize(14);
+        content.addView(sprayTitle);
+        Ui.gap(content, this, 4);
+
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        String[] values = {
+                TreeListing.SPRAY_NONE,
+                TreeListing.SPRAY_ORGANIC,
+                TreeListing.SPRAY_SYNTHETIC,
+                TreeListing.SPRAY_UNKNOWN
+        };
+        String[] labels = {"None", "Organic", "Synthetic", "Unknown"};
+        String mapped = mapSpray(tree.getSprayDisclosure());
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) {
+                View spacer = new View(this);
+                spacer.setLayoutParams(new LinearLayout.LayoutParams(
+                        Ui.dp(this, 8), ViewGroup.LayoutParams.WRAP_CONTENT));
+                chips.addView(spacer);
+            }
+            TextView chip = Ui.chip(this, labels[i]);
+            Ui.setChipSelected(this, chip, values[i].equals(mapped));
+            chips.addView(chip);
+        }
+        content.addView(chips);
+        Ui.gap(content, this, 4);
+
+        String raw = tree.getSprayDisclosure();
+        if (mapped.equals(TreeListing.SPRAY_UNKNOWN)
+                && (raw == null || raw.trim().isEmpty()
+                    || raw.trim().equalsIgnoreCase(TreeListing.SPRAY_UNKNOWN))) {
+            content.addView(Ui.label(this, "Spray history not disclosed."));
+        } else if (raw != null && !isSprayConstant(raw)) {
+            content.addView(Ui.caption(this, raw.trim()));
+        }
+        Ui.gap(content, this, 12);
+    }
+
+    /** Maps the stored spray string onto one of the four SPRAY_* constants. */
+    private static String mapSpray(String raw) {
+        if (isSprayConstant(raw)) {
+            return raw.trim().toLowerCase();
+        }
+        return TreeListing.SPRAY_UNKNOWN;
+    }
+
+    private static boolean isSprayConstant(String raw) {
+        if (raw == null) {
+            return false;
+        }
+        String v = raw.trim().toLowerCase();
+        return v.equals(TreeListing.SPRAY_NONE)
+                || v.equals(TreeListing.SPRAY_ORGANIC)
+                || v.equals(TreeListing.SPRAY_SYNTHETIC)
+                || v.equals(TreeListing.SPRAY_UNKNOWN);
     }
 
     private String alertLabel() {
