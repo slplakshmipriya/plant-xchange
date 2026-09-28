@@ -259,6 +259,7 @@ public class MockGardenSwapApi implements GardenSwapApi {
     public void sendMessage(String threadId, String text, Callback<ChatMessage> callback) {
         emit(callback, new ChatMessage("m" + System.currentTimeMillis(), threadId,
                 "You", true, ChatMessage.Kind.TEXT, text, System.currentTimeMillis()));
+    }
 
     // ------------------------------------------------------------ Wave 2 (proposed)
     @Override
