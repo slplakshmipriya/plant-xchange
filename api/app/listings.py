@@ -32,7 +32,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .auth import ensure_owner, get_current_uid
 from .config import get_settings
 from .db import get_db_conn
-from .notify import NotificationRepo, get_notification_repo, send_notification
+from .notify import (
+    NotificationRepo,
+    get_notification_repo,
+    on_listing_expiry_nudge,
+    send_notification,
+)
 from .users import UserRepo, get_user_repo
 from .wantlist import WantRepo, get_want_repo, notify_matches
 
@@ -701,8 +706,14 @@ def ripe_alert(
 def sweep_expired(
     request: Request,
     repo: ListingRepo = Depends(get_listing_repo),
+    notify_repo: NotificationRepo = Depends(get_notification_repo),
 ) -> dict[str, Any]:
-    """Idempotent expiry job. Auth: shared secret header (NOT a user token)."""
+    """Idempotent expiry job. Auth: shared secret header (NOT a user token).
+
+    Also fires expiry nudges: live listings within 48h / 12h of expiry get a
+    nudge to the owner via the notify pipeline (per-mark dedupe refs keep
+    this idempotent across sweep runs).
+    """
     secret = get_settings().sweep_secret
     if not secret:
         raise HTTPException(503, {"code": "sweep_not_configured",
@@ -710,5 +721,31 @@ def sweep_expired(
     presented = request.headers.get("x-sweep-secret", "")
     if not hmac.compare_digest(secret, presented):
         raise HTTPException(401, {"code": "unauthorized", "message": "Bad sweep secret"})
-    n = repo.sweep_expired(utcnow())
-    return {"expired": n}
+    now = utcnow()
+    n = repo.sweep_expired(now)
+    nudged = {48: 0, 12: 0}
+    for row in repo.list_live():
+        exp = _parse_expiry(row.get("expires_at"))
+        if exp is None:
+            continue
+        hours_left = (exp - now).total_seconds() / 3600
+        if hours_left <= 0:
+            continue
+        mark = 12 if hours_left <= 12 else (48 if hours_left <= 48 else None)
+        if mark is None:
+            continue
+        result = on_listing_expiry_nudge(row, mark, notify_repo=notify_repo, now=now)
+        nudged[mark] += result.get("delivered", 0)
+    return {"expired": n, "nudged_48h": nudged[48], "nudged_12h": nudged[12]}
+
+
+def _parse_expiry(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)

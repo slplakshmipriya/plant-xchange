@@ -215,6 +215,13 @@ def test_sweep_is_auth_exempt_but_secret_gated(monkeypatch, alice_profile):
 def test_sweep_expires_past_due_and_is_idempotent(monkeypatch, alice_profile, mock_verify, auth_headers):
     client, _, lrepo = alice_profile
     monkeypatch.setenv("SWEEP_SECRET", "s3cret")
+    # Disable quiet hours so nudge delivery is deterministic in tests.
+    r = client.put("/v1/users/me/notification-prefs",
+                   json={"categories": {"harvestAlerts": True, "wantMatches": True,
+                                        "expiryNudges": True, "creditWarnings": True,
+                                        "bookingReminders": True},
+                         "quietHours": None}, headers=auth_headers)
+    assert r.status_code == 200, r.text
     past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     old = lrepo.create({"id": "a1", "owner_uid": "alice", "type": "seedling",
@@ -223,10 +230,28 @@ def test_sweep_expires_past_due_and_is_idempotent(monkeypatch, alice_profile, mo
     new = lrepo.create({"id": "a2", "owner_uid": "alice", "type": "seedling",
                         "photos": ["https://x/y.jpg"], "credit_cost": 1,
                         "spray_disclosure": "none", "status": "live", "expires_at": future})
-    assert _sweep(client).json() == {"expired": 1}
+    # a2 expires in ~24h -> 48h nudge fires.
+    assert _sweep(client).json() == {"expired": 1, "nudged_48h": 1, "nudged_12h": 0}
     assert lrepo.get("a1")["status"] == "expired"
     assert lrepo.get("a2")["status"] == "live"
-    assert _sweep(client).json() == {"expired": 0}  # idempotent
+    # Idempotent: expiry stays done and the nudge dedupes on its per-mark ref.
+    assert _sweep(client).json() == {"expired": 0, "nudged_48h": 0, "nudged_12h": 0}
+
+
+def test_sweep_fires_12h_nudge(monkeypatch, alice_profile, mock_verify, auth_headers):
+    client, _, lrepo = alice_profile
+    monkeypatch.setenv("SWEEP_SECRET", "s3cret")
+    r = client.put("/v1/users/me/notification-prefs",
+                   json={"categories": {"harvestAlerts": True, "wantMatches": True,
+                                        "expiryNudges": True, "creditWarnings": True,
+                                        "bookingReminders": True},
+                         "quietHours": None}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    soon = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+    lrepo.create({"id": "b1", "owner_uid": "alice", "type": "harvest",
+                  "photos": ["https://x/y.jpg"], "credit_cost": 1,
+                  "spray_disclosure": "none", "status": "live", "expires_at": soon})
+    assert _sweep(client).json() == {"expired": 0, "nudged_48h": 0, "nudged_12h": 1}
 
 
 def test_naive_datetimes_are_treated_as_utc(alice_profile, mock_verify, auth_headers):

@@ -25,30 +25,15 @@ from .auth import ensure_owner, get_current_uid
 from .credits import CreditRepo, get_credit_repo
 from .db import get_db_conn
 from .listings import ListingRepo, get_listing_repo
+from .moderation import ModerationRepo, get_moderation_repo, get_suspension
 
 router = APIRouter(prefix="/v1", tags=["trees"])
 
 # ---------------------------------------------------------------- suspensions
 
-# Pillar name enforced on slot claims. The coordinator rewires both this and
-# ``check_pillar_suspension`` to the shared moderation module after merge.
+# Pillar name enforced on slot claims, matching the moderation track's
+# strike/suspension records (see app/moderation.py).
 PICKUP_PILLAR = "pickup"
-
-# (uid, pillar) -> human-readable reason. Populated by the moderation track
-# later; until then tests may inject entries directly.
-_SUSPENSIONS: dict[tuple[str, str], str] = {}
-
-
-def check_pillar_suspension(uid: str, pillar: str) -> dict[str, str] | None:
-    """Module-local suspension stub (the moderation track owns the real one).
-
-    Returns ``{"pillar": ..., "reason": ...}`` when uid is suspended from the
-    pillar, else None. Reads the local _SUSPENSIONS registry for now.
-    """
-    reason = _SUSPENSIONS.get((uid, pillar))
-    if reason is None:
-        return None
-    return {"pillar": pillar, "reason": reason}
 
 
 # ---------------------------------------------------------------- serializer
@@ -239,6 +224,7 @@ def claim_slot(
     listing_repo: ListingRepo = Depends(get_listing_repo),
     slot_repo: SlotRepo = Depends(get_slot_repo),
     credit_repo: CreditRepo = Depends(get_credit_repo),
+    mod_repo: ModerationRepo = Depends(get_moderation_repo),
 ) -> dict[str, Any]:
     """Claim a spot in a slot. credit_cost credits move claimer -> owner via
     the ledger; claimed_count increments. Not the owner, not when suspended,
@@ -247,10 +233,10 @@ def claim_slot(
     slot = slot_repo.get(slot_id)
     if slot is None or slot["tree_id"] != tree_id:
         raise HTTPException(404, {"code": "slot_not_found", "message": "No such slot"})
-    susp = check_pillar_suspension(uid, PICKUP_PILLAR)
+    susp = get_suspension(mod_repo, uid, PICKUP_PILLAR)
     if susp is not None:
         raise HTTPException(403, {"code": "suspended",
-                                  "message": f"Suspended from {susp['pillar']}: {susp['reason']}"})
+                                  "message": f"Suspended ({susp['type']}): {susp['reason']}"})
     if slot["owner_uid"] == uid:
         raise HTTPException(422, {"code": "cannot_claim_own",
                                   "message": "You cannot claim your own slot"})

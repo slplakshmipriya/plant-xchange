@@ -37,6 +37,7 @@ from .auth import get_current_uid
 from .credits import CreditRepo, get_credit_repo
 from .db import get_db_conn
 from .listings import ListingRepo, get_listing_repo, public_listing, utcnow
+from .moderation import ModerationRepo, get_moderation_repo, get_suspension
 from .notify import NotificationRepo, get_notification_repo, send_notification
 from .users import UserRepo, get_user_repo
 
@@ -323,13 +324,21 @@ def _suspension_error(suspension: dict[str, Any]) -> HTTPException:
 
 
 def _enforce_claim_eligibility(
-    uid: str, claim_repo: ClaimRepo, user_repo: UserRepo
+    uid: str, claim_repo: ClaimRepo, user_repo: UserRepo, mod_repo: ModerationRepo
 ) -> None:
-    """403 when the caller is pillar-suspended/banned, or when a new account
-    has exhausted its rolling claim cap."""
+    """403 when the caller is pillar-suspended/banned (no-show strikes or
+    moderation strikes), or when a new account has exhausted its rolling
+    claim cap."""
     suspension = check_pillar_suspension(uid, "claims", claim_repo)
     if suspension is not None:
         raise _suspension_error(suspension)
+    mod_susp = get_suspension(mod_repo, uid, "claims")
+    if mod_susp is not None:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "claim_suspended",
+                    "message": f"Claiming suspended ({mod_susp['type']}): {mod_susp['reason']}"},
+        )
     user = user_repo.get(uid)
     created = _parse_dt(user.get("created_at")) if user else None
     if created is not None and utcnow() - created < timedelta(days=NEW_ACCOUNT_AGE_DAYS):
@@ -393,6 +402,7 @@ def create_claim(
     user_repo: UserRepo = Depends(get_user_repo),
     credit_repo: CreditRepo = Depends(get_credit_repo),
     notify_repo: NotificationRepo = Depends(get_notification_repo),
+    mod_repo: ModerationRepo = Depends(get_moderation_repo),
 ) -> dict[str, Any]:
     """Claim part of a listing's quantity. The claim starts pending; the
     available quantity drops atomically; the listing stays live until the
@@ -404,7 +414,7 @@ def create_claim(
     if user_repo.get(uid) is None:
         raise HTTPException(400, {"code": "profile_required",
                                   "message": "Create a profile (POST /v1/users) before claiming"})
-    _enforce_claim_eligibility(uid, claim_repo, user_repo)
+    _enforce_claim_eligibility(uid, claim_repo, user_repo, mod_repo)
     if credit_repo.balance(uid) < row["credit_cost"]:
         raise HTTPException(422, {"code": "insufficient_credits",
                                   "message": "Not enough credits — give before you claim"})

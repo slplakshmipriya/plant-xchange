@@ -11,6 +11,7 @@ import pytest
 def mem_claims(client, monkeypatch):
     from app import claims as claims_mod
     from app import listings as listings_mod
+    from app import moderation as moderation_mod
     from app import notify as notify_mod
     from app import users as users_mod
     from app import wantlist as wantlist_mod
@@ -23,11 +24,13 @@ def mem_claims(client, monkeypatch):
     wrepo = wantlist_mod.MemoryWantRepo()
     nrepo = notify_mod.MemoryNotificationRepo()
     claim_repo = claims_mod.MemoryClaimRepo()
+    mrepo = moderation_mod.MemoryModerationRepo()
     client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
     client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
     client.app.dependency_overrides[wantlist_mod.get_want_repo] = lambda: wrepo
     client.app.dependency_overrides[notify_mod.get_notification_repo] = lambda: nrepo
     client.app.dependency_overrides[claims_mod.get_claim_repo] = lambda: claim_repo
+    client.app.dependency_overrides[moderation_mod.get_moderation_repo] = lambda: mrepo
 
     def fake(token: str) -> dict:
         if token == "good-token":
@@ -248,6 +251,27 @@ def test_no_show_suspension_blocks_claim(mem_claims):
     # Bob's next claim is blocked.
     lid2 = _make_listing(client, ALICE)
     r = client.post(f"/v1/listings/{lid2}/claims", json=_claim_body(), headers=BOB)
+    assert r.status_code == 403, r.text
+    assert r.json()["code"] == "claim_suspended"
+
+
+def test_moderation_suspension_blocks_claim(mem_claims):
+    """A moderation-track suspension (verified strikes) also blocks claims."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import moderation as moderation_mod
+
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+
+    mrepo = moderation_mod.MemoryModerationRepo()
+    client.app.dependency_overrides[moderation_mod.get_moderation_repo] = lambda: mrepo
+    mrepo.add_enforcement(
+        "bob", "claims", "suspension",
+        datetime.now(timezone.utc) + timedelta(days=90), "verified complaints")
+
+    r = client.post(f"/v1/listings/{lid}/claims", json=_claim_body(), headers=BOB)
     assert r.status_code == 403, r.text
     assert r.json()["code"] == "claim_suspended"
 

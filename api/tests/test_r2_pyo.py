@@ -15,6 +15,7 @@ SLOT_KEYS = {"id", "dayMs", "startMs", "endMs", "maxPickers",
 @pytest.fixture()
 def mem_slots(client):
     from app import listings as listings_mod
+    from app import moderation as moderation_mod
     from app import notify as notify_mod
     from app import users as users_mod
     from app import wantlist as wantlist_mod
@@ -24,13 +25,15 @@ def mem_slots(client):
     srepo = slots_mod.MemorySlotRepo()
     wrepo = wantlist_mod.MemoryWantRepo()
     nrepo = notify_mod.MemoryNotificationRepo()
+    mrepo = moderation_mod.MemoryModerationRepo()
     client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
     client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
     client.app.dependency_overrides[slots_mod.get_slot_repo] = lambda: srepo
     client.app.dependency_overrides[wantlist_mod.get_want_repo] = lambda: wrepo
     client.app.dependency_overrides[notify_mod.get_notification_repo] = lambda: nrepo
+    client.app.dependency_overrides[moderation_mod.get_moderation_repo] = lambda: mrepo
     crepo = wire_credit_repo(client)
-    return client, urepo, lrepo, srepo, crepo
+    return client, urepo, lrepo, srepo, crepo, mrepo
 
 
 def login_as(monkeypatch, uid: str):
@@ -84,7 +87,7 @@ def _make_tree(client, auth_headers):
 # ---------------------------------------------------------------- create
 
 def test_owner_creates_slot(mem_slots, mock_verify, auth_headers):
-    client, urepo, _, _, _ = mem_slots
+    client, urepo, _, _, _, _ = mem_slots
     urepo.upsert("alice", display_name="Alice")
     tid = _make_tree(client, auth_headers)
 
@@ -103,7 +106,7 @@ def test_owner_creates_slot(mem_slots, mock_verify, auth_headers):
 
 
 def test_create_slot_defaults_cash_cents_to_null(mem_slots, mock_verify, auth_headers):
-    client, urepo, _, _, _ = mem_slots
+    client, urepo, _, _, _, _ = mem_slots
     urepo.upsert("alice", display_name="Alice")
     tid = _make_tree(client, auth_headers)
 
@@ -113,7 +116,7 @@ def test_create_slot_defaults_cash_cents_to_null(mem_slots, mock_verify, auth_he
 
 
 def test_create_slot_non_owner_403(mem_slots, mock_verify, auth_headers, monkeypatch):
-    client, urepo, _, _, _ = mem_slots
+    client, urepo, _, _, _, _ = mem_slots
     urepo.upsert("alice", display_name="Alice")
     urepo.upsert("bob", display_name="Bob")
     tid = _make_tree(client, auth_headers)
@@ -124,13 +127,13 @@ def test_create_slot_non_owner_403(mem_slots, mock_verify, auth_headers, monkeyp
 
 
 def test_create_slot_missing_tree_404(mem_slots, mock_verify, auth_headers):
-    client, _, _, _, _ = mem_slots
+    client, _, _, _, _, _ = mem_slots
     r = client.post("/v1/trees/nope/slots", json=_slot_payload(), headers=auth_headers)
     assert r.status_code == 404, r.text
 
 
 def test_create_slot_non_tree_listing_422(mem_slots, mock_verify, auth_headers):
-    client, urepo, _, _, _ = mem_slots
+    client, urepo, _, _, _, _ = mem_slots
     urepo.upsert("alice", display_name="Alice")
     r = client.post("/v1/listings",
                     json={**_tree_payload(), "type": "seedling", "variety": "tomato"},
@@ -142,7 +145,7 @@ def test_create_slot_non_tree_listing_422(mem_slots, mock_verify, auth_headers):
 
 
 def test_create_slot_validation(mem_slots, mock_verify, auth_headers):
-    client, urepo, _, _, _ = mem_slots
+    client, urepo, _, _, _, _ = mem_slots
     urepo.upsert("alice", display_name="Alice")
     tid = _make_tree(client, auth_headers)
 
@@ -167,7 +170,7 @@ def test_create_slot_validation(mem_slots, mock_verify, auth_headers):
 # ---------------------------------------------------------------- list
 
 def test_list_slots_wire_shape(mem_slots, mock_verify, auth_headers):
-    client, urepo, _, _, _ = mem_slots
+    client, urepo, _, _, _, _ = mem_slots
     urepo.upsert("alice", display_name="Alice")
     tid = _make_tree(client, auth_headers)
 
@@ -190,7 +193,7 @@ def test_list_slots_wire_shape(mem_slots, mock_verify, auth_headers):
 
 
 def test_list_slots_missing_tree_404(mem_slots, mock_verify, auth_headers):
-    client, _, _, _, _ = mem_slots
+    client, _, _, _, _, _ = mem_slots
     r = client.get("/v1/trees/nope/slots", headers=auth_headers)
     assert r.status_code == 404, r.text
 
@@ -199,7 +202,7 @@ def test_list_slots_missing_tree_404(mem_slots, mock_verify, auth_headers):
 
 def _claim_setup(mem_slots, mock_verify, auth_headers, credit_cost=2, max_pickers=2):
     """Alice's tree with one slot; bob seeded with credits. Returns ids."""
-    client, urepo, _, _, crepo = mem_slots
+    client, urepo, _, _, crepo, _ = mem_slots
     urepo.upsert("alice", display_name="Alice")
     urepo.upsert("bob", display_name="Bob")
     tid = _make_tree(client, auth_headers)
@@ -281,22 +284,22 @@ def test_claim_unknown_slot_404(mem_slots, mock_verify, auth_headers, monkeypatc
 
 
 def test_claim_missing_tree_404(mem_slots, mock_verify, auth_headers):
-    client, _, _, _, _ = mem_slots
+    client, _, _, _, _, _ = mem_slots
     r = client.post("/v1/trees/nope/slots/nope/claim", headers=auth_headers)
     assert r.status_code == 404, r.text
 
 
 def test_claim_suspended_picker_403(mem_slots, mock_verify, auth_headers, monkeypatch):
     client, tid, slot_id, _ = _claim_setup(mem_slots, mock_verify, auth_headers)
-    slots_mod._SUSPENSIONS[("bob", slots_mod.PICKUP_PILLAR)] = "no-show abuse"
-    try:
-        login_as(monkeypatch, "bob")
-        r = client.post(f"/v1/trees/{tid}/slots/{slot_id}/claim",
-                        headers=auth_headers)
-        assert r.status_code == 403, r.text
-        assert r.json()["code"] == "suspended"
-    finally:
-        slots_mod._SUSPENSIONS.clear()
+    _, _, _, _, _, mrepo = mem_slots
+    mrepo.add_enforcement(
+        "bob", slots_mod.PICKUP_PILLAR, "suspension",
+        datetime.now(timezone.utc) + timedelta(days=90), "no-show abuse")
+    login_as(monkeypatch, "bob")
+    r = client.post(f"/v1/trees/{tid}/slots/{slot_id}/claim",
+                    headers=auth_headers)
+    assert r.status_code == 403, r.text
+    assert r.json()["code"] == "suspended"
 
 
 def test_slot_under_different_tree_is_404(mem_slots, mock_verify, auth_headers, monkeypatch):

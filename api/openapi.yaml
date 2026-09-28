@@ -484,7 +484,14 @@ paths:
       - internal
       summary: Sweep Expired
       description: 'Idempotent expiry job. Auth: shared secret header (NOT a user
-        token).'
+        token).
+
+
+        Also fires expiry nudges: live listings within 48h / 12h of expiry get a
+
+        nudge to the owner via the notify pipeline (per-mark dedupe refs keep
+
+        this idempotent across sweep runs).'
       operationId: sweep_expired_v1_internal_sweep_post
       responses:
         '200':
@@ -911,6 +918,204 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Get Wallet V1 Wallet Get
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Create Claim
+      description: 'Claim part of a listing''s quantity. The claim starts pending;
+        the
+
+        available quantity drops atomically; the listing stays live until the
+
+        quantity hits 0 (then it closes) or the listing expires.'
+      operationId: create_claim_v1_listings__listing_id__claims_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Create Claim V1 Listings  Listing Id  Claims Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims/cancel:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Cancel Claim
+      description: 'Cancel a claim before completion. Claimer or giver; the quantity
+        is
+
+        restored; no credits move.'
+      operationId: cancel_claim_v1_listings__listing_id__claims_cancel_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Cancel Claim V1 Listings  Listing Id  Claims Cancel
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims/accept:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Accept Claim
+      description: Giver accepts a pending claim.
+      operationId: accept_claim_v1_listings__listing_id__claims_accept_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimDecisionIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Accept Claim V1 Listings  Listing Id  Claims Accept
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims/decline:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Decline Claim
+      description: Giver declines a pending claim; the quantity is restored.
+      operationId: decline_claim_v1_listings__listing_id__claims_decline_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimDecisionIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Decline Claim V1 Listings  Listing Id  Claims Decline
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/exchanges/{listing_id}/no-show:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Record No Show
+      description: 'Record a no-show against one side of an exchange. 2 no-shows ->
+        a
+
+        30-day claim suspension for that user.'
+      operationId: record_no_show_v1_exchanges__listing_id__no_show_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoShowIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Record No Show V1 Exchanges  Listing Id  No Show Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
   /v1/sitters/me:
@@ -1372,6 +1577,261 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/trees/{tree_id}/slots:
+    post:
+      tags:
+      - trees
+      - trees
+      summary: Create Slot
+      description: Open a pick-your-own slot window on a tree. Owner only.
+      operationId: create_slot_v1_trees__tree_id__slots_post
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tree Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SlotIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Create Slot V1 Trees  Tree Id  Slots Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+    get:
+      tags:
+      - trees
+      - trees
+      summary: List Slots
+      description: 'List a tree''s slots. Wire shape: exactly {slots: [...]}.'
+      operationId: list_slots_v1_trees__tree_id__slots_get
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tree Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Slots V1 Trees  Tree Id  Slots Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/trees/{tree_id}/slots/{slot_id}/claim:
+    post:
+      tags:
+      - trees
+      - trees
+      summary: Claim Slot
+      description: 'Claim a spot in a slot. credit_cost credits move claimer -> owner
+        via
+
+        the ledger; claimed_count increments. Not the owner, not when suspended,
+
+        not when full, not when the wallet is short.'
+      operationId: claim_slot_v1_trees__tree_id__slots__slot_id__claim_post
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tree Id
+      - name: slot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slot Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Claim Slot V1 Trees  Tree Id  Slots  Slot Id  Claim
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/payments/sitting-intent:
+    post:
+      tags:
+      - payments
+      - payments
+      summary: Create Sitting Intent
+      description: 'Create a payment hold for an accepted sitting booking.
+
+
+        The caller must be the booking owner; the booking must be in a payable
+
+        state (``accepted``). Idempotent per booking: a retry returns the existing
+
+        intent''s client secret instead of creating a second hold.'
+      operationId: create_sitting_intent_v1_payments_sitting_intent_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SittingIntentIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Sitting Intent V1 Payments Sitting Intent Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/reports:
+    post:
+      tags:
+      - moderation
+      summary: Create Report
+      description: File a report against a listing, user, or booking. Persists and
+        returns {}.
+      operationId: create_report_v1_reports_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Report V1 Reports Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/disputes:
+    post:
+      tags:
+      - moderation
+      summary: Create Dispute
+      description: Open a dispute on a completed exchange. Only the giver or claimer
+        can.
+      operationId: create_dispute_v1_disputes_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisputeIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Dispute V1 Disputes Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/disputes/{dispute_id}/resolve:
+    post:
+      tags:
+      - moderation
+      summary: Resolve Dispute
+      description: 'Resolve a dispute. Support staff only; on upheld + reversalCredits
+        > 0,
+
+        compensating ``dispute_reversal`` ledger entries are appended (the ledger
+
+        stays append-only — existing entries are never touched).'
+      operationId: resolve_dispute_v1_disputes__dispute_id__resolve_post
+      parameters:
+      - name: dispute_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Dispute Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Resolve Dispute V1 Disputes  Dispute Id  Resolve Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -1404,6 +1864,42 @@ components:
       required:
       - photoUrl
       title: AttachmentIn
+    ClaimDecisionIn:
+      properties:
+        claimId:
+          type: string
+          minLength: 1
+          title: Claimid
+      type: object
+      required:
+      - claimId
+      title: ClaimDecisionIn
+    ClaimIn:
+      properties:
+        quantity:
+          type: number
+          minimum: 1.0
+          title: Quantity
+        pickupStartMs:
+          type: integer
+          minimum: 1.0
+          title: Pickupstartms
+        pickupEndMs:
+          type: integer
+          minimum: 1.0
+          title: Pickupendms
+        notes:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Notes
+      type: object
+      required:
+      - quantity
+      - pickupStartMs
+      - pickupEndMs
+      title: ClaimIn
     ConfirmIn:
       properties:
         listing_id:
@@ -1420,6 +1916,35 @@ components:
       required:
       - listing_id
       title: ConfirmIn
+    DisputeIn:
+      properties:
+        exchangeId:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Exchangeid
+        reason:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Reason
+        details:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Details
+      type: object
+      required:
+      - exchangeId
+      - reason
+      - details
+      title: DisputeIn
+    DisputeOutcome:
+      type: string
+      enum:
+      - upheld
+      - rejected
+      title: DisputeOutcome
     FcmTokenIn:
       properties:
         token:
@@ -1647,6 +2172,16 @@ components:
       required:
       - body
       title: MessageIn
+    NoShowIn:
+      properties:
+        side:
+          type: string
+          pattern: ^(claimer|giver)$
+          title: Side
+      type: object
+      required:
+      - side
+      title: NoShowIn
     OwnerProfile:
       properties:
         uid:
@@ -1787,6 +2322,51 @@ components:
       - start
       - end
       title: QuietHoursWindow
+    ReportCategory:
+      type: string
+      enum:
+      - spam
+      - safety
+      - fraud
+      - inappropriate
+      - other
+      title: ReportCategory
+    ReportIn:
+      properties:
+        targetType:
+          $ref: '#/components/schemas/TargetType'
+        targetId:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Targetid
+        category:
+          $ref: '#/components/schemas/ReportCategory'
+        details:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Details
+      type: object
+      required:
+      - targetType
+      - targetId
+      - category
+      - details
+      title: ReportIn
+    ResolveIn:
+      properties:
+        outcome:
+          $ref: '#/components/schemas/DisputeOutcome'
+        reversalCredits:
+          type: integer
+          minimum: 0.0
+          title: Reversalcredits
+      type: object
+      required:
+      - outcome
+      - reversalCredits
+      title: ResolveIn
     ReviewIn:
       properties:
         rating:
@@ -1842,6 +2422,16 @@ components:
           default: true
       type: object
       title: SitterProfileIn
+    SittingIntentIn:
+      properties:
+        bookingId:
+          type: string
+          minLength: 1
+          title: Bookingid
+      type: object
+      required:
+      - bookingId
+      title: SittingIntentIn
     SittingRequestIn:
       properties:
         sitter_uid:
@@ -1875,6 +2465,42 @@ components:
       - start_date
       - end_date
       title: SittingRequestIn
+    SlotIn:
+      properties:
+        dayMs:
+          type: integer
+          minimum: 0.0
+          title: Dayms
+        startMs:
+          type: integer
+          minimum: 0.0
+          title: Startms
+        endMs:
+          type: integer
+          minimum: 0.0
+          title: Endms
+        maxPickers:
+          type: integer
+          minimum: 1.0
+          title: Maxpickers
+        creditCost:
+          type: integer
+          minimum: 0.0
+          title: Creditcost
+        cashCents:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Cashcents
+      type: object
+      required:
+      - dayMs
+      - startMs
+      - endMs
+      - maxPickers
+      - creditCost
+      title: SlotIn
     StubDecision:
       properties:
         decision:
@@ -1885,6 +2511,13 @@ components:
       required:
       - decision
       title: StubDecision
+    TargetType:
+      type: string
+      enum:
+      - LISTING
+      - USER
+      - BOOKING
+      title: TargetType
     ThreadIn:
       properties:
         listing_id:
