@@ -1238,6 +1238,45 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/threads/{thread_id}/attachments:
+    post:
+      tags:
+      - messaging
+      - messaging
+      summary: Attach Photo
+      description: Attach a photo to a thread as a "photo"-kind message. Participants
+        only.
+      operationId: attach_photo_v1_threads__thread_id__attachments_post
+      parameters:
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachmentIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Attach Photo V1 Threads  Thread Id  Attachments Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -1259,6 +1298,17 @@ paths:
       - bearerAuth: []
 components:
   schemas:
+    AttachmentIn:
+      properties:
+        photoUrl:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Photourl
+      type: object
+      required:
+      - photoUrl
+      title: AttachmentIn
     ConfirmIn:
       properties:
         listing_id:

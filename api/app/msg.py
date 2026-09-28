@@ -7,6 +7,13 @@
   on their listings).
 - ``POST /v1/threads/{id}/messages`` + ``GET .../messages``: send and read,
   participant-only, cursor-paginated (opaque base64 cursor, like the feed).
+  Messages carry a ``kind`` ("text" | "photo"); photo messages also carry
+  ``photo_url``.
+- ``POST /v1/threads/{id}/attachments``: attach a photo by URL as a
+  "photo"-kind message, participant-only, URL validated like listing photos.
+- Thread payloads include ``participant_uids`` (the two uids in the
+  conversation: the opener and the listing owner) so clients can identify
+  the other party.
 - Geo rule: thread/message payloads never carry coordinates — exact geo stays
   hidden until the exchange-confirm flow (API-060) completes, and even then
   it is exchanged out of band, not through these serializers.
@@ -53,19 +60,26 @@ class MessageRepo(Protocol):
     def get_or_create_thread(self, listing_id: str, uid: str) -> dict[str, Any]: ...
     def get_thread(self, thread_id: str) -> dict[str, Any] | None: ...
     def list_threads_for(self, uid: str, owner_listing_ids: list[str]) -> list[dict[str, Any]]: ...
-    def add_message(self, thread_id: str, sender_uid: str, body: str) -> dict[str, Any]: ...
+    def add_message(self, thread_id: str, sender_uid: str, body: str,
+                    kind: str = "text", photo_url: str | None = None) -> dict[str, Any]: ...
     def list_messages(self, thread_id: str, offset: int, limit: int) -> list[dict[str, Any]]: ...
     def count_messages(self, thread_id: str) -> int: ...
 
 
-def _serialize_thread(row: dict[str, Any], message_count: int = 0) -> dict[str, Any]:
+def _serialize_thread(row: dict[str, Any], message_count: int = 0,
+                      listing: dict[str, Any] | None = None) -> dict[str, Any]:
     # No geo fields, ever (API-080).
+    participants = {row["created_by"]}
+    owner_uid = listing.get("owner_uid") if listing else None
+    if owner_uid:
+        participants.add(owner_uid)
     return {
         "id": str(row["id"]),
         "listing_id": str(row["listing_id"]),
         "created_by": row["created_by"],
         "created_at": row.get("created_at"),
         "message_count": message_count,
+        "participant_uids": sorted(participants),
     }
 
 
@@ -74,7 +88,9 @@ def _serialize_message(row: dict[str, Any]) -> dict[str, Any]:
         "id": str(row["id"]),
         "thread_id": str(row["thread_id"]),
         "sender_uid": row["sender_uid"],
+        "kind": row.get("kind", "text"),
         "body": row["body"],
+        "photo_url": row.get("photo_url"),
         "created_at": row.get("created_at"),
     }
 
@@ -124,12 +140,12 @@ class PostgresMessageRepo:
                 (uid,)).fetchall()
         return [self._row(r) for r in rows]
 
-    def add_message(self, thread_id, sender_uid, body):
+    def add_message(self, thread_id, sender_uid, body, kind="text", photo_url=None):
         mid = str(uuid.uuid4())
         row = self._conn.execute(
-            "INSERT INTO messages (id, thread_id, sender_uid, body) "
-            "VALUES (%s,%s,%s,%s) RETURNING *",
-            (mid, thread_id, sender_uid, body)).fetchone()
+            "INSERT INTO messages (id, thread_id, sender_uid, body, kind, photo_url) "
+            "VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
+            (mid, thread_id, sender_uid, body, kind, photo_url)).fetchone()
         self._conn.commit()
         return self._row(row)
 
@@ -177,11 +193,11 @@ class MemoryMessageRepo:
         rows.sort(key=lambda t: t["created_at"], reverse=True)
         return [dict(t) for t in rows]
 
-    def add_message(self, thread_id, sender_uid, body):
+    def add_message(self, thread_id, sender_uid, body, kind="text", photo_url=None):
         from .listings import utcnow
         row = {"id": str(uuid.uuid4()), "thread_id": thread_id,
-               "sender_uid": sender_uid, "body": body,
-               "created_at": utcnow().isoformat()}
+               "sender_uid": sender_uid, "body": body, "kind": kind,
+               "photo_url": photo_url, "created_at": utcnow().isoformat()}
         self._messages[thread_id].append(row)
         return dict(row)
 
@@ -204,6 +220,19 @@ class ThreadIn(BaseModel):
 
 class MessageIn(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
+
+
+class AttachmentIn(BaseModel):
+    photoUrl: str = Field(min_length=1, max_length=2000)
+
+
+def _validate_photo_url(url: str) -> str:
+    """Mirror the listing photo rule (listings._validate_common): http(s) only."""
+    url = url.strip()
+    if not url.startswith(("https://", "http://")):
+        raise HTTPException(422, {"code": "invalid_photo_url",
+                                  "message": "photo URLs must be http(s)"})
+    return url
 
 
 def _participant_or_403(thread: dict[str, Any] | None,
@@ -237,7 +266,7 @@ def open_thread(
         raise HTTPException(400, {"code": "profile_required",
                                   "message": "Create a profile (POST /v1/users) before messaging"})
     thread = repo.get_or_create_thread(data.listing_id, uid)
-    return _serialize_thread(thread, repo.count_messages(thread["id"]))
+    return _serialize_thread(thread, repo.count_messages(thread["id"]), listing)
 
 
 @router.get("/threads", tags=["messaging"])
@@ -249,8 +278,11 @@ def list_threads(
     """Threads you opened plus threads on your listings."""
     owned_ids = [l["id"] for l in listing_repo.list_by_owner(uid)]
     threads = repo.list_threads_for(uid, owned_ids)
-    return {"threads": [_serialize_thread(t, repo.count_messages(t["id"]))
-                        for t in threads]}
+    out = []
+    for t in threads:
+        listing = listing_repo.get(str(t["listing_id"]))
+        out.append(_serialize_thread(t, repo.count_messages(t["id"]), listing))
+    return {"threads": out}
 
 
 @router.post("/threads/{thread_id}/messages", status_code=201, tags=["messaging"])
@@ -270,6 +302,23 @@ def send_message(
         raise HTTPException(422, {"code": "empty_message",
                                   "message": "Message body cannot be blank"})
     return _serialize_message(repo.add_message(thread_id, uid, body))
+
+
+@router.post("/threads/{thread_id}/attachments", status_code=201, tags=["messaging"])
+def attach_photo(
+    thread_id: str,
+    data: AttachmentIn,
+    uid: str = Depends(get_current_uid),
+    repo: MessageRepo = Depends(get_message_repo),
+    listing_repo: ListingRepo = Depends(get_listing_repo),
+) -> dict[str, Any]:
+    """Attach a photo to a thread as a "photo"-kind message. Participants only."""
+    thread = repo.get_thread(thread_id)
+    listing = listing_repo.get(thread["listing_id"]) if thread else None
+    _participant_or_403(thread, listing, uid)
+    url = _validate_photo_url(data.photoUrl)
+    return _serialize_message(
+        repo.add_message(thread_id, uid, url, kind="photo", photo_url=url))
 
 
 @router.get("/threads/{thread_id}/messages", tags=["messaging"])
