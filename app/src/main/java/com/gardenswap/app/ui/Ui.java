@@ -40,6 +40,26 @@ public final class Ui {
         return layout;
     }
 
+    /**
+     * Screen scaffold with a pinned title bar: {@code header} stays fixed at
+     * the top while {@code content} fills the remaining space beneath it, so
+     * the title never scrolls away. Give {@code content} its own scrolling
+     * (a ScrollView, or a self-scrolling view like RecyclerView). Works with
+     * {@link Nav#attach}: each tab keeps its own sticky header, so the title
+     * bar is in the same position on every tab.
+     */
+    public static LinearLayout stickyHeaderScreen(
+            Context context, View header, View content) {
+        LinearLayout screen = new LinearLayout(context);
+        screen.setOrientation(LinearLayout.VERTICAL);
+        screen.addView(header, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        screen.addView(content, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        return screen;
+    }
+
     public static TextView label(Context context, String text) {
         TextView view = new TextView(context);
         view.setText(text);

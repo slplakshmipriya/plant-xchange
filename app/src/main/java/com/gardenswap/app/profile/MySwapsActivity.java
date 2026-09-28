@@ -30,8 +30,14 @@ public class MySwapsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Sticky title bar: "My swaps" stays fixed while sections scroll.
+        LinearLayout header = Ui.column(this, 24);
+        header.addView(Ui.headline(this, "My swaps"));
+        int pad = Ui.dp(this, 24);
+        header.setPadding(pad, pad, pad, 0);
+
         LinearLayout root = Ui.column(this, 24);
-        root.addView(Ui.headline(this, "My swaps"));
+        root.setPadding(pad, 0, pad, pad);
         Ui.gap(root, this, 16);
 
         SwapLogic.Partition partition =
@@ -42,7 +48,7 @@ public class MySwapsActivity extends AppCompatActivity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
-        setContentView(scroll);
+        setContentView(Ui.stickyHeaderScreen(this, header, scroll));
         Nav.attach(this, NavRouter.Tab.SWAPS);
     }
 

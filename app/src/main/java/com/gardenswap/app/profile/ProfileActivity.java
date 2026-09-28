@@ -49,8 +49,14 @@ public class ProfileActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Sticky title bar: "Profile" stays fixed while cards scroll.
+        LinearLayout header = Ui.column(this, 24);
+        header.addView(Ui.headline(this, "Profile"));
+        int pad = Ui.dp(this, 24);
+        header.setPadding(pad, pad, pad, 0);
+
         LinearLayout root = Ui.column(this, 24);
-        root.addView(Ui.headline(this, "Profile"));
+        root.setPadding(pad, 0, pad, pad);
         Ui.gap(root, this, 16);
 
         statusView = Ui.status(this);
@@ -69,7 +75,7 @@ public class ProfileActivity extends AppCompatActivity {
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
-        setContentView(scroll);
+        setContentView(Ui.stickyHeaderScreen(this, header, scroll));
         Nav.attach(this, NavRouter.Tab.PROFILE);
 
         load();
