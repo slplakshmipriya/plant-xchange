@@ -818,6 +818,204 @@ paths:
                 title: Response Get Wallet V1 Wallet Get
       security:
       - bearerAuth: []
+  /v1/listings/{listing_id}/claims:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Create Claim
+      description: 'Claim part of a listing''s quantity. The claim starts pending;
+        the
+
+        available quantity drops atomically; the listing stays live until the
+
+        quantity hits 0 (then it closes) or the listing expires.'
+      operationId: create_claim_v1_listings__listing_id__claims_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Create Claim V1 Listings  Listing Id  Claims Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims/cancel:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Cancel Claim
+      description: 'Cancel a claim before completion. Claimer or giver; the quantity
+        is
+
+        restored; no credits move.'
+      operationId: cancel_claim_v1_listings__listing_id__claims_cancel_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Cancel Claim V1 Listings  Listing Id  Claims Cancel
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims/accept:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Accept Claim
+      description: Giver accepts a pending claim.
+      operationId: accept_claim_v1_listings__listing_id__claims_accept_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimDecisionIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Accept Claim V1 Listings  Listing Id  Claims Accept
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims/decline:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Decline Claim
+      description: Giver declines a pending claim; the quantity is restored.
+      operationId: decline_claim_v1_listings__listing_id__claims_decline_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimDecisionIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Decline Claim V1 Listings  Listing Id  Claims Decline
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/exchanges/{listing_id}/no-show:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Record No Show
+      description: 'Record a no-show against one side of an exchange. 2 no-shows ->
+        a
+
+        30-day claim suspension for that user.'
+      operationId: record_no_show_v1_exchanges__listing_id__no_show_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoShowIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Record No Show V1 Exchanges  Listing Id  No Show Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /v1/sitters/me:
     put:
       tags:
@@ -1259,6 +1457,42 @@ paths:
       - bearerAuth: []
 components:
   schemas:
+    ClaimDecisionIn:
+      properties:
+        claimId:
+          type: string
+          minLength: 1
+          title: Claimid
+      type: object
+      required:
+      - claimId
+      title: ClaimDecisionIn
+    ClaimIn:
+      properties:
+        quantity:
+          type: number
+          minimum: 1.0
+          title: Quantity
+        pickupStartMs:
+          type: integer
+          minimum: 1.0
+          title: Pickupstartms
+        pickupEndMs:
+          type: integer
+          minimum: 1.0
+          title: Pickupendms
+        notes:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Notes
+      type: object
+      required:
+      - quantity
+      - pickupStartMs
+      - pickupEndMs
+      title: ClaimIn
     ConfirmIn:
       properties:
         listing_id:
@@ -1468,6 +1702,16 @@ components:
       required:
       - body
       title: MessageIn
+    NoShowIn:
+      properties:
+        side:
+          type: string
+          pattern: ^(claimer|giver)$
+          title: Side
+      type: object
+      required:
+      - side
+      title: NoShowIn
     OwnerProfile:
       properties:
         uid:

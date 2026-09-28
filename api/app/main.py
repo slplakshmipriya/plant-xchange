@@ -33,6 +33,7 @@ from . import notify as notify_module
 from . import feed as feed_module
 from . import wantlist as wantlist_module
 from . import exchange as exchange_module
+from . import claims as claims_module
 from . import sitter as sitter_module
 from . import msg as msg_module
 
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(feed_module.router)
     app.include_router(wantlist_module.router)
     app.include_router(exchange_module.router)
+    app.include_router(claims_module.router)
     app.include_router(sitter_module.router)
     app.include_router(msg_module.router)
 
