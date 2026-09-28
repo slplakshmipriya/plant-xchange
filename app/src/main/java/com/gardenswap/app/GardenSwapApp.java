@@ -2,6 +2,10 @@ package com.gardenswap.app;
 
 import android.app.Activity;
 import android.app.Application;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.content.Context;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -13,6 +17,8 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.analytics.FirebaseAnalytics;
 import com.google.firebase.crashlytics.FirebaseCrashlytics;
 import com.google.firebase.messaging.FirebaseMessaging;
+
+import com.gardenswap.app.notifications.GardenSwapMessagingService;
 
 /**
  * Application entry point (AND-002). Initializes Firebase (Analytics,
@@ -34,6 +40,7 @@ public class GardenSwapApp extends Application {
         FirebaseAnalytics.getInstance(this); // starts session/event logging
         FirebaseCrashlytics.getInstance().setCustomKey("app_init", true);
         registerFcmToken();
+        createNotificationChannels();
         padScreensBelowStatusBar();
     }
 
@@ -78,6 +85,30 @@ public class GardenSwapApp extends Application {
             @Override public void onActivitySaveInstanceState(Activity activity, Bundle outState) { }
             @Override public void onActivityDestroyed(Activity activity) { }
         });
+    }
+
+    /**
+     * Creates the push channels the messaging service posts to (AND-152).
+     * Guarded for API 26+; channels are a no-op on older platforms.
+     */
+    private void createNotificationChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return;
+        }
+        NotificationManager manager =
+                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null) {
+            return;
+        }
+        manager.createNotificationChannel(new NotificationChannel(
+                GardenSwapMessagingService.CHANNEL_LISTINGS,
+                "Listings", NotificationManager.IMPORTANCE_DEFAULT));
+        manager.createNotificationChannel(new NotificationChannel(
+                GardenSwapMessagingService.CHANNEL_BOOKINGS,
+                "Bookings", NotificationManager.IMPORTANCE_DEFAULT));
+        manager.createNotificationChannel(new NotificationChannel(
+                GardenSwapMessagingService.CHANNEL_ALERTS,
+                "Alerts", NotificationManager.IMPORTANCE_DEFAULT));
     }
 
     private void registerFcmToken() {
