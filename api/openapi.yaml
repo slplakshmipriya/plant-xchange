@@ -1238,6 +1238,44 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/payments/sitting-intent:
+    post:
+      tags:
+      - payments
+      - payments
+      summary: Create Sitting Intent
+      description: 'Create a payment hold for an accepted sitting booking.
+
+
+        The caller must be the booking owner; the booking must be in a payable
+
+        state (``accepted``). Idempotent per booking: a retry returns the existing
+
+        intent''s client secret instead of creating a second hold.'
+      operationId: create_sitting_intent_v1_payments_sitting_intent_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SittingIntentIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Sitting Intent V1 Payments Sitting Intent Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -1634,6 +1672,16 @@ components:
           default: true
       type: object
       title: SitterProfileIn
+    SittingIntentIn:
+      properties:
+        bookingId:
+          type: string
+          minLength: 1
+          title: Bookingid
+      type: object
+      required:
+      - bookingId
+      title: SittingIntentIn
     SittingRequestIn:
       properties:
         sitter_uid:
