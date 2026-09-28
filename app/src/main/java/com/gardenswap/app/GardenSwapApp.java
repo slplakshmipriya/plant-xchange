@@ -1,7 +1,13 @@
 package com.gardenswap.app;
 
+import android.app.Activity;
 import android.app.Application;
+import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
+
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.analytics.FirebaseAnalytics;
@@ -28,11 +34,45 @@ public class GardenSwapApp extends Application {
         FirebaseAnalytics.getInstance(this); // starts session/event logging
         FirebaseCrashlytics.getInstance().setCustomKey("app_init", true);
         registerFcmToken();
+        padScreensBelowStatusBar();
     }
 
     /** Visible for tests / future DI. */
     public void setBackendRegistrar(BackendRegistrar registrar) {
         this.backendRegistrar = registrar;
+    }
+
+    /**
+     * Shifts every screen's content below the status bar. The app draws
+     * programmatic layouts under a NoActionBar theme, so without this the
+     * first rows sit under the status icons. Applied once per activity via
+     * the content frame, so all current and future screens are covered.
+     */
+    private void padScreensBelowStatusBar() {
+        registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
+            @Override
+            public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
+                View content = activity.findViewById(android.R.id.content);
+                if (content == null) {
+                    return;
+                }
+                final int baseTop = content.getPaddingTop();
+                ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
+                    int statusTop = insets.getInsets(
+                            WindowInsetsCompat.Type.statusBars()).top;
+                    v.setPadding(v.getPaddingLeft(), baseTop + statusTop,
+                            v.getPaddingRight(), v.getPaddingBottom());
+                    return insets;
+                });
+            }
+
+            @Override public void onActivityStarted(Activity activity) { }
+            @Override public void onActivityResumed(Activity activity) { }
+            @Override public void onActivityPaused(Activity activity) { }
+            @Override public void onActivityStopped(Activity activity) { }
+            @Override public void onActivitySaveInstanceState(Activity activity, Bundle outState) { }
+            @Override public void onActivityDestroyed(Activity activity) { }
+        });
     }
 
     private void registerFcmToken() {

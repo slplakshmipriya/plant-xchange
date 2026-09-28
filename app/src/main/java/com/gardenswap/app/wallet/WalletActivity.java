@@ -115,8 +115,12 @@ public class WalletActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 6)));
         card.addView(strip);
         Ui.gap(card, this, 12);
-        card.addView(Ui.display(this, String.valueOf(wallet.getBalance())));
-        card.addView(Ui.eyebrow(this, "credits"));
+        TextView balance = Ui.display(this, String.valueOf(wallet.getBalance()));
+        Ui.textColor(this, balance, R.color.garden_turquoise);
+        card.addView(balance);
+        TextView creditsEyebrow = Ui.eyebrow(this, "credits");
+        Ui.textColor(this, creditsEyebrow, R.color.garden_turquoise);
+        card.addView(creditsEyebrow);
         header.addView(card);
         Ui.gap(header, this, 12);
 
