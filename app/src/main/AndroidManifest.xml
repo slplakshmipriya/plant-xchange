@@ -89,6 +89,9 @@
         <activity
             android:name=".profile.ProfileActivity"
             android:exported="false" />
+        <activity
+            android:name=".notifications.NotificationPrefsActivity"
+            android:exported="false" />
 
         <service
             android:name=".notifications.GardenSwapMessagingService"
