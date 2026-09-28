@@ -60,7 +60,11 @@ public class PhoneAuthActivity extends AppCompatActivity {
 
     private final ActivityResultLauncher<Intent> googleSignInLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                // Route through handleGoogleSignInResult whenever we have an
+                // intent: a failed sign-in still carries the ApiException
+                // status (e.g. DEVELOPER_ERROR) in its extras, and surfacing
+                // it beats reporting every failure as "cancelled".
+                if (result.getData() != null) {
                     handleGoogleSignInResult(
                             GoogleSignIn.getSignedInAccountFromIntent(result.getData()));
                 } else {
@@ -227,6 +231,15 @@ public class PhoneAuthActivity extends AppCompatActivity {
         }
         if (e.getStatusCode() == 7) { // NETWORK_ERROR
             return "network error — check your connection.";
+        }
+        if (e.getStatusCode() == 10) { // DEVELOPER_ERROR
+            return "configuration error (code 10) — the app's SHA-1 "
+                    + "fingerprint is probably not registered in the Firebase "
+                    + "console for this Android app.";
+        }
+        if (e.getStatusCode() == 12500) { // SIGN_IN_FAILED
+            return "sign-in failed (code 12500) — check the SHA-1 in the "
+                    + "Firebase console and that the OAuth consent screen is set up.";
         }
         return e.getMessage() == null ? "unknown error." : e.getMessage();
     }
