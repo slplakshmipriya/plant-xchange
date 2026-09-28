@@ -1,5 +1,6 @@
 package com.gardenswap.app.sitters;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -16,6 +17,7 @@ import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.Booking;
 import com.gardenswap.app.api.BookingRequest;
+import com.gardenswap.app.api.BookingStatus;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.Review;
 import com.gardenswap.app.api.SitterProfile;
@@ -106,6 +108,20 @@ public class SitterProfileActivity extends AppCompatActivity {
             Ui.gap(content, this, 8);
         }
         Ui.gap(content, this, 8);
+
+        // Mock-phase entry point: no per-booking history endpoint exists yet,
+        // so this opens the review form against a mock completed booking
+        // (API-072 is proposed). The form itself still gates on COMPLETED.
+        Button writeReview = Ui.secondaryButton(this, "Write a review");
+        writeReview.setOnClickListener(v -> {
+            Intent intent = new Intent(this, ReviewActivity.class);
+            intent.putExtra(ReviewActivity.EXTRA_BOOKING_ID, "mock-booking-1");
+            intent.putExtra(ReviewActivity.EXTRA_BOOKING_STATUS,
+                    BookingStatus.COMPLETED.name());
+            startActivity(intent);
+        });
+        content.addView(writeReview);
+        Ui.gap(content, this, 16);
 
         renderBookingSheet();
     }
