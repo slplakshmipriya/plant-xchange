@@ -43,10 +43,12 @@ public class GardenSwapApp extends Application {
     }
 
     /**
-     * Shifts every screen's content below the status bar. The app draws
-     * programmatic layouts under a NoActionBar theme, so without this the
-     * first rows sit under the status icons. Applied once per activity via
-     * the content frame, so all current and future screens are covered.
+     * Shifts every screen's content below the status bar and above the
+     * system navigation bar. The app draws programmatic layouts under a
+     * NoActionBar theme, so without this the first rows sit under the status
+     * icons and bottom-anchored controls (e.g. the chat send button) sink
+     * under the system nav. Applied once per activity via the content frame,
+     * so all current and future screens are covered.
      */
     private void padScreensBelowStatusBar() {
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
@@ -57,11 +59,14 @@ public class GardenSwapApp extends Application {
                     return;
                 }
                 final int baseTop = content.getPaddingTop();
+                final int baseBottom = content.getPaddingBottom();
                 ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
                     int statusTop = insets.getInsets(
                             WindowInsetsCompat.Type.statusBars()).top;
+                    int navBottom = insets.getInsets(
+                            WindowInsetsCompat.Type.navigationBars()).bottom;
                     v.setPadding(v.getPaddingLeft(), baseTop + statusTop,
-                            v.getPaddingRight(), v.getPaddingBottom());
+                            v.getPaddingRight(), baseBottom + navBottom);
                     return insets;
                 });
             }
