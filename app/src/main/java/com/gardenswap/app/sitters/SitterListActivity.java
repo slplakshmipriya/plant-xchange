@@ -12,9 +12,11 @@ import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.SitterProfile;
+import com.gardenswap.app.ui.Nav;
 import com.gardenswap.app.ui.Ui;
 import com.gardenswap.app.ui.VerifiedBadgeView;
 import com.gardenswap.app.ui.BadgeState;
+import com.gardenswap.app.util.NavRouter;
 import com.gardenswap.app.util.ReviewGuard;
 
 import java.util.List;
@@ -47,6 +49,7 @@ public class SitterListActivity extends AppCompatActivity {
         Ui.gap(root, this, 8);
         root.addView(list);
         setContentView(root);
+        Nav.attach(this, NavRouter.Tab.CARE);
 
         load("85281"); // mock zip; real flow reads the profile's homeZip
     }

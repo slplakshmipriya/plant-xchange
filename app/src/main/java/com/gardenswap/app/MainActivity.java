@@ -15,9 +15,11 @@ import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.IdvStatus;
 import com.gardenswap.app.idv.IdvActivity;
 import com.gardenswap.app.onboarding.PhoneAuthActivity;
+import com.gardenswap.app.ui.Nav;
 import com.gardenswap.app.ui.Ui;
 import com.gardenswap.app.ui.VerifiedBadgeView;
 import com.gardenswap.app.util.IdvStatusMapper;
+import com.gardenswap.app.util.NavRouter;
 import com.google.firebase.auth.FirebaseAuth;
 
 /**
@@ -53,6 +55,7 @@ public class MainActivity extends AppCompatActivity {
         Ui.gap(root, this, 16);
         root.addView(verifyButton);
         setContentView(root);
+        Nav.attach(this, NavRouter.Tab.EXPLORE);
     }
 
     @Override
