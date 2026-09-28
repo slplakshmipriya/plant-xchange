@@ -18,6 +18,13 @@ public final class CreateListingValidator {
     private CreateListingValidator() {
     }
 
+    private static final long DAY_MS = 86_400_000L;
+
+    /** Hard expiry caps in days: harvest is perishable, everything else 14 (AND-127/128). */
+    private static int maxExpiryDays(String type) {
+        return "harvest".equalsIgnoreCase(type) ? 5 : 14;
+    }
+
     public static final class Draft {
         public String type;
         public List<String> photos;
@@ -74,6 +81,12 @@ public final class CreateListingValidator {
         }
         if (draft.expiresAtMs != null && draft.expiresAtMs <= nowMs) {
             errors.add("Expiry must be in the future.");
+        } else if (draft.expiresAtMs != null) {
+            int maxDays = maxExpiryDays(draft.type);
+            long daysOut = (draft.expiresAtMs - nowMs) / DAY_MS;
+            if (daysOut > maxDays) {
+                errors.add("Expiry can't be more than " + maxDays + " days out.");
+            }
         }
         if (isBlank(draft.sprayDisclosure)) {
             errors.add("Spray disclosure is required — describe any pesticides used, or write \"none\".");
