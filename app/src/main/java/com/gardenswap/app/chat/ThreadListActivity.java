@@ -156,6 +156,7 @@ public class ThreadListActivity extends AppCompatActivity {
             Intent intent = new Intent(this, ChatActivity.class);
             intent.putExtra(ChatActivity.EXTRA_THREAD_ID, thread.getThreadId());
             intent.putExtra(ChatActivity.EXTRA_OTHER_NAME, thread.getOtherPartyName());
+            intent.putExtra(ChatActivity.EXTRA_PARTICIPANT_ID, thread.getParticipantUserId());
             intent.putExtra(ChatActivity.EXTRA_CONTEXT,
                     thread.getListingSummary() + " · " + thread.getListingStatus());
             startActivity(intent);
