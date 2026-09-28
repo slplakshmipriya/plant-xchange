@@ -1,6 +1,11 @@
 package com.gardenswap.app.util;
 
+import com.gardenswap.app.api.Listing;
 import com.gardenswap.app.api.ListingType;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Pure Explore-screen logic (UID-010): greeting copy and way-card routing.
@@ -50,6 +55,24 @@ public final class ExploreLogic {
     }
 
     /**
+     * Feed {@code way} parameter for the currently selected filter chip.
+     * Null means "all ways". Note the backend feed uses {@code "pick"} where
+     * {@link ListingType} uses the wire value {@code "tree"}.
+     */
+    public static String wayForFilter(ListingType filter) {
+        if (filter == ListingType.SEEDLING) {
+            return "seedling";
+        }
+        if (filter == ListingType.TREE) {
+            return "pick";
+        }
+        if (filter == ListingType.HARVEST) {
+            return "harvest";
+        }
+        return null;
+    }
+
+    /**
      * {@link com.gardenswap.app.ui.FilterChipRow} index matching a way
      * card's filter (0 = All).
      */
@@ -65,5 +88,29 @@ public final class ExploreLogic {
             return 3;
         }
         return 0;
+    }
+
+    /**
+     * Freshness sort for the feed (AND-123): soonest-expiring listings first,
+     * listings with no expiry last. Returns a new list; the input is not
+     * modified.
+     */
+    public static List<Listing> sortByFreshness(List<Listing> listings) {
+        List<Listing> sorted = new ArrayList<>(listings);
+        Collections.sort(sorted, (a, b) -> {
+            Long ea = a.getExpiresAtMs();
+            Long eb = b.getExpiresAtMs();
+            if (ea == null && eb == null) {
+                return 0;
+            }
+            if (ea == null) {
+                return 1;
+            }
+            if (eb == null) {
+                return -1;
+            }
+            return Long.compare(ea, eb);
+        });
+        return sorted;
     }
 }
