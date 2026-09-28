@@ -1,0 +1,149 @@
+E2-E8 TASK-LEVEL DEPENDENCY TREE
+=================================
+Scope: pending tasks in epics E2 (Explore), E3 (Listings), E4 (Wallet),
+E5 (Sitters), E6 (Messaging), E7 (Onboarding), E8 (Profile & swaps).
+Task definitions: docs/UI_TASK_BREAKDOWN.txt
+
+EXTERNAL PREREQUISITE (pending, outside E2-E8)
+  UID-004 (E1 bottom nav) gates:
+    - 010-T1 (Explore shell mounts the nav)
+    - 023-T6 (Profile nav integration)
+
+INTER-TICKET TASK LINKS (refined from ticket-level tree)
+  011-T1/T2 --> 010-T3, 012-T1        (card + adapter reused)
+  012-T5     --> 013-T3               (claim CTA wiring; 013-T1/T2 can
+                                       parallelize with 012)
+  017-T3  ~> 018-T3                   (soft: review entry point)
+
+PER-TICKET TASK TREES
+---------------------
+
+UID-011  listing card + filter chips
++-- 011-T1 card view
+|   +-- 011-T2 adapter
+|   |   +-- 011-T5 filter logic  (also needs 011-T4)
+|   |       +-- 011-T6 dark-mode
+|   +-- 011-T3 urgency cue
++-- 011-T4 chip row
+    +-- 011-T5 (joins above)
+
+UID-010  explore home  (needs UID-004, 011-T1, 011-T2)
++-- 010-T1 explore shell
+    +-- 010-T2 way cards
+    |   +-- 010-T6 deep links
+    |       +-- 010-T8 dark-mode + nav
+    +-- 010-T3 nearby listings
+    |   +-- 010-T7 mock wiring  (also needs 010-T4, 010-T5)
+    |       +-- 010-T8
+    +-- 010-T4 balance panel
+    |   +-- 010-T7 (joins above)
+    +-- 010-T5 want-list panel
+        +-- 010-T7 (joins above)
+
+UID-012  listing detail  (needs 011-T1)
++-- 012-T1 photo header
+    +-- 012-T2 variety / quantity / spray
+    +-- 012-T3 visit-rules panel
+    +-- 012-T4 owner row
+    +-- 012-T5 claim CTA
+        +-- 012-T6 restyle activity  (also needs T2, T3, T4)
+
+UID-013  claim sheet  (013-T3 needs 012-T5)
++-- 013-T1 bottom sheet layout
+    +-- 013-T2 confirm + toast
+        +-- 013-T3 wire from 012-T5 claim CTA
+            +-- 013-T4 dark-mode
+
+UID-014  create listing  (standalone)
++-- 014-T1 photo picker
+    +-- 014-T2 variety / quantity inputs
+        +-- 014-T3 credit stepper
+        +-- 014-T4 spray toggle
+        +-- 014-T5 visit rules (validator unchanged)
+            +-- 014-T6 restyle activity
+
+UID-015  wallet  (standalone)
++-- 015-T1 balance card
+    +-- 015-T2 ledger list
+        +-- 015-T3 expiry cues
+        +-- 015-T4 mock data
+            +-- 015-T5 restyle activity
+                +-- 015-T6 dark-mode
+
+UID-016  confirm exchange  (standalone)
++-- 016-T1 two-party layout
+    +-- 016-T2 confirm/decline mock state
+        +-- 016-T3 restyle activity
+            +-- 016-T4 entry points
+
+UID-017  sitter list + profile  (standalone)
++-- 017-T1 sitter card
+    +-- 017-T2 list + adapter
+    |   +-- 017-T4 mock data  (also needs 017-T3)
+    |       +-- 017-T5 dark-mode
+    +-- 017-T3 profile screen
+        +-- 017-T4 (joins above)
+        +-- 017-T6 request flow unchanged
+
+UID-018  review flow  (soft: 018-T3 after 017-T3)
++-- 018-T1 rating + text form
+    +-- 018-T2 submit (ReviewGuard unchanged)
+        +-- 018-T3 restyle + entry from sitter profile
+            +-- 018-T4 dark-mode
+
+UID-019  threads + chat  (standalone)
++-- 019-T1 thread rows
++-- 019-T2 chat bubbles
+    +-- 019-T3 coord-leak banner
+    +-- 019-T4 send/receive mock
++-- 019-T5 dark-mode  (needs T1, T3, T4)
+
+UID-020  auth screen  (standalone)
++-- 020-T1 phone input
+    +-- 020-T2 Google button
+        +-- 020-T3 verify flow unchanged
+            +-- 020-T4 dark-mode
+
+UID-021  profile form + home ZIP  (standalone)
++-- 021-T1 form fields
+    +-- 021-T2 home ZIP
+        +-- 021-T3 validator unchanged
+            +-- 021-T4 dark-mode
+
+UID-022  IDV  (standalone)
++-- 022-T1 explainer
+    +-- 022-T2 badge states
+        +-- 022-T3 continue flow
+            +-- 022-T4 dark-mode
+
+UID-023  profile + my swaps  (needs UID-004 for T6)
++-- 023-T1 avatar + badge header
+    +-- 023-T2 stats
+    +-- 023-T3 active swaps
+    +-- 023-T4 completed swaps
+        +-- 023-T5 mock data  (needs T3, T4)
+            +-- 023-T6 nav integration + dark-mode
+
+PARALLELIZATION NOTES
+---------------------
+- 013-T1 and 013-T2 have no dependency on 012: build the sheet UI
+  while 012 is in flight; only 013-T3 (wiring) waits on 012-T5.
+- Standalone tickets (no cross-ticket task deps): 014, 015, 016,
+  017, 019, 020, 021, 022. All can start as soon as E1 is done.
+- 010-T4 and 010-T5 are independent of each other and of 011.
+
+CRITICAL PATH (within E2-E8)
+----------------------------
+  011-T1 -> 011-T2 -> 010-T3 -> 010-T7 -> 010-T8   (5 tasks)
+  011-T1 -> 012-T1 -> 012-T5 -> 013-T3 -> 013-T4   (5 tasks, tied)
+  Including the external gate: UID-004 (5 tasks) -> 010-T1 extends
+  the Explore chain, which is why 004 + 011 are Wave 1.
+
+WAVE PLAN (task-validated)
+--------------------------
+  Wave 1: 004-T1..T5, 011-T1..T6
+  Wave 2: 010 (needs 004-T5, 011-T2), 012 (needs 011-T1),
+          023-T1..T5 (T6 needs 004-T5),
+          + full standalone tickets 014, 015, 016, 017, 019, 020, 021, 022
+  Wave 3: 013-T3/T4 (T1/T2 can start Wave 2), 018 (soft after 017-T3)
+  Wave 4: UID-024 QA (separate epic)
