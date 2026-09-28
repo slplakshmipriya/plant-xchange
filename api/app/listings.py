@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .auth import ensure_owner, get_current_uid
 from .config import get_settings
@@ -112,6 +112,10 @@ def public_listing(row: dict[str, Any], rng: random.Random | None = None) -> dic
                           if row.get("remaining_qty") is not None else None),
         "visit_rules": row.get("visit_rules"),
         "claimer_uid": row.get("claimer_uid"),
+        # AND-125/AND-126: optional create-form fields (absent on old rows).
+        "potSize": row.get("pot_size"),
+        "plantAgeYears": row.get("plant_age_years"),
+        "pickupWindowDays": row.get("pickup_window_days", 4),
     }
 
 
@@ -166,7 +170,8 @@ class PostgresListingRepo:
         "SELECT id, owner_uid, type, photos, variety, quantity, unit, credit_cost, "
         "lower(pickup_window) AS window_start, upper(pickup_window) AS window_end, "
         "expires_at, geo_lat, geo_lon, spray_disclosure, status, created_at, "
-        "COALESCE(remaining_qty, quantity) AS remaining_qty, visit_rules, claimer_uid FROM listings"
+        "COALESCE(remaining_qty, quantity) AS remaining_qty, visit_rules, claimer_uid, "
+        "pot_size, plant_age_years, pickup_window_days FROM listings"
     )
 
     def create(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -174,8 +179,8 @@ class PostgresListingRepo:
         row = self._conn.execute(
             "INSERT INTO listings (id, owner_uid, type, photos, variety, quantity, unit, "
             "credit_cost, pickup_window, expires_at, geo_lat, geo_lon, spray_disclosure, status, "
-            "remaining_qty, visit_rules) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,tstzrange(%s,%s,'[)'),%s,%s,%s,%s,%s,%s,%s) "
+            "remaining_qty, visit_rules, pot_size, plant_age_years, pickup_window_days) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,tstzrange(%s,%s,'[)'),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
             + "RETURNING id",
             (
                 data["id"], data["owner_uid"], data["type"], data["photos"],
@@ -185,6 +190,8 @@ class PostgresListingRepo:
                 data.get("expires_at"), data.get("geo_lat"), data.get("geo_lon"),
                 data["spray_disclosure"], data.get("status", "draft"),
                 data.get("remaining_qty"), data.get("visit_rules"),
+                data.get("pot_size"), data.get("plant_age_years"),
+                data.get("pickup_window_days", 4),
             ),
         ).fetchone()
         self._conn.commit()
@@ -400,6 +407,8 @@ class PickupWindow(BaseModel):
 
 
 class ListingIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     type: str = Field(pattern="^(seedling|harvest|tree)$")
     photos: list[str] = Field(min_length=1)
     variety: str | None = Field(default=None, max_length=120)
@@ -413,6 +422,11 @@ class ListingIn(BaseModel):
     spray_disclosure: str = Field(min_length=1, max_length=2000)
     status: str = Field(default="draft", pattern="^(draft|live)$")
     visit_rules: str | None = Field(default=None, max_length=2000)
+    # AND-125/AND-126 (create form): optional pot size + plant age (seedlings),
+    # and the pickup-window length in days (defaults to 4).
+    pot_size: str | None = Field(default=None, alias="potSize", max_length=40)
+    plant_age_years: str | None = Field(default=None, alias="plantAgeYears", max_length=40)
+    pickup_window_days: int = Field(default=4, alias="pickupWindowDays", ge=1, le=14)
 
     @field_validator("expires_at", mode="after")
     @classmethod
@@ -481,6 +495,9 @@ def create_listing(
         # Harvest listings track what is left to pick (API-040).
         "remaining_qty": data.quantity if data.type == "harvest" else None,
         "visit_rules": data.visit_rules.strip() if data.visit_rules else None,
+        "pot_size": data.pot_size.strip() if data.pot_size else None,
+        "plant_age_years": data.plant_age_years.strip() if data.plant_age_years else None,
+        "pickup_window_days": data.pickup_window_days,
     })
     if row["status"] == "live":
         # A listing going live is the match event (API-030).
@@ -611,6 +628,32 @@ def get_harvest_events(
     if row is None:
         raise HTTPException(404, {"code": "listing_not_found", "message": "No such listing"})
     return {"listing_id": listing_id, "events": repo.list_harvest_events(listing_id)}
+
+
+def _tree_card(row: dict[str, Any]) -> dict[str, Any]:
+    """Compact public tree card: id, variety, approx location, ripe window."""
+    lat, lon = row.get("geo_lat"), row.get("geo_lon")
+    flat, flon = (fuzz_location(lat, lon) if lat is not None and lon is not None else (None, None))
+    window = row.get("pickup_window")
+    return {
+        "id": str(row["id"]),
+        "variety": row.get("variety"),
+        "geo_lat": flat,
+        "geo_lon": flon,
+        "ripe_window": {"start": window[0], "end": window[1]} if window else None,
+        "expires_at": row.get("expires_at"),
+        "spray_disclosure": row.get("spray_disclosure"),
+        "visit_rules": row.get("visit_rules"),
+    }
+
+
+@router.get("/trees", tags=["trees"])
+def list_trees(
+    repo: ListingRepo = Depends(get_listing_repo),
+) -> dict[str, Any]:
+    """Live tree listings for pick-your-own (API-135)."""
+    trees = [r for r in repo.list_live() if r.get("type") == "tree"]
+    return {"trees": [_tree_card(r) for r in trees]}
 
 
 @router.post("/trees/{listing_id}/ripe-alert", tags=["trees"])

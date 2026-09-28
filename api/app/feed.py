@@ -24,6 +24,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from .auth import get_current_uid
 from .listings import ListingRepo, get_listing_repo, public_listing, utcnow
+from .sitter import SitterRepo, _display_name, _serialize_profile, get_sitter_repo
+from .users import UserRepo, get_user_repo
 from .wantlist import WANT_MATCH_BOOST, WantRepo, get_want_repo, variety_matches
 
 router = APIRouter(prefix="/v1", tags=["feed"])
@@ -32,6 +34,11 @@ PAGE_LIMIT = 20
 MAX_LIMIT = 50
 _WINDOW_HOURS = 168.0  # 7 days: normalization window for urgency/freshness
 WANT_MATCH_BOOST = 1.0
+
+# API-123: Explore way-cards. "pick" is pick-your-own -> tree listings;
+# "sitting" lists sitter profiles instead of listings.
+WAYS = ("seedling", "harvest", "pick", "sitting")
+_WAY_TO_LISTING_TYPE = {"seedling": "seedling", "harvest": "harvest", "pick": "tree"}
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -78,15 +85,40 @@ def _decode_cursor(cursor: str | None) -> int:
     return offset
 
 
+def _expiry_key(row: dict[str, Any]) -> tuple[bool, float, str]:
+    """Freshest-first by expires_at ascending, nulls last (API-123)."""
+    dt = _parse_dt(row.get("expires_at"))
+    return (dt is None, dt.timestamp() if dt else 0.0, str(row.get("id") or ""))
+
+
 @router.get("/feed")
 def get_feed(
     limit: int = Query(default=PAGE_LIMIT, ge=1, le=MAX_LIMIT),
     cursor: str | None = Query(default=None),
+    way: str | None = Query(default=None, pattern="^(seedling|harvest|pick|sitting)$"),
     uid: str = Depends(get_current_uid),
     repo: ListingRepo = Depends(get_listing_repo),
     want_repo: WantRepo = Depends(get_want_repo),
+    sitter_repo: SitterRepo = Depends(get_sitter_repo),
+    user_repo: UserRepo = Depends(get_user_repo),
 ) -> dict[str, Any]:
-    """Ranked discovery feed of live listings (fuzzed geo, no PII)."""
+    """Ranked discovery feed of live listings (fuzzed geo, no PII).
+
+    Without ``way``: the scored, cursor-paginated feed (API-021).
+    With ``way`` (API-123): exact ``{"listings": [...]}`` for one Explore
+    way-card, ranked freshest-first by expiry ascending (nulls last).
+    """
+    if way is not None:
+        if way == "sitting":
+            profiles = [
+                _serialize_profile(r, _display_name(user_repo, r["uid"]))
+                for r in sitter_repo.list_active()
+            ]
+            return {"listings": profiles[:limit]}
+        live = [r for r in repo.list_live() if r.get("type") == _WAY_TO_LISTING_TYPE[way]]
+        ranked = sorted(live, key=_expiry_key)
+        return {"listings": [public_listing(r) for r in ranked[:limit]]}
+
     offset = _decode_cursor(cursor)
     now = utcnow()
     live = repo.list_live()

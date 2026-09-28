@@ -13,6 +13,7 @@ from app.wantlist import find_matches, variety_matches
 def mem_all(client):
     """client + user/listing/want/notify memory repos."""
     from app import listings as listings_mod
+    from app import sitter as sitter_mod
     from app import users as users_mod
     from app import wantlist as wantlist_mod
     from conftest import wire_credit_repo
@@ -25,6 +26,7 @@ def mem_all(client):
     client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
     client.app.dependency_overrides[wantlist_mod.get_want_repo] = lambda: wrepo
     client.app.dependency_overrides[notify_mod.get_notification_repo] = lambda: nrepo
+    client.app.dependency_overrides[sitter_mod.get_sitter_repo] = lambda: sitter_mod.MemorySitterRepo()
     wire_credit_repo(client)
     return client, urepo, lrepo, wrepo, nrepo
 

@@ -64,10 +64,11 @@ def mem_users(client, monkeypatch):
 
 @pytest.fixture()
 def mem_listings(client, monkeypatch):
-    """In-memory user + listing + want + notification repos.
+    """In-memory user + listing + want + notification + sitter repos.
     Returns (client, user_repo, listing_repo, want_repo, notify_repo)."""
     from app import listings as listings_mod
     from app import notify as notify_mod
+    from app import sitter as sitter_mod
     from app import users as users_mod
     from app import wantlist as wantlist_mod
 
@@ -79,6 +80,7 @@ def mem_listings(client, monkeypatch):
     client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
     client.app.dependency_overrides[wantlist_mod.get_want_repo] = lambda: wrepo
     client.app.dependency_overrides[notify_mod.get_notification_repo] = lambda: nrepo
+    client.app.dependency_overrides[sitter_mod.get_sitter_repo] = lambda: sitter_mod.MemorySitterRepo()
     wire_credit_repo(client)
     return client, urepo, lrepo, wrepo, nrepo
 

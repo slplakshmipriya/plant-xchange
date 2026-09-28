@@ -397,6 +397,25 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/trees:
+    get:
+      tags:
+      - listings
+      - trees
+      summary: List Trees
+      description: Live tree listings for pick-your-own (API-135).
+      operationId: list_trees_v1_trees_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Trees V1 Trees Get
+      security:
+      - bearerAuth: []
   /v1/trees/{listing_id}/ripe-alert:
     post:
       tags:
@@ -595,7 +614,14 @@ paths:
       tags:
       - feed
       summary: Get Feed
-      description: Ranked discovery feed of live listings (fuzzed geo, no PII).
+      description: 'Ranked discovery feed of live listings (fuzzed geo, no PII).
+
+
+        Without ``way``: the scored, cursor-paginated feed (API-021).
+
+        With ``way`` (API-123): exact ``{"listings": [...]}`` for one Explore
+
+        way-card, ranked freshest-first by expiry ascending (nulls last).'
       operationId: get_feed_v1_feed_get
       parameters:
       - name: limit
@@ -615,6 +641,15 @@ paths:
           - type: string
           - type: 'null'
           title: Cursor
+      - name: way
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(seedling|harvest|pick|sitting)$
+          - type: 'null'
+          title: Way
       responses:
         '200':
           description: Successful Response
@@ -1384,6 +1419,24 @@ components:
             maxLength: 2000
           - type: 'null'
           title: Visit Rules
+        potSize:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Potsize
+        plantAgeYears:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Plantageyears
+        pickupWindowDays:
+          type: integer
+          maximum: 14.0
+          minimum: 1.0
+          title: Pickupwindowdays
+          default: 4
       type: object
       required:
       - type
