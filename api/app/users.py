@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -145,7 +146,12 @@ class MemoryUserRepo:
             for other_uid, other in self._rows.items():
                 if other_uid != uid and other.get("phone_hash") == phash:
                     raise PhoneInUseError()
-        row = self._rows.setdefault(uid, {"uid": uid, "idv_status": "unverified"})
+        row = self._rows.setdefault(
+            uid, {"uid": uid, "idv_status": "unverified",
+                  # Mirror Postgres DEFAULT now() so age-based rules (e.g. the
+                  # new-account claim cap) behave the same in memory.
+                  "created_at": datetime.now(timezone.utc).isoformat()}
+        )
         row.update(clean)
         return dict(row)
 

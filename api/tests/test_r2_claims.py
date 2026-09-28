@@ -1,0 +1,328 @@
+"""R2 claims lifecycle: partial-quantity claims, accept/decline/cancel,
+no-show strikes -> suspension, and the new-account claim cap."""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+
+@pytest.fixture()
+def mem_claims(client, monkeypatch):
+    from app import claims as claims_mod
+    from app import listings as listings_mod
+    from app import notify as notify_mod
+    from app import users as users_mod
+    from app import wantlist as wantlist_mod
+    from conftest import wire_credit_repo
+    import app.auth as auth_mod
+
+    urepo = users_mod.MemoryUserRepo()
+    lrepo = listings_mod.MemoryListingRepo()
+    crepo = wire_credit_repo(client)
+    wrepo = wantlist_mod.MemoryWantRepo()
+    nrepo = notify_mod.MemoryNotificationRepo()
+    claim_repo = claims_mod.MemoryClaimRepo()
+    client.app.dependency_overrides[users_mod.get_user_repo] = lambda: urepo
+    client.app.dependency_overrides[listings_mod.get_listing_repo] = lambda: lrepo
+    client.app.dependency_overrides[wantlist_mod.get_want_repo] = lambda: wrepo
+    client.app.dependency_overrides[notify_mod.get_notification_repo] = lambda: nrepo
+    client.app.dependency_overrides[claims_mod.get_claim_repo] = lambda: claim_repo
+
+    def fake(token: str) -> dict:
+        if token == "good-token":
+            return {"uid": "alice", "phone_number": "+15551234567"}
+        if token == "bob-token":
+            return {"uid": "bob"}
+        if token == "mallory-token":
+            return {"uid": "mallory"}
+        raise ValueError("bad token")
+
+    monkeypatch.setattr(auth_mod, "verify_id_token", fake)
+    return client, urepo, lrepo, crepo, claim_repo
+
+
+ALICE = {"Authorization": "Bearer good-token"}
+BOB = {"Authorization": "Bearer bob-token"}
+MALLORY = {"Authorization": "Bearer mallory-token"}
+
+
+def _profile(client, headers, name):
+    r = client.post("/v1/users", json={"display_name": name}, headers=headers)
+    assert r.status_code == 200, r.text
+
+
+def _listing_payload(quantity=10, cost=1, **kw):
+    base = {
+        "type": "harvest",
+        "photos": ["https://example.com/t.jpg"],
+        "variety": "Cherokee Purple tomato",
+        "quantity": quantity,
+        "unit": "kg",
+        "credit_cost": cost,
+        "spray_disclosure": "unsprayed",
+        "status": "live",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+    }
+    base.update(kw)
+    return base
+
+
+def _make_listing(client, headers, **kw):
+    _profile(client, headers, "Giver")
+    r = client.post("/v1/listings", json=_listing_payload(**kw), headers=headers)
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def _claim_body(quantity=3, **kw):
+    base = {
+        "quantity": quantity,
+        "pickupStartMs": 1_800_000_000_000,
+        "pickupEndMs": 1_800_003_600_000,
+        "notes": "will bring my own bag",
+    }
+    base.update(kw)
+    return base
+
+
+def _claim(client, listing_id, headers, **kw):
+    r = client.post(f"/v1/listings/{listing_id}/claims",
+                    json=_claim_body(**kw), headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_partial_claim_decrements_and_stays_live(mem_claims):
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+
+    body = _claim(client, lid, BOB, quantity=3)
+    assert body["listing"]["remaining_qty"] == 7
+    assert body["listing"]["status"] == "live"  # partial claim keeps it live
+    assert body["claim"]["status"] == "pending"
+    assert body["claim"]["quantity"] == 3
+    assert body["claim"]["claimer_uid"] == "bob"
+
+
+def test_claim_to_zero_closes_listing(mem_claims):
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+
+    body = _claim(client, lid, BOB, quantity=10)
+    assert body["listing"]["remaining_qty"] == 0
+    assert body["listing"]["status"] == "completed"
+
+
+def test_claim_validation(mem_claims):
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+
+    # quantity < 1 -> 422
+    r = client.post(f"/v1/listings/{lid}/claims", json=_claim_body(quantity=0), headers=BOB)
+    assert r.status_code == 422, r.text
+    # quantity > available -> 409
+    r = client.post(f"/v1/listings/{lid}/claims", json=_claim_body(quantity=99), headers=BOB)
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "insufficient_quantity"
+    # bad pickup window -> 422
+    r = client.post(f"/v1/listings/{lid}/claims",
+                    json=_claim_body(pickupStartMs=5, pickupEndMs=4), headers=BOB)
+    assert r.status_code == 422, r.text
+    # cannot claim your own listing
+    r = client.post(f"/v1/listings/{lid}/claims", json=_claim_body(), headers=ALICE)
+    assert r.status_code == 422, r.text
+    assert r.json()["code"] == "cannot_claim_own"
+    # missing listing -> 404
+    r = client.post("/v1/listings/does-not-exist/claims", json=_claim_body(), headers=BOB)
+    assert r.status_code == 404, r.text
+
+
+def test_claim_requires_tracked_quantity(mem_claims):
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE, quantity=None)
+    _profile(client, BOB, "Bob")
+
+    r = client.post(f"/v1/listings/{lid}/claims", json=_claim_body(), headers=BOB)
+    assert r.status_code == 422, r.text
+    assert r.json()["code"] == "quantity_not_tracked"
+
+
+def test_cancel_restores_quantity(mem_claims):
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+
+    # Claimer cancels their own claim.
+    _claim(client, lid, BOB, quantity=3)
+    r = client.post(f"/v1/listings/{lid}/claims/cancel", headers=BOB)
+    assert r.status_code == 200, r.text
+    assert r.json()["listing"]["remaining_qty"] == 10
+    assert r.json()["claim"]["status"] == "cancelled"
+
+    # Giver cancels the claimer's claim.
+    _claim(client, lid, BOB, quantity=4)
+    r = client.post(f"/v1/listings/{lid}/claims/cancel", headers=ALICE)
+    assert r.status_code == 200, r.text
+    assert r.json()["listing"]["remaining_qty"] == 10
+    assert r.json()["claim"]["status"] == "cancelled"
+
+    # Nothing active left to cancel.
+    r = client.post(f"/v1/listings/{lid}/claims/cancel", headers=BOB)
+    assert r.status_code == 404, r.text
+    assert r.json()["code"] == "no_active_claim"
+
+
+def test_accept_decline_permissions(mem_claims):
+    client, _, _, _, claim_repo = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+    _profile(client, MALLORY, "Mallory")
+
+    body = _claim(client, lid, BOB, quantity=3)
+    claim_id = body["claim"]["id"]
+
+    # Non-giver cannot accept.
+    r = client.post(f"/v1/listings/{lid}/claims/accept",
+                    json={"claimId": claim_id}, headers=MALLORY)
+    assert r.status_code == 403, r.text
+    assert r.json()["code"] == "not_giver"
+    # Claimer cannot accept their own claim either.
+    r = client.post(f"/v1/listings/{lid}/claims/accept",
+                    json={"claimId": claim_id}, headers=BOB)
+    assert r.status_code == 403, r.text
+
+    # Giver accepts: pending -> accepted, quantity stays out.
+    r = client.post(f"/v1/listings/{lid}/claims/accept",
+                    json={"claimId": claim_id}, headers=ALICE)
+    assert r.status_code == 200, r.text
+    assert r.json()["claim"]["status"] == "accepted"
+    assert r.json()["listing"]["remaining_qty"] == 7
+
+    # Accepting twice is a conflict.
+    r = client.post(f"/v1/listings/{lid}/claims/accept",
+                    json={"claimId": claim_id}, headers=ALICE)
+    assert r.status_code == 409, r.text
+
+    # Unknown claim id -> 404.
+    r = client.post(f"/v1/listings/{lid}/claims/decline",
+                    json={"claimId": "nope"}, headers=ALICE)
+    assert r.status_code == 404, r.text
+
+    # Giver declines a fresh claim: quantity restored.
+    body2 = _claim(client, lid, BOB, quantity=2)
+    r = client.post(f"/v1/listings/{lid}/claims/decline",
+                    json={"claimId": body2["claim"]["id"]}, headers=ALICE)
+    assert r.status_code == 200, r.text
+    assert r.json()["claim"]["status"] == "declined"
+    assert r.json()["listing"]["remaining_qty"] == 7
+
+
+def test_no_show_suspension_blocks_claim(mem_claims):
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+
+    # bob claims; alice accepts; alice reports bob as a no-show.
+    body = _claim(client, lid, BOB, quantity=3)
+    r = client.post(f"/v1/listings/{lid}/claims/accept",
+                    json={"claimId": body["claim"]["id"]}, headers=ALICE)
+    assert r.status_code == 200, r.text
+
+    r = client.post(f"/v1/exchanges/{lid}/no-show",
+                    json={"side": "claimer"}, headers=ALICE)
+    assert r.status_code == 200, r.text
+    assert r.json()["uid"] == "bob"
+    assert r.json()["no_shows"] == 1
+    assert r.json()["suspended_until"] is None
+
+    # Second no-show -> 30-day suspension.
+    r = client.post(f"/v1/exchanges/{lid}/no-show",
+                    json={"side": "claimer"}, headers=ALICE)
+    assert r.json()["no_shows"] == 2
+    assert r.json()["suspended_until"] is not None
+
+    # Bob's next claim is blocked.
+    lid2 = _make_listing(client, ALICE)
+    r = client.post(f"/v1/listings/{lid2}/claims", json=_claim_body(), headers=BOB)
+    assert r.status_code == 403, r.text
+    assert r.json()["code"] == "claim_suspended"
+
+
+def test_no_show_giver_side_suspends_giver(mem_claims):
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+
+    body = _claim(client, lid, BOB, quantity=3)
+    client.post(f"/v1/listings/{lid}/claims/accept",
+                json={"claimId": body["claim"]["id"]}, headers=ALICE)
+
+    # Claimer reports the giver as a no-show, twice.
+    for _ in range(2):
+        r = client.post(f"/v1/exchanges/{lid}/no-show",
+                        json={"side": "giver"}, headers=BOB)
+        assert r.status_code == 200, r.text
+    assert r.json()["uid"] == "alice"
+    assert r.json()["suspended_until"] is not None
+
+    # Now alice cannot claim on someone else's listing.
+    lid2 = _make_listing(client, BOB)
+    r = client.post(f"/v1/listings/{lid2}/claims", json=_claim_body(), headers=ALICE)
+    assert r.status_code == 403, r.text
+    assert r.json()["code"] == "claim_suspended"
+
+
+def test_no_show_requires_active_claim(mem_claims):
+    client, _, _, _, _ = mem_claims
+    lid = _make_listing(client, ALICE)
+    _profile(client, BOB, "Bob")
+
+    r = client.post(f"/v1/exchanges/{lid}/no-show",
+                    json={"side": "claimer"}, headers=ALICE)
+    assert r.status_code == 422, r.text
+    assert r.json()["code"] == "no_active_claim"
+
+
+def test_new_account_claim_cap(mem_claims):
+    client, urepo, _, _, _ = mem_claims
+    _profile(client, BOB, "Bob")  # fresh account: < 14 days old
+
+    # 5 claims in the rolling 7-day window are fine.
+    for _ in range(5):
+        lid = _make_listing(client, ALICE)
+        r = client.post(f"/v1/listings/{lid}/claims", json=_claim_body(), headers=BOB)
+        assert r.status_code == 200, r.text
+
+    # The 6th is blocked.
+    lid = _make_listing(client, ALICE)
+    r = client.post(f"/v1/listings/{lid}/claims", json=_claim_body(), headers=BOB)
+    assert r.status_code == 403, r.text
+    assert r.json()["code"] == "new_account_claim_cap"
+
+    # Aged account (> 14 days) is not capped.
+    urepo._rows["bob"]["created_at"] = (
+        datetime.now(timezone.utc) - timedelta(days=20)).isoformat()
+    r = client.post(f"/v1/listings/{lid}/claims", json=_claim_body(), headers=BOB)
+    assert r.status_code == 200, r.text
+
+
+def test_check_pillar_suspension_helper(mem_claims):
+    from app import claims as claims_mod
+
+    _, _, _, _, claim_repo = mem_claims
+
+    assert claims_mod.check_pillar_suspension("bob", "claims", claim_repo) is None
+    assert claims_mod.check_pillar_suspension("bob", "other-pillar", claim_repo) is None
+
+    claim_repo.record_no_show("bob")
+    assert claims_mod.check_pillar_suspension("bob", "claims", claim_repo) is None
+    claim_repo.record_no_show("bob")
+    suspension = claims_mod.check_pillar_suspension("bob", "claims", claim_repo)
+    assert suspension is not None
+    assert suspension["pillar"] == "claims"
+    assert suspension["reason"] == "no_show_strikes"
+    assert suspension["until"] is not None
