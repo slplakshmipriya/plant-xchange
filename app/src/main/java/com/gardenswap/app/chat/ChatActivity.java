@@ -100,7 +100,14 @@ public class ChatActivity extends AppCompatActivity {
         TextView title = Ui.headline(this, otherName == null ? "Chat" : otherName);
         title.setLayoutParams(new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Button report = Ui.secondaryButton(this, "Report");
+        Button report = Ui.secondaryButton(this, "⚠ Report user");
+        report.setTextSize(12);
+        report.setMinHeight(Ui.dp(this, 36));
+        report.setTextColor(ResourcesCompat.getColor(
+                getResources(), R.color.garden_sheet_red, getTheme()));
+        report.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         report.setOnClickListener(v -> openReport());
         header.addView(title);
         header.addView(report);
@@ -117,8 +124,14 @@ public class ChatActivity extends AppCompatActivity {
         input = Ui.input(this, "Message…", InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         Button attach = Ui.secondaryButton(this, "Photo");
+        attach.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         attach.setOnClickListener(v -> photoPicker.launch("image/*"));
         Button send = Ui.primaryButton(this, "Send");
+        send.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         send.setOnClickListener(v -> onSend());
 
         LinearLayout inputRow = new LinearLayout(this);
