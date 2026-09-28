@@ -48,6 +48,18 @@ public interface GardenSwapApi {
     void getTreeDetail(String treeId, Callback<TreeListing> callback);
 
     /**
+     * Pick-your-own tree directory (planned: API-126, {@code GET /v1/trees}).
+     */
+    void listTrees(Callback<List<TreeListing>> callback);
+
+    /**
+     * Ranked nearby-listings feed for Explore (planned: API-123,
+     * {@code GET /v1/feed?way=&limit=}). The backend owns freshness-first
+     * ranking; the client renders in wire order.
+     */
+    void getFeed(FeedRequest request, Callback<List<Listing>> callback);
+
+    /**
      * Subscribe/unsubscribe to ripe-window alerts for a tree
      * (proposed: API-050, POST /v1/trees/{id}/alerts).
      */
@@ -101,8 +113,33 @@ public interface GardenSwapApi {
     /**
      * Claim a live listing (API-060). The backend checks the claimer's
      * balance and assigns claimer atomically — this is NOT a status PATCH.
+     *
+     * <p>Whole-listing claim; delegates to
+     * {@link #claimListing(String, ClaimRequest, Callback)} with
+     * {@link ClaimRequest#single()}.
      */
     void claimListing(String listingId, Callback<Listing> callback);
+
+    /**
+     * Claim a live listing with quantity, pickup window, and notes
+     * (planned: API-135, {@code POST /v1/listings/{id}/claims}). Partial
+     * claims decrement {@code remaining_qty} on the wire; whole claims behave
+     * like {@link #claimListing(String, Callback)}.
+     */
+    void claimListing(String listingId, ClaimRequest request, Callback<Listing> callback);
+
+    /**
+     * Claimer-side claim cancellation (planned: API-135,
+     * {@code POST /v1/listings/{id}/claims/cancel}). Restores the listing to
+     * LIVE and releases the held quantity/credits.
+     */
+    void cancelClaim(String listingId, Callback<Listing> callback);
+
+    /**
+     * Report a listing, user, or booking for abuse/safety/spam
+     * (planned: API-143, {@code POST /v1/reports}).
+     */
+    void reportContent(ReportRequest request, Callback<Void> callback);
 
     /** Cancel an owned listing (API-020). Owner-only; illegal moves are a backend 422. */
     void cancelListing(String listingId, Callback<Listing> callback);

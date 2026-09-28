@@ -9,6 +9,12 @@ package com.gardenswap.app.api;
  */
 public final class TreeListing {
 
+    /** Spray disclosure values for the required four-option field (PRD §6). */
+    public static final String SPRAY_NONE = "none";
+    public static final String SPRAY_ORGANIC = "organic";
+    public static final String SPRAY_SYNTHETIC = "synthetic";
+    public static final String SPRAY_UNKNOWN = "unknown";
+
     private final String treeId;
     private final String variety;
     private final long ripeStartMs;

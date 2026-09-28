@@ -348,9 +348,42 @@ public class HttpGardenSwapApi implements GardenSwapApi {
 
     @Override
     public void claimListing(String listingId, Callback<Listing> callback) {
-        // The real claim is POST /v1/listings/{id}/claim (balance check +
-        // atomic claimer assignment), not a status PATCH.
-        authed("POST", "/v1/listings/" + enc(listingId) + "/claim", new JSONObject(),
+        claimListing(listingId, ClaimRequest.single(), callback);
+    }
+
+    @Override
+    public void claimListing(String listingId, ClaimRequest request, Callback<Listing> callback) {
+        // Backend endpoint lands per API-135: POST /v1/listings/{id}/claims
+        // with {quantity, pickupStartMs, pickupEndMs, notes}. The backend
+        // checks the claimer's balance, decrements remaining_qty, and
+        // assigns the claimer atomically — this is NOT a status PATCH.
+        try {
+            JSONObject body = new JSONObject();
+            body.put("quantity", request.quantity);
+            if (request.pickupStartMs != null) {
+                body.put("pickupStartMs", request.pickupStartMs);
+            }
+            if (request.pickupEndMs != null) {
+                body.put("pickupEndMs", request.pickupEndMs);
+            }
+            if (request.notes != null && !request.notes.trim().isEmpty()) {
+                body.put("notes", request.notes.trim());
+            }
+            authed("POST", "/v1/listings/" + enc(listingId) + "/claims", body,
+                    (status, json) -> callback.onSuccess(JsonParsers.parseListing(json)),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error", "Couldn't encode the claim."));
+        }
+    }
+
+    @Override
+    public void cancelClaim(String listingId, Callback<Listing> callback) {
+        // Backend endpoint lands per API-135: POST
+        // /v1/listings/{id}/claims/cancel. Restores the listing to LIVE and
+        // releases the held quantity/credits server-side.
+        authed("POST", "/v1/listings/" + enc(listingId) + "/claims/cancel",
+                new JSONObject(),
                 (status, json) -> callback.onSuccess(JsonParsers.parseListing(json)),
                 callback);
     }
@@ -590,6 +623,53 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                     callback);
         } catch (Exception e) {
             fail(callback, new ApiException("encode_error", "Couldn't encode the review."));
+        }
+    }
+
+    // ------------------------------------------------------------ PRD parity (planned)
+
+    @Override
+    public void getFeed(FeedRequest request, Callback<java.util.List<Listing>> callback) {
+        // Backend endpoint lands per API-123: GET /v1/feed?way={way}&limit={n}.
+        // The backend owns freshness-first ranking; the client renders in
+        // wire order ({ "items": [...] } like the other list endpoints).
+        StringBuilder path = new StringBuilder("/v1/feed?limit=");
+        path.append(Math.max(1, request.limit));
+        if (request.way != null && !request.way.trim().isEmpty()) {
+            path.append("&way=").append(enc(request.way.trim()));
+        }
+        authed("GET", path.toString(), null,
+                (status, json) -> callback.onSuccess(JsonParsers.parseListingItems(json)),
+                callback);
+    }
+
+    @Override
+    public void listTrees(Callback<java.util.List<TreeListing>> callback) {
+        // Backend endpoint lands per API-126: GET /v1/trees
+        // ({ "items": [...] } of tree listing rows).
+        authed("GET", "/v1/trees", null,
+                (status, json) -> callback.onSuccess(JsonParsers.parseTreeItems(json)),
+                callback);
+    }
+
+    @Override
+    public void reportContent(ReportRequest request, Callback<Void> callback) {
+        // Backend endpoint lands per API-143: POST /v1/reports with
+        // {targetType, targetId, category, details}. The backend triages;
+        // the client shows a confirmation only.
+        try {
+            JSONObject body = new JSONObject();
+            body.put("targetType", request.targetType);
+            body.put("targetId", request.targetId);
+            body.put("category", request.category);
+            if (request.details != null && !request.details.trim().isEmpty()) {
+                body.put("details", request.details.trim());
+            }
+            authed("POST", "/v1/reports", body,
+                    (status, json) -> callback.onSuccess(null),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error", "Couldn't encode the report."));
         }
     }
 
