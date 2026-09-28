@@ -1,58 +1,21 @@
-# ---------------------------------------------------------------------------
-# Android / Gradle
-# ---------------------------------------------------------------------------
-
-# Local SDK location and per-machine secrets — NEVER commit these.
+# Android (Garden Swap) gitignore — scoped to this directory's subtree.
+# Secrets and machine-local config: never commit.
 local.properties
+google-services.json
+**/google-services.json
+*.keystore
+*.jks
 
 # Build outputs
 build/
-*/build/
-out/
+.gradle/
 *.apk
 *.aar
 *.aab
 
-# Gradle caches and state (project-local)
-.gradle/
-gradle-app.setting
-!gradle-wrapper.jar
-!gradle/wrapper/gradle-wrapper.properties
-
-# Signing: keystores and key passwords must never enter the repo.
-*.jks
-*.keystore
-*.p12
-*.pfx
-keystore.properties
-signing.properties
-
-# ---------------------------------------------------------------------------
-# Android Studio / IntelliJ
-# ---------------------------------------------------------------------------
+# IDE
 .idea/
 *.iml
-*.iws
-*.ipr
+
+# OS
 .DS_Store
-
-# Local run configurations that may embed machine-specific paths
-.idea/runConfigurations/
-
-# ---------------------------------------------------------------------------
-# Firebase / Google services
-# ---------------------------------------------------------------------------
-# google-services.json is committed intentionally (it is not a secret), but
-# ignore any per-developer copies or backups.
-google-services.json.bak
-google-services*.orig
-
-# ---------------------------------------------------------------------------
-# Misc
-# ---------------------------------------------------------------------------
-*.log
-*.tmp
-*.orig
-captures/
-.externalNativeBuild/
-.cxx/

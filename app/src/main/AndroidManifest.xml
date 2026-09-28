@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <application
+        android:name=".GardenSwapApp"
+        android:allowBackup="false"
+        android:label="Garden Swap"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".onboarding.PhoneAuthActivity"
+            android:exported="false" />
+        <activity
+            android:name=".onboarding.ProfileFormActivity"
+            android:exported="false" />
+        <activity
+            android:name=".onboarding.HomeZipActivity"
+            android:exported="false" />
+        <activity
+            android:name=".idv.IdvActivity"
+            android:exported="false" />
+        <activity
+            android:name=".idv.StubIdvActivity"
+            android:exported="false" />
+        <activity
+            android:name=".trees.TreeDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".wallet.WalletActivity"
+            android:exported="false" />
+        <activity
+            android:name=".wallet.ConfirmExchangeActivity"
+            android:exported="false" />
+        <activity
+            android:name=".sitters.SitterListActivity"
+            android:exported="false" />
+        <activity
+            android:name=".sitters.SitterProfileActivity"
+            android:exported="false" />
+        <activity
+            android:name=".sitters.ReviewActivity"
+            android:exported="false" />
+        <activity
+            android:name=".chat.ThreadListActivity"
+            android:exported="false" />
+        <activity
+            android:name=".chat.ChatActivity"
+            android:name=".listings.CreateListingActivity"
+            android:exported="false" />
+        <activity
+            android:name=".listings.ListingDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".wantlist.WantListActivity"
+            android:exported="false" />
+        <activity
+            android:name=".harvest.HarvestLogActivity"
+            android:exported="false" />
+
+    </application>
+
+</manifest>

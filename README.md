@@ -32,12 +32,13 @@ network credits.
 1. Clone and open the project in Android Studio (or build with `./gradlew`).
 2. Copy the local config template and fill in your values:
    ```bash
-   cp android/local.properties.template android/local.properties
+   cp local.properties.template local.properties
    ```
    `local.properties` is git-ignored — it holds your SDK path, the API base
    URL, and any release-signing secrets. Never commit it or any keystore.
 3. Add your `google-services.json` (from the Firebase console) at
-   `app/google-services.json`.
+   `app/google-services.json`. This file is git-ignored; each developer
+   uses their own Firebase project config.
 4. Build:
    ```bash
    ./gradlew assembleDebug
