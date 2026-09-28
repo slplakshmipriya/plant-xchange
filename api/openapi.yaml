@@ -1,0 +1,2729 @@
+openapi: 3.1.0
+info:
+  title: GardenSwap API
+  description: 'Hyperlocal gardening exchange: seedling swaps, harvest swaps, pick-your-own
+    slots, plant sitting, and a fungible credit economy.'
+  version: 0.1.0
+paths:
+  /healthz:
+    get:
+      tags:
+      - ops
+      summary: Healthz
+      description: Liveness probe. Auth-exempt; must stay cheap and dependency-free.
+      operationId: healthz_healthz_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Healthz Healthz Get
+  /v1/users:
+    post:
+      tags:
+      - users
+      summary: Upsert Profile
+      description: Create or update the caller's own profile. uid comes from the ID
+        token.
+      operationId: upsert_profile_v1_users_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerProfile'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/users/me:
+    get:
+      tags:
+      - users
+      summary: Get Me
+      operationId: get_me_v1_users_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerProfile'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - users
+      summary: Delete Me
+      description: 'Delete the caller''s account and all of their data (C6).
+
+
+        Deletion policy: immediate and irreversible — no grace period. This is
+
+        acceptable pre-launch (no production data exists); revisit before launch
+
+        if a retention/grace window becomes a compliance requirement.
+
+        Dependent rows cascade in Postgres via ON DELETE CASCADE (migration
+
+        0024 adds the two FKs that were missing); the in-memory repos used in
+
+        tests mirror that cascade. Idempotent: deleting twice still returns 204.'
+      operationId: delete_me_v1_users_me_delete
+      responses:
+        '204':
+          description: Successful Response
+      security:
+      - bearerAuth: []
+    patch:
+      tags:
+      - users
+      summary: Patch Me
+      operationId: patch_me_v1_users_me_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerProfile'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/users/{uid}:
+    get:
+      tags:
+      - users
+      summary: Get Public Profile
+      description: Anyone authenticated can see the public profile — no PII, no home_zip.
+      operationId: get_public_profile_v1_users__uid__get
+      parameters:
+      - name: uid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Uid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProfile'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/users/me/export:
+    get:
+      tags:
+      - users
+      summary: Export Me
+      description: "Export everything the backend stores about the caller (C6).\n\n\
+        Shape — every section is scoped to the caller, never anyone else's rows:\n\
+        {\n  \"uid\": ..., \"exported_at\": ...,\n  \"profile\": <owner profile>,\n\
+        \  \"listings\": [...],        # listing rows incl. trees; geo decrypted\n\
+        \  \"claims\": [...],          # partial-quantity claims filed by the user\n\
+        \  \"credit_ledger\": [...],   # full append-only ledger history\n  \"want_list\"\
+        : [...],\n  \"harvest_events\": [...],  # pick events on the user's listings\n\
+        \  \"notification_prefs\": {...} | null,\n  \"threads\": [...],         #\
+        \ threads the user participates in\n  \"messages_sent\": [...],    # messages\
+        \ sent by the user, bodies decrypted\n}\nEncrypted fields are decrypted for\
+        \ the owner (fail closed on tamper /\nmissing key, like every other read path).\
+        \ Datetimes are ISO strings."
+      operationId: export_me_v1_users_me_export_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Export Me V1 Users Me Export Get
+      security:
+      - bearerAuth: []
+  /v1/users/me/credit-expiry:
+    get:
+      tags:
+      - credits
+      summary: Credit Expiry
+      description: 'Credit expiry outlook: effective balance, tranches expiring within
+        the
+
+        next 30 days (covers both the 30-day and 7-day warning windows), and the
+
+        end of the current season.'
+      operationId: credit_expiry_v1_users_me_credit_expiry_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Credit Expiry V1 Users Me Credit Expiry Get
+      security:
+      - bearerAuth: []
+  /v1/auth/verify:
+    post:
+      tags:
+      - auth
+      summary: Verify Phone
+      operationId: verify_phone_v1_auth_verify_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Verify Phone V1 Auth Verify Post
+      security:
+      - bearerAuth: []
+  /v1/idv/session:
+    post:
+      tags:
+      - idv
+      summary: Create Session
+      operationId: create_session_v1_idv_session_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Session V1 Idv Session Post
+      security:
+      - bearerAuth: []
+  /v1/idv/webhook:
+    post:
+      tags:
+      - idv
+      summary: Idv Webhook
+      description: Auth-exempt (no user token possible); secured by HMAC signature
+        only.
+      operationId: idv_webhook_v1_idv_webhook_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Idv Webhook V1 Idv Webhook Post
+  /v1/idv/stub/decide:
+    post:
+      tags:
+      - idv
+      summary: Stub Decide
+      description: 'TEST-ONLY: acts as the stub vendor delivering a signed verdict
+        webhook.
+
+
+        Gated on the explicit ``ENABLE_IDV_STUB=1`` opt-in — never on the
+
+        provider name. Without the opt-in this route is dead (404), so a deploy
+
+        that forgot ``IDV_PROVIDER`` cannot be self-verified.'
+      operationId: stub_decide_v1_idv_stub_decide_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StubDecision'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Stub Decide V1 Idv Stub Decide Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings:
+    post:
+      tags:
+      - listings
+      summary: Create Listing
+      operationId: create_listing_v1_listings_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListingIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Listing V1 Listings Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}:
+    get:
+      tags:
+      - listings
+      summary: Get Listing
+      operationId: get_listing_v1_listings__listing_id__get
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Listing V1 Listings  Listing Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+    patch:
+      tags:
+      - listings
+      summary: Patch Listing
+      operationId: patch_listing_v1_listings__listing_id__patch
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListingPatch'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Patch Listing V1 Listings  Listing Id  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/cancel:
+    post:
+      tags:
+      - listings
+      summary: Cancel Listing
+      operationId: cancel_listing_v1_listings__listing_id__cancel_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Cancel Listing V1 Listings  Listing Id  Cancel Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/harvest-events:
+    post:
+      tags:
+      - listings
+      - listings
+      summary: Record Harvest Event
+      description: 'Record kilos picked from a harvest listing (owner only, live only).
+
+
+        Atomic decrement — concurrent pickers cannot oversell. When the harvest
+
+        is fully picked (remaining hits 0) the listing completes via the legal
+
+        live -> claimed -> completed path.'
+      operationId: record_harvest_event_v1_harvest_events_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HarvestEventIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Record Harvest Event V1 Harvest Events Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/harvest-events:
+    get:
+      tags:
+      - listings
+      - listings
+      summary: Get Harvest Events
+      description: Pick audit log for a harvest listing. Owner and authenticated viewers.
+      operationId: get_harvest_events_v1_listings__listing_id__harvest_events_get
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Harvest Events V1 Listings  Listing Id  Harvest
+                  Events Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/trees:
+    get:
+      tags:
+      - listings
+      - trees
+      summary: List Trees
+      description: Live tree listings for pick-your-own (API-135).
+      operationId: list_trees_v1_trees_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Trees V1 Trees Get
+      security:
+      - bearerAuth: []
+  /v1/trees/{listing_id}/ripe-alert:
+    post:
+      tags:
+      - listings
+      - trees
+      summary: Ripe Alert
+      description: 'Notify want-list matches that a tree is ripe for picking (API-050).
+
+
+        Owner-only. The notify layer''s 24h dedupe on ref ``<listing>:<date>``
+
+        makes this safe to re-trigger — each user gets at most one ripe alert
+
+        per tree per day.'
+      operationId: ripe_alert_v1_trees__listing_id__ripe_alert_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Ripe Alert V1 Trees  Listing Id  Ripe Alert Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/internal/sweep:
+    post:
+      tags:
+      - internal
+      summary: Sweep Expired
+      description: 'Idempotent expiry job. Auth: shared secret header (NOT a user
+        token).
+
+
+        Also fires expiry nudges: live listings within 48h / 12h of expiry get a
+
+        nudge to the owner via the notify pipeline (per-mark dedupe refs keep
+
+        this idempotent across sweep runs).'
+      operationId: sweep_expired_v1_internal_sweep_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Sweep Expired V1 Internal Sweep Post
+  /v1/uploads/sign:
+    post:
+      tags:
+      - uploads
+      summary: Sign Upload
+      operationId: sign_upload_v1_uploads_sign_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Sign Upload V1 Uploads Sign Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/uploads/raw/{key}:
+    put:
+      tags:
+      - uploads
+      summary: Put Raw
+      description: 'Local-stub raw PUT target. (GCS backend: 501 — clients PUT to
+        the signed URL.)'
+      operationId: put_raw_v1_uploads_raw__key__put
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Put Raw V1 Uploads Raw  Key  Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/uploads/finalize:
+    post:
+      tags:
+      - uploads
+      summary: Finalize Upload
+      operationId: finalize_upload_v1_uploads_finalize_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinalizeIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Finalize Upload V1 Uploads Finalize Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/users/me/notification-prefs:
+    get:
+      tags:
+      - notifications
+      summary: Get Notification Prefs
+      operationId: get_notification_prefs_v1_users_me_notification_prefs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Notification Prefs V1 Users Me Notification Prefs
+                  Get
+      security:
+      - bearerAuth: []
+    put:
+      tags:
+      - notifications
+      summary: Put Notification Prefs
+      operationId: put_notification_prefs_v1_users_me_notification_prefs_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrefsIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Put Notification Prefs V1 Users Me Notification Prefs
+                  Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/users/me/fcm-token:
+    post:
+      tags:
+      - notifications
+      summary: Register Fcm Token
+      description: 'Register (or refresh) a device FCM registration token for push.
+
+
+        Called by the Android client after sign-in and whenever
+
+        ``FirebaseMessaging.getInstance().token`` rotates. Idempotent per
+
+        (user, token).'
+      operationId: register_fcm_token_v1_users_me_fcm_token_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FcmTokenIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Register Fcm Token V1 Users Me Fcm Token Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/feed:
+    get:
+      tags:
+      - feed
+      summary: Get Feed
+      description: 'Ranked discovery feed of live listings (fuzzed geo, no PII).
+
+
+        Without ``way``: the scored, cursor-paginated feed (API-021).
+
+        With ``way`` (API-123): exact ``{"listings": [...]}`` for one Explore
+
+        way-card, ranked freshest-first by expiry ascending (nulls last).'
+      operationId: get_feed_v1_feed_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: way
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^(seedling|harvest|pick|sitting)$
+          - type: 'null'
+          title: Way
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Feed V1 Feed Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/want-list:
+    get:
+      tags:
+      - want-list
+      summary: List Wants
+      operationId: list_wants_v1_want_list_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Wants V1 Want List Get
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - want-list
+      summary: Create Want
+      operationId: create_want_v1_want_list_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WantIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Want V1 Want List Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/want-list/{want_id}:
+    patch:
+      tags:
+      - want-list
+      summary: Patch Want
+      operationId: patch_want_v1_want_list__want_id__patch
+      parameters:
+      - name: want_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Want Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WantPatch'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Patch Want V1 Want List  Want Id  Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+    delete:
+      tags:
+      - want-list
+      summary: Delete Want
+      operationId: delete_want_v1_want_list__want_id__delete
+      parameters:
+      - name: want_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Want Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claim:
+    post:
+      tags:
+      - credits
+      - listings
+      summary: Claim Listing
+      description: Claim a live listing. Not the owner; needs balance >= credit_cost.
+      operationId: claim_listing_v1_listings__listing_id__claim_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Claim Listing V1 Listings  Listing Id  Claim Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/exchange/confirm:
+    post:
+      tags:
+      - credits
+      - credits
+      summary: Confirm Exchange
+      description: Both parties confirm; credits move exactly once when both are in.
+      operationId: confirm_exchange_v1_exchange_confirm_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Confirm Exchange V1 Exchange Confirm Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/wallet:
+    get:
+      tags:
+      - credits
+      - credits
+      summary: Get Wallet
+      description: Derived balance + full append-only history. No PII in entries.
+      operationId: get_wallet_v1_wallet_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Get Wallet V1 Wallet Get
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Create Claim
+      description: 'Claim part of a listing''s quantity. The claim starts pending;
+        the
+
+        available quantity drops atomically; the listing stays live until the
+
+        quantity hits 0 (then it closes) or the listing expires.'
+      operationId: create_claim_v1_listings__listing_id__claims_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Create Claim V1 Listings  Listing Id  Claims Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims/cancel:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Cancel Claim
+      description: 'Cancel a claim before completion. Claimer or giver; the quantity
+        is
+
+        restored; no credits move.'
+      operationId: cancel_claim_v1_listings__listing_id__claims_cancel_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Cancel Claim V1 Listings  Listing Id  Claims Cancel
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims/accept:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Accept Claim
+      description: Giver accepts a pending claim.
+      operationId: accept_claim_v1_listings__listing_id__claims_accept_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimDecisionIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Accept Claim V1 Listings  Listing Id  Claims Accept
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/listings/{listing_id}/claims/decline:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Decline Claim
+      description: Giver declines a pending claim; the quantity is restored.
+      operationId: decline_claim_v1_listings__listing_id__claims_decline_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimDecisionIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Decline Claim V1 Listings  Listing Id  Claims Decline
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/exchanges/{listing_id}/no-show:
+    post:
+      tags:
+      - claims
+      - claims
+      summary: Record No Show
+      description: 'Record a no-show against one side of an exchange. 2 no-shows ->
+        a
+
+        30-day claim suspension for that user.'
+      operationId: record_no_show_v1_exchanges__listing_id__no_show_post
+      parameters:
+      - name: listing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Listing Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoShowIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Record No Show V1 Exchanges  Listing Id  No Show Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/sitters/me:
+    put:
+      tags:
+      - sitting
+      - sitting
+      summary: Upsert Sitter Profile
+      description: Opt in (or update) as a plant sitter. Needs a user profile first.
+      operationId: upsert_sitter_profile_v1_sitters_me_put
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SitterProfileIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Upsert Sitter Profile V1 Sitters Me Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/sitters:
+    get:
+      tags:
+      - sitting
+      - sitting
+      summary: List Sitters
+      description: Public directory of active sitters. PII-safe.
+      operationId: list_sitters_v1_sitters_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Sitters V1 Sitters Get
+      security:
+      - bearerAuth: []
+  /v1/sitting-requests:
+    post:
+      tags:
+      - sitting
+      - sitting
+      summary: Create Sitting Request
+      description: Request a sitter for your plants. Sitter must be active; not yourself.
+      operationId: create_sitting_request_v1_sitting_requests_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SittingRequestIn'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Sitting Request V1 Sitting Requests Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/sitting-requests/{request_id}/accept:
+    post:
+      tags:
+      - sitting
+      - sitting
+      summary: Accept Request
+      description: Sitter accepts. Only the requested sitter.
+      operationId: accept_request_v1_sitting_requests__request_id__accept_post
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Accept Request V1 Sitting Requests  Request Id  Accept
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/sitting-requests/{request_id}/decline:
+    post:
+      tags:
+      - sitting
+      - sitting
+      summary: Decline Request
+      description: Sitter declines. Only the requested sitter.
+      operationId: decline_request_v1_sitting_requests__request_id__decline_post
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Decline Request V1 Sitting Requests  Request Id  Decline
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/sitting-requests/{request_id}/complete:
+    post:
+      tags:
+      - sitting
+      - sitting
+      summary: Complete Request
+      description: Mark the sitting done. Either party, once accepted.
+      operationId: complete_request_v1_sitting_requests__request_id__complete_post
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Complete Request V1 Sitting Requests  Request Id  Complete
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/sitting-requests/{request_id}/cancel:
+    post:
+      tags:
+      - sitting
+      - sitting
+      summary: Cancel Request
+      description: Owner cancels a pending request.
+      operationId: cancel_request_v1_sitting_requests__request_id__cancel_post
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Cancel Request V1 Sitting Requests  Request Id  Cancel
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/sitting-requests/{request_id}/reviews:
+    post:
+      tags:
+      - sitting
+      - sitting
+      summary: Create Review
+      description: One review per sitting, by the owner, only after completion.
+      operationId: create_review_v1_sitting_requests__request_id__reviews_post
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Create Review V1 Sitting Requests  Request Id  Reviews
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/sitters/{sitter_uid}/reviews:
+    get:
+      tags:
+      - sitting
+      - sitting
+      summary: List Sitter Reviews
+      description: Public reviews for a sitter.
+      operationId: list_sitter_reviews_v1_sitters__sitter_uid__reviews_get
+      parameters:
+      - name: sitter_uid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Sitter Uid
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Sitter Reviews V1 Sitters  Sitter Uid  Reviews
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/threads:
+    get:
+      tags:
+      - messaging
+      - messaging
+      summary: List Threads
+      description: Threads you opened plus threads on your listings.
+      operationId: list_threads_v1_threads_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Threads V1 Threads Get
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - messaging
+      - messaging
+      summary: Open Thread
+      description: Open (or fetch) your thread about a listing. Idempotent per listing.
+      operationId: open_thread_v1_threads_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Open Thread V1 Threads Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/threads/{thread_id}/messages:
+    post:
+      tags:
+      - messaging
+      - messaging
+      summary: Send Message
+      description: Send a message. Participants only.
+      operationId: send_message_v1_threads__thread_id__messages_post
+      parameters:
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Send Message V1 Threads  Thread Id  Messages Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+    get:
+      tags:
+      - messaging
+      - messaging
+      summary: Read Messages
+      description: Read a thread's messages, oldest first. Participants only.
+      operationId: read_messages_v1_threads__thread_id__messages_get
+      parameters:
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Read Messages V1 Threads  Thread Id  Messages Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/threads/{thread_id}/attachments:
+    post:
+      tags:
+      - messaging
+      - messaging
+      summary: Attach Photo
+      description: "Attach a photo to a thread as a \"photo\"-kind message. Participants\
+        \ only.\n\nC8 contract: chat photos MUST come through the ``/v1/uploads``\
+        \ pipeline\n(sign -> PUT -> finalize) so EXIF GPS stripping applies uniformly.\
+        \ The\nclient sends ``uploadKey`` — the ``u/<uid>/<id>.<ext>`` key returned\
+        \ by\n``POST /v1/uploads/sign`` — never a URL.\n\nServer-side verification,\
+        \ in order:\n\n1. Key shape: must match the upload key format. Arbitrary external\
+        \ URLs\n   (http(s) or otherwise) are rejected with 422.\n2. Ownership: the\
+        \ key's ``<uid>`` segment must be the sender — 403\n   otherwise.\n3. Pipeline:\
+        \ ``storage.finalize`` is (re-)run server-side. It proves the\n   bytes exist,\
+        \ are a real image within the size cap, and — crucially —\n   writes back\
+        \ the GPS-stripped rendition, so the attached bytes are\n   guaranteed EXIF-clean\
+        \ no matter what the client did. ``finalize`` is\n   idempotent, so keys the\
+        \ client already finalized are unaffected; keys\n   the client PUT but never\
+        \ finalized are completed here rather than\n   rejected. Missing/corrupt/oversize\
+        \ bytes -> 422; unconfigured\n   storage -> 501. The key is then marked finalized\
+        \ in the uploads\n   registry (C7) so ``GET /v1/uploads/public/{key}`` serves\
+        \ it.\n\nThe public URL is derived server-side from the finalize metadata\
+        \ and\nstored as the message body (encrypted at rest, as before) and as\n\
+        ``photo_url`` — the client never supplies a URL. Participant and support\n\
+        visibility are unchanged."
+      operationId: attach_photo_v1_threads__thread_id__attachments_post
+      parameters:
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachmentIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Attach Photo V1 Threads  Thread Id  Attachments Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/support/threads/{thread_id}/messages:
+    get:
+      tags:
+      - messaging
+      - support
+      summary: Support Read Messages
+      description: 'Support dashboard: full decrypted thread view for moderation.
+
+
+        Support staff only (``SUPPORT_UIDS`` — 403 otherwise, fail closed).
+
+        Not participant-scoped: that is the point — a reported user''s
+
+        conversation must be reviewable. Every message returned writes one
+
+        audit row (viewer, thread, message, reason) into ``moderation_views``.'
+      operationId: support_read_messages_v1_support_threads__thread_id__messages_get
+      parameters:
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      - name: reason
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Why this thread is being reviewed (audit log)
+          title: Reason
+        description: Why this thread is being reviewed (audit log)
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Support Read Messages V1 Support Threads  Thread Id  Messages
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/trees/{tree_id}/slots:
+    post:
+      tags:
+      - trees
+      - trees
+      summary: Create Slot
+      description: Open a pick-your-own slot window on a tree. Owner only.
+      operationId: create_slot_v1_trees__tree_id__slots_post
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tree Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SlotIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Create Slot V1 Trees  Tree Id  Slots Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+    get:
+      tags:
+      - trees
+      - trees
+      summary: List Slots
+      description: 'List a tree''s slots. Wire shape: exactly {slots: [...]}.'
+      operationId: list_slots_v1_trees__tree_id__slots_get
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tree Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Slots V1 Trees  Tree Id  Slots Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/trees/{tree_id}/slots/{slot_id}/claim:
+    post:
+      tags:
+      - trees
+      - trees
+      summary: Claim Slot
+      description: 'Claim a spot in a slot. credit_cost credits move claimer -> owner
+        via
+
+        the ledger; claimed_count increments. Not the owner, not when suspended,
+
+        not when full, not when the wallet is short.'
+      operationId: claim_slot_v1_trees__tree_id__slots__slot_id__claim_post
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tree Id
+      - name: slot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slot Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Claim Slot V1 Trees  Tree Id  Slots  Slot Id  Claim
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/payments/sitting-intent:
+    post:
+      tags:
+      - payments
+      - payments
+      summary: Create Sitting Intent
+      description: 'Create a payment hold for an accepted sitting booking.
+
+
+        The caller must be the booking owner; the booking must be in a payable
+
+        state (``accepted``). Idempotent per booking: a retry returns the existing
+
+        intent''s client secret instead of creating a second hold.'
+      operationId: create_sitting_intent_v1_payments_sitting_intent_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SittingIntentIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Sitting Intent V1 Payments Sitting Intent Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/reports:
+    post:
+      tags:
+      - moderation
+      summary: Create Report
+      description: File a report against a listing, user, or booking. Persists and
+        returns {}.
+      operationId: create_report_v1_reports_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Report V1 Reports Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/disputes:
+    post:
+      tags:
+      - moderation
+      summary: Create Dispute
+      description: Open a dispute on a completed exchange. Only the giver or claimer
+        can.
+      operationId: create_dispute_v1_disputes_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisputeIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Dispute V1 Disputes Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/disputes/{dispute_id}/resolve:
+    post:
+      tags:
+      - moderation
+      summary: Resolve Dispute
+      description: 'Resolve a dispute. Support staff only; on upheld + reversalCredits
+        > 0,
+
+        compensating ``dispute_reversal`` ledger entries are appended (the ledger
+
+        stays append-only — existing entries are never touched).'
+      operationId: resolve_dispute_v1_disputes__dispute_id__resolve_post
+      parameters:
+      - name: dispute_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Dispute Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Resolve Dispute V1 Disputes  Dispute Id  Resolve Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /me:
+    get:
+      tags:
+      - auth
+      summary: Me
+      description: 'Whoami: proves the caller''s ID token verified. Used by clients
+        at login.'
+      operationId: me_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Me Me Get
+      security:
+      - bearerAuth: []
+components:
+  schemas:
+    AttachmentIn:
+      properties:
+        uploadKey:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Uploadkey
+      type: object
+      required:
+      - uploadKey
+      title: AttachmentIn
+    ClaimDecisionIn:
+      properties:
+        claimId:
+          type: string
+          minLength: 1
+          title: Claimid
+      type: object
+      required:
+      - claimId
+      title: ClaimDecisionIn
+    ClaimIn:
+      properties:
+        quantity:
+          type: number
+          minimum: 1.0
+          title: Quantity
+        pickupStartMs:
+          type: integer
+          minimum: 1.0
+          title: Pickupstartms
+        pickupEndMs:
+          type: integer
+          minimum: 1.0
+          title: Pickupendms
+        notes:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Notes
+      type: object
+      required:
+      - quantity
+      - pickupStartMs
+      - pickupEndMs
+      title: ClaimIn
+    ConfirmIn:
+      properties:
+        listing_id:
+          type: string
+          minLength: 1
+          title: Listing Id
+        idempotency_key:
+          anyOf:
+          - type: string
+            maxLength: 128
+          - type: 'null'
+          title: Idempotency Key
+      type: object
+      required:
+      - listing_id
+      title: ConfirmIn
+    DisputeIn:
+      properties:
+        exchangeId:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Exchangeid
+        reason:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Reason
+        details:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Details
+      type: object
+      required:
+      - exchangeId
+      - reason
+      - details
+      title: DisputeIn
+    DisputeOutcome:
+      type: string
+      enum:
+      - upheld
+      - rejected
+      title: DisputeOutcome
+    FcmTokenIn:
+      properties:
+        token:
+          type: string
+          maxLength: 4096
+          minLength: 1
+          title: Token
+        platform:
+          type: string
+          maxLength: 32
+          title: Platform
+          default: android
+      type: object
+      required:
+      - token
+      title: FcmTokenIn
+    FinalizeIn:
+      properties:
+        key:
+          type: string
+          title: Key
+      type: object
+      required:
+      - key
+      title: FinalizeIn
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HarvestEventIn:
+      properties:
+        listing_id:
+          type: string
+          minLength: 1
+          title: Listing Id
+        delta_kg:
+          type: number
+          maximum: 10000.0
+          exclusiveMinimum: 0.0
+          title: Delta Kg
+      type: object
+      required:
+      - listing_id
+      - delta_kg
+      title: HarvestEventIn
+    ListingIn:
+      properties:
+        type:
+          type: string
+          pattern: ^(seedling|harvest|tree)$
+          title: Type
+        photos:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Photos
+        variety:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Variety
+        quantity:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Quantity
+        unit:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Unit
+        credit_cost:
+          type: integer
+          maximum: 3.0
+          minimum: 1.0
+          title: Credit Cost
+        pickup_window:
+          anyOf:
+          - $ref: '#/components/schemas/PickupWindow'
+          - type: 'null'
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        geo_lat:
+          anyOf:
+          - type: number
+            maximum: 90.0
+            minimum: -90.0
+          - type: 'null'
+          title: Geo Lat
+        geo_lon:
+          anyOf:
+          - type: number
+            maximum: 180.0
+            minimum: -180.0
+          - type: 'null'
+          title: Geo Lon
+        spray_disclosure:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Spray Disclosure
+        status:
+          type: string
+          pattern: ^(draft|live)$
+          title: Status
+          default: draft
+        visit_rules:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Visit Rules
+        potSize:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Potsize
+        plantAgeYears:
+          anyOf:
+          - type: string
+            maxLength: 40
+          - type: 'null'
+          title: Plantageyears
+        pickupWindowDays:
+          type: integer
+          maximum: 14.0
+          minimum: 1.0
+          title: Pickupwindowdays
+          default: 4
+      type: object
+      required:
+      - type
+      - photos
+      - credit_cost
+      - spray_disclosure
+      title: ListingIn
+    ListingPatch:
+      properties:
+        photos:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            minItems: 1
+          - type: 'null'
+          title: Photos
+        variety:
+          anyOf:
+          - type: string
+            maxLength: 120
+          - type: 'null'
+          title: Variety
+        quantity:
+          anyOf:
+          - type: number
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Quantity
+        unit:
+          anyOf:
+          - type: string
+            maxLength: 20
+          - type: 'null'
+          title: Unit
+        credit_cost:
+          anyOf:
+          - type: integer
+            maximum: 3.0
+            minimum: 1.0
+          - type: 'null'
+          title: Credit Cost
+        pickup_window:
+          anyOf:
+          - $ref: '#/components/schemas/PickupWindow'
+          - type: 'null'
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        spray_disclosure:
+          anyOf:
+          - type: string
+            maxLength: 2000
+            minLength: 1
+          - type: 'null'
+          title: Spray Disclosure
+        status:
+          anyOf:
+          - type: string
+            pattern: ^(draft|live|claimed|completed|cancelled)$
+          - type: 'null'
+          title: Status
+        visit_rules:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Visit Rules
+      type: object
+      title: ListingPatch
+    MessageIn:
+      properties:
+        body:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Body
+      type: object
+      required:
+      - body
+      title: MessageIn
+    NoShowIn:
+      properties:
+        side:
+          type: string
+          pattern: ^(claimer|giver)$
+          title: Side
+      type: object
+      required:
+      - side
+      title: NoShowIn
+    OwnerProfile:
+      properties:
+        uid:
+          type: string
+          title: Uid
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+        avatar_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Avatar Url
+        idv_status:
+          type: string
+          title: Idv Status
+          default: unverified
+        home_zip:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Home Zip
+        created_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Created At
+      type: object
+      required:
+      - uid
+      - display_name
+      - avatar_url
+      - home_zip
+      title: OwnerProfile
+    PickupWindow:
+      properties:
+        start:
+          type: string
+          format: date-time
+          title: Start
+        end:
+          type: string
+          format: date-time
+          title: End
+      type: object
+      required:
+      - start
+      - end
+      title: PickupWindow
+    PrefsIn:
+      properties:
+        categories:
+          additionalProperties:
+            type: boolean
+          type: object
+          title: Categories
+        quiet_hours:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Quiet Hours
+        quietHours:
+          anyOf:
+          - $ref: '#/components/schemas/QuietHoursWindow'
+          - type: 'null'
+      type: object
+      title: PrefsIn
+      description: 'PUT body. ``categories`` REPLACES the stored map (absent categories
+
+        default to opted-in at send time). ``quiet_hours`` is the legacy
+
+        snake_case toggle; ``quietHours`` is the new window object — an explicit
+
+        ``null`` disables quiet hours, an object enables them with that window.
+
+        When both are present, ``quietHours`` wins.'
+    ProfileIn:
+      properties:
+        display_name:
+          anyOf:
+          - type: string
+            maxLength: 80
+          - type: 'null'
+          title: Display Name
+        avatar_url:
+          anyOf:
+          - type: string
+            maxLength: 2048
+          - type: 'null'
+          title: Avatar Url
+        home_zip:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Home Zip
+      type: object
+      title: ProfileIn
+    PublicProfile:
+      properties:
+        uid:
+          type: string
+          title: Uid
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+        avatar_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Avatar Url
+        idv_status:
+          type: string
+          title: Idv Status
+          default: unverified
+      type: object
+      required:
+      - uid
+      - display_name
+      - avatar_url
+      title: PublicProfile
+    QuietHoursWindow:
+      properties:
+        start:
+          type: string
+          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+          title: Start
+        end:
+          type: string
+          pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+          title: End
+      type: object
+      required:
+      - start
+      - end
+      title: QuietHoursWindow
+    ReportCategory:
+      type: string
+      enum:
+      - spam
+      - safety
+      - fraud
+      - inappropriate
+      - other
+      title: ReportCategory
+    ReportIn:
+      properties:
+        targetType:
+          $ref: '#/components/schemas/TargetType'
+        targetId:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Targetid
+        category:
+          $ref: '#/components/schemas/ReportCategory'
+        details:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Details
+      type: object
+      required:
+      - targetType
+      - targetId
+      - category
+      - details
+      title: ReportIn
+    ResolveIn:
+      properties:
+        outcome:
+          $ref: '#/components/schemas/DisputeOutcome'
+        reversalCredits:
+          type: integer
+          minimum: 0.0
+          title: Reversalcredits
+      type: object
+      required:
+      - outcome
+      - reversalCredits
+      title: ResolveIn
+    ReviewIn:
+      properties:
+        rating:
+          type: integer
+          maximum: 5.0
+          minimum: 1.0
+          title: Rating
+        comment:
+          type: string
+          maxLength: 2000
+          title: Comment
+          default: ''
+      type: object
+      required:
+      - rating
+      title: ReviewIn
+    SignIn:
+      properties:
+        content_type:
+          type: string
+          title: Content Type
+        size_bytes:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Size Bytes
+      type: object
+      required:
+      - content_type
+      - size_bytes
+      title: SignIn
+    SitterProfileIn:
+      properties:
+        bio:
+          type: string
+          maxLength: 2000
+          title: Bio
+          default: ''
+        experience_years:
+          type: integer
+          maximum: 60.0
+          minimum: 0.0
+          title: Experience Years
+          default: 0
+        service_radius_miles:
+          type: number
+          maximum: 100.0
+          exclusiveMinimum: 0.0
+          title: Service Radius Miles
+          default: 5
+        active:
+          type: boolean
+          title: Active
+          default: true
+      type: object
+      title: SitterProfileIn
+    SittingIntentIn:
+      properties:
+        bookingId:
+          type: string
+          minLength: 1
+          title: Bookingid
+      type: object
+      required:
+      - bookingId
+      title: SittingIntentIn
+    SittingRequestIn:
+      properties:
+        sitter_uid:
+          type: string
+          minLength: 1
+          title: Sitter Uid
+        plant_count:
+          type: integer
+          maximum: 500.0
+          exclusiveMinimum: 0.0
+          title: Plant Count
+        start_date:
+          type: string
+          maxLength: 10
+          minLength: 10
+          title: Start Date
+        end_date:
+          type: string
+          maxLength: 10
+          minLength: 10
+          title: End Date
+        notes:
+          type: string
+          maxLength: 2000
+          title: Notes
+          default: ''
+      type: object
+      required:
+      - sitter_uid
+      - plant_count
+      - start_date
+      - end_date
+      title: SittingRequestIn
+    SlotIn:
+      properties:
+        dayMs:
+          type: integer
+          minimum: 0.0
+          title: Dayms
+        startMs:
+          type: integer
+          minimum: 0.0
+          title: Startms
+        endMs:
+          type: integer
+          minimum: 0.0
+          title: Endms
+        maxPickers:
+          type: integer
+          minimum: 1.0
+          title: Maxpickers
+        creditCost:
+          type: integer
+          minimum: 0.0
+          title: Creditcost
+        cashCents:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Cashcents
+      type: object
+      required:
+      - dayMs
+      - startMs
+      - endMs
+      - maxPickers
+      - creditCost
+      title: SlotIn
+    StubDecision:
+      properties:
+        decision:
+          type: string
+          pattern: ^(approved|rejected)$
+          title: Decision
+      type: object
+      required:
+      - decision
+      title: StubDecision
+    TargetType:
+      type: string
+      enum:
+      - LISTING
+      - USER
+      - BOOKING
+      title: TargetType
+    ThreadIn:
+      properties:
+        listing_id:
+          type: string
+          minLength: 1
+          title: Listing Id
+      type: object
+      required:
+      - listing_id
+      title: ThreadIn
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    WantIn:
+      properties:
+        variety:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Variety
+        types:
+          items:
+            type: string
+          type: array
+          maxItems: 3
+          title: Types
+      type: object
+      required:
+      - variety
+      title: WantIn
+    WantPatch:
+      properties:
+        variety:
+          anyOf:
+          - type: string
+            maxLength: 120
+            minLength: 1
+          - type: 'null'
+          title: Variety
+        types:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 3
+          - type: 'null'
+          title: Types
+      type: object
+      title: WantPatch
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase ID token. Required on every route except /healthz and
+        /openapi.yaml.

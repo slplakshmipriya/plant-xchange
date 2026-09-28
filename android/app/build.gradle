@@ -1,0 +1,112 @@
+plugins {
+    id 'com.android.application'
+    id 'com.google.gms.google-services'
+    id 'com.google.firebase.crashlytics'
+}
+
+// Load properties from local.properties (git-ignored file)
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+
+android {
+    namespace 'com.gardenswap.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.gardenswap.app'
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+
+        // Inject API base URL into BuildConfig (git-ignored local.properties)
+        buildConfigField "String", "API_BASE_URL",
+                "\"${localProperties.getProperty('API_BASE_URL', '')}\""
+        // Flip to the real HTTP client at the integration checkpoint:
+        //   USE_REAL_API=true in local.properties (API_BASE_URL must also be set).
+        buildConfigField "boolean", "USE_REAL_API",
+                "${localProperties.getProperty('USE_REAL_API', 'false')}"
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // Name the built APK gardenswap-<variant>.apk instead of the default app-<variant>.apk
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            outputFileName = "gardenswap-${variant.name}.apk"
+        }
+    }
+
+    // Release signing comes from git-ignored local.properties (never commit the keystore):
+    //   RELEASE_KEYSTORE_PATH=/absolute/path/to/gardenswap-release.keystore
+    //   RELEASE_KEYSTORE_PASSWORD=...
+    //   RELEASE_KEY_ALIAS=gardenswap
+    //   RELEASE_KEY_PASSWORD=...
+    // Generate once with:
+    //   keytool -genkeypair -v -keystore gardenswap-release.keystore -alias gardenswap \
+    //     -keyalg RSA -keysize 2048 -validity 10000
+    signingConfigs {
+        release {
+            def keystorePath = localProperties.getProperty('RELEASE_KEYSTORE_PATH')
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword localProperties.getProperty('RELEASE_KEYSTORE_PASSWORD')
+                keyAlias localProperties.getProperty('RELEASE_KEY_ALIAS')
+                keyPassword localProperties.getProperty('RELEASE_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Only sign when the keystore is configured; otherwise assemble an unsigned APK.
+            if (localProperties.getProperty('RELEASE_KEYSTORE_PATH')) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.browser:browser:1.8.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    // Firebase (bom-managed)
+    implementation platform('com.google.firebase:firebase-bom:33.7.0')
+    implementation 'com.google.firebase:firebase-analytics'
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-crashlytics'
+    implementation 'com.google.firebase:firebase-messaging'
+
+    // JVM unit tests (src/test): run on every debug build, no emulator needed.
+    testImplementation 'junit:junit:4.13.2'
+    // Real org.json for unit tests (android.jar only ships throwing stubs).
+    testImplementation 'org.json:json:20230618'
+}
+
+configurations.configureEach {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == "org.jetbrains.kotlin" &&
+            details.requested.name.startsWith("kotlin-stdlib")) {
+            details.useVersion("1.8.22")
+        }
+    }
+}
+
+// Run the unit-test regression suite on every debug build: compiling the app
+// runs the tests, and a failing test fails the build.
+afterEvaluate {
+    tasks.named("assembleDebug").configure {
+        dependsOn("testDebugUnitTest")
+    }
+}

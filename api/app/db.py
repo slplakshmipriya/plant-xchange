@@ -1,0 +1,113 @@
+"""Postgres connection + versioned migration runner.
+
+Conventions:
+- Migrations live in ``api/migrations/`` named ``NNNN_description.sql``
+  (NNNN = zero-padded sequence, e.g. ``0001_init.sql``).
+- Applied versions are recorded in the ``schema_migrations`` table.
+- The runner applies pending migrations in version order inside a single
+  transaction per file, then records the version. No manual SQL.
+- When ``DATABASE_URL`` is unset, startup skips migrations with a warning
+  so /healthz and the test suite work without Postgres.
+- ``get_db_conn`` is the FastAPI dependency domains use for a request-scoped
+  connection (dict rows). Tests override the repo factories instead of this,
+  so most tests never need Postgres.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from pathlib import Path
+from typing import Iterator
+
+from fastapi import HTTPException
+
+from .config import get_settings
+
+logger = logging.getLogger(__name__)
+
+MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
+FILENAME_RE = re.compile(r"^(\d{3,})_[a-z0-9_]+\.sql$")
+
+
+def database_url() -> str | None:
+    return get_settings().database_url
+
+
+def discover_migrations(migrations_dir: Path = MIGRATIONS_DIR) -> list[tuple[int, Path]]:
+    """Return (version, path) for every valid migration file, sorted by version."""
+    found: list[tuple[int, Path]] = []
+    if not migrations_dir.is_dir():
+        return found
+    for path in sorted(migrations_dir.glob("*.sql")):
+        m = FILENAME_RE.match(path.name)
+        if not m:
+            logger.warning("ignoring non-conforming migration file: %s", path.name)
+            continue
+        found.append((int(m.group(1)), path))
+    versions = [v for v, _ in found]
+    if len(set(versions)) != len(versions):
+        raise ValueError(f"duplicate migration versions in {migrations_dir}")
+    return sorted(found, key=lambda t: t[0])
+
+
+def pending_migrations(
+    applied: set[int], migrations_dir: Path = MIGRATIONS_DIR
+) -> list[tuple[int, Path]]:
+    """Migrations not yet applied, in version order."""
+    return [(v, p) for v, p in discover_migrations(migrations_dir) if v not in applied]
+
+
+def run_migrations(migrations_dir: Path = MIGRATIONS_DIR) -> list[int]:
+    """Apply pending migrations. Returns the list of versions applied."""
+    url = database_url()
+    if not url:
+        logger.warning("DATABASE_URL unset — skipping migrations")
+        return []
+    import psycopg
+
+    applied: list[int] = []
+    with psycopg.connect(url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS schema_migrations "
+                "(version INTEGER PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+            )
+            cur.execute("SELECT version FROM schema_migrations")
+            done = {row[0] for row in cur.fetchall()}
+        for version, path in pending_migrations(done, migrations_dir):
+            sql = path.read_text(encoding="utf-8")
+            logger.info("applying migration %s", path.name)
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                cur.execute(
+                    "INSERT INTO schema_migrations (version) VALUES (%s)", (version,)
+                )
+            conn.commit()
+            applied.append(version)
+    if applied:
+        logger.info("migrations applied: %s", applied)
+    return applied
+
+
+def get_db_conn() -> Iterator:
+    """FastAPI dependency: request-scoped Postgres connection (dict rows).
+
+    Raises 503 when DATABASE_URL is unset so route handlers fail closed
+    instead of crashing. Tests override the per-domain repo factories, so
+    they exercise the Memory* repos and never touch this.
+    """
+    url = database_url()
+    if not url:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "database_unavailable",
+                "message": "DATABASE_URL is not configured",
+            },
+        )
+    import psycopg
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(url, row_factory=dict_row) as conn:
+        yield conn

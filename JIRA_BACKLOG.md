@@ -435,3 +435,191 @@ All events carry: `user_id` (hashed), `geo_zip3`, `pillar`, `app_version`.
   (`testDebugUnitTest` on Android; backend suite on API), no-secrets check.
 - Principle of least privilege on Cloud IAM + Neon roles; staging/prod
   separation.
+
+---
+
+# PHASE: PRD parity (audit 2026-09-28)
+
+**Source:** PRD-vs-`ui-feature` deviation audit (corrected: `ui-feature` is the
+real implementation branch; mock is fallback only). Keys continue the existing
+sequence: **AND-122+** (Android), **API-123+** (backend).
+
+## Dependency map
+
+**Critical path — contract first:**
+`API-123` (feed endpoint) → `AND-122` (feed consumption) → `AND-123`
+(freshness sort). The Android contract additions below (`getFeed`, `listTrees`,
+claim-with-quantity, `cancelClaim`, `reportContent`, `Review.reviewerRole` /
+`verifiedBooking`, `ListingInput` new fields) land before the UI tracks.
+
+**Parallel tracks (after contract):**
+- **T1 FEED:** AND-122, AND-123, AND-149 (needs API-135)
+- **T2 CREATE:** AND-124, AND-125, AND-126, AND-127, AND-128 (form-only)
+- **T3 CLAIM:** AND-132, AND-133 (needs API-126); AND-130/AND-131 blocked on
+  API-124/API-125
+- **T4 SITTER:** AND-137, AND-138, AND-139, AND-140, AND-141, AND-146, AND-148
+  (partial); AND-135/136/142/144/145/147 blocked on backend
+- **T5 PYO:** AND-149, AND-150 (needs API-136), AND-151 (needs API-137);
+  AND-153/154/155/156/157 blocked on backend
+- **T6 TRUST:** AND-158 (form now; intake blocked on API-143)
+- **T7 NOTIFY:** AND-152; AND-161/AND-162 blocked on API-146
+- **T8 WALLET:** AND-163 blocked on API-150
+
+## EPIC-PAR-1 — Feed & discovery
+
+- **API-123** [P0, 8] Ranked feed endpoint `GET /feed`: freshness-first
+  ranking (time remaining), paginated, filterable by way
+  (seedling/harvest/pick/sitting). AC: OpenAPI regenerated; ranked results.
+- **AND-122** [P0, 5] Consume the feed endpoint in Explore: replace the
+  mock-only `instanceof MockGardenSwapApi` bail in `loadFeed()` with
+  `GardenSwapApi.getFeed()`; proper empty state when the backend has no
+  listings. AC: Explore shows backend listings via `HttpGardenSwapApi`; no
+  `instanceof Mock` in production code.
+- **AND-123** [P1, 3] Client-side freshness sort fallback (by time remaining,
+  nulls last) in `ExploreLogic`. AC: unit-tested comparator. Blocked by
+  API-123 for server ranking; client sort ships regardless.
+- **API-135** [P1, 5] `GET /trees` list endpoint (id, variety, approx location,
+  ripe window).
+- **AND-149** [P1, 5] Tree list screen; wire the Explore "Pick" way-card to it
+  (today it only sets a filter chip); tapping a tree opens `TreeDetailActivity`.
+  AC: `TreeDetailActivity` reachable from Explore with a sane back stack.
+  Blocked by API-135.
+
+## EPIC-PAR-2 — Listings: create & claim
+
+- **AND-124** [P1, 3] Variety autosuggest in the create-listing form (reuse the
+  want-list autosuggest source). AC: suggestions after 2 chars; free text
+  still allowed.
+- **AND-125** [P1, 2] Pot size + plant age fields in the create-listing form
+  (seedlings); passed through `ListingInput`.
+- **AND-126** [P1, 2] Pickup window defaults to 4 days in the create form when
+  left blank.
+- **AND-127** [P1, 3] Expiry: default 7 days, hard cap 14 days, enforced
+  client-side with inline error.
+- **AND-128** [P1, 2] Harvest perishability: default 48h, max 5 days, enforced
+  client-side.
+- **AND-129** [P2, 3] Zone-aware planting window on want-list items (derive
+  from ZIP + variety).
+- **API-124** [P0, 8] Claim lifecycle on the backend: `POST
+  /listings/{id}/claims` → PENDING; giver accept/decline endpoints; claim
+  states in OpenAPI.
+- **AND-130** [P1, 5] Giver claim confirmation UI: pending-claim state,
+  accept/decline from listing detail. Blocked by API-124.
+- **API-125** [P2, 5] Auto-create listing-scoped chat thread when a claim is
+  confirmed.
+- **AND-131** [P2, 3] Surface the auto-created pickup thread after claim
+  confirm. Blocked by API-125.
+- **AND-132** [P1, 3] Claimer-side claim cancellation from listing detail / My
+  Swaps via `cancelClaim`.
+- **API-126** [P1, 5] Claim quantity support: `quantity` on the claim endpoint;
+  decrements listing quantity; partial claims.
+- **AND-133** [P1, 3] Wire the claim sheet's quantity stepper into
+  `claimListing(listingId, ClaimRequest)`; show remaining quantity. Blocked by
+  API-126.
+- **API-127** [P2, 8] No-show tracking + 30-day suspension enforcement;
+  moderation tooling.
+- **AND-134** [P2, 3] No-show / suspension notice surface (banner + profile
+  flag). Blocked by API-127.
+- **API-136** [P2, 3] Spray as a required enum on the tree model; reject free
+  text.
+- **AND-150** [P2, 3] Spray disclosure as a required 4-option selector
+  (none/organic/synthetic/unknown) on tree create/edit; prominent display on
+  detail. Blocked by API-136.
+- **API-137** [P2, 3] `PATCH /trees/{id}` ripe-window update.
+- **AND-151** [P2, 2] Ripe-window editing on tree detail. Blocked by API-137.
+
+## EPIC-PAR-3 — Sitting & reviews
+
+- **API-128** [P1, 8] Sitter profile fields on the backend: photo (GCS), bio,
+  service-area ZIPs, availability calendar model.
+- **AND-135** [P1, 5] Sitter profile: photo upload, bio, ZIP service areas,
+  availability calendar UI. Blocked by API-128.
+- **API-129** [P2, 5] Trust-history endpoint: completed swaps/picks per user
+  for sitter profiles.
+- **AND-136** [P2, 3] Trust graph: show completed swap/pick history on sitter
+  profiles. Blocked by API-129.
+- **AND-137** [P2, 2] Verified-booking badge on review cards (render from
+  `Review.verifiedBooking`).
+- **AND-138** [P2, 3] Two-sided reviews: `reviewerRole` field + sitter→owner
+  review entry point.
+- **AND-139** [P1, 2] Review tags UI (chips: on time, as described, great
+  comms…); submit the selected tags (today the form sends an empty array).
+- **AND-140** [P1, 3] Real date picker for booking requests (replace "days
+  from today").
+- **AND-141** [P1, 3] Per-service picker in the booking sheet (multi-select;
+  stop sending all services wholesale).
+- **API-130** [P0, 13] Stripe Connect: connected accounts for sitters, payment
+  hold on booking, capture/release, webhooks verified by signature.
+- **AND-142** [P1, 3] Payment-hold UI: render hold state on the booking.
+  Blocked by API-130.
+- **AND-143** [P2, 2] Care form: setup-photo attachment.
+- **API-131** [P2, 8] Visit check-in model + photo upload endpoints.
+- **AND-144** [P2, 5] Visit check-ins with photos. Blocked by API-131.
+- **API-132** [P1, 8] `POST /bookings/{id}/complete` + payment release;
+  completion state machine.
+- **AND-145** [P1, 5] Booking completion / payment-release action in the
+  client. Blocked by API-132.
+- **AND-146** [P0, 3] Gate the first paid booking on IDV: check
+  `getIdvStatus()` before `requestBooking`; route unverified users to
+  `IdvActivity`.
+- **API-133** [P1, 5] Post-booking details endpoints (service address,
+  emergency contact, cancellation policy).
+- **AND-147** [P1, 5] Post-booking details UI: service address, emergency
+  contact, cancellation policy. Blocked by API-133.
+- **API-134** [P1, 5] Booking history endpoint so the reviewer can pick a real
+  completed booking.
+- **AND-148** [P0, 3] Drop the hardcoded `mock-booking-1` review booking ID;
+  resolve the real booking from history; degrade gracefully when history is
+  unavailable. Blocked by API-134.
+
+## EPIC-PAR-4 — Pick-your-own
+
+- **API-138** [P1, 8] Harvest alert pipeline: category prefs, ripe-event
+  fan-out, alert stream endpoint.
+- **AND-153** [P1, 5] Harvest/pick alert category opt-in + alert inbox.
+  Blocked by API-138.
+- **API-139** [P2, 8] Slot model + claiming endpoints for pick-your-own.
+- **AND-154** [P2, 5] Slot claiming UI (day/time/max pickers, credit or cash).
+  Blocked by API-139.
+- **API-140** [P2, 3] Visit counting per picker/tree for first-timer
+  enforcement.
+- **AND-155** [P2, 2] First-timer gating surface (explain + enforce on slot
+  claim). Blocked by API-140.
+- **API-141** [P2, 5] Post-visit confirm endpoint (lbs, credit transfer,
+  review prompts).
+- **AND-156** [P2, 3] Post-visit confirm UI (lbs picked, credit move,
+  both-side review prompt). Blocked by API-141.
+- **API-142** [P2, 5] Complaint intake + strike counting.
+- **AND-157** [P2, 3] Damage/abuse complaint filing UI. Blocked by API-142.
+- **API-148** [P2, 5] Cash pricing support on PYO slots and produce listings.
+- **AND-165** [P2, 3] Optional cash price on PYO slots / produce listings.
+  Blocked by API-148.
+
+## EPIC-PAR-5 — Trust, safety, notifications, credits
+
+- **AND-152** [P0, 5] Push receive path: `FirebaseMessagingService` subclass,
+  manifest entry, notification channels, tap → deep link. (Token registration
+  already exists; today nothing can display.)
+- **API-143** [P1, 8] Report/dispute intake + SLA workflow + moderator
+  tooling.
+- **AND-158** [P1, 3] In-app report/dispute form (listing, user, booking) with
+  categories; calls `reportContent`. Intake blocked by API-143; form ships
+  now.
+- **API-144** [P2, 8] Chat attachment upload + storage.
+- **AND-159** [P2, 5] Chat photo sharing. Blocked by API-144.
+- **API-145** [P2, 5] Proxy/masked calling or number-share consent state.
+- **AND-160** [P2, 3] Phone masking / share-consent UI in chat. Blocked by
+  API-145.
+- **API-146** [P1, 8] Push event pipeline: booking reminders, credit-expiry
+  warnings, quiet-hours respect.
+- **AND-161** [P2, 3] Booking reminders + quiet-hours client surface. Blocked
+  by API-146.
+- **AND-162** [P2, 2] Credit-expiry push client surface. Blocked by API-146.
+- **API-147** [P2, 5] New-account claim caps enforced server-side.
+- **AND-164** [P2, 2] New-account claim-cap notice (<14d: 5 claims/week).
+  Blocked by API-147.
+- **API-149** [P0, 13] Stripe Connect platform integration (see also API-130).
+- **API-150** [P1, 5] Seasonal credit-expiry batch job + 30-day warning
+  events.
+- **AND-163** [P2, 3] 30-day credit-expiry warning + season-boundary label in
+  Wallet. Blocked by API-150.

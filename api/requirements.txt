@@ -1,0 +1,13 @@
+# GardenSwap API — pinned runtime dependencies
+# Install: pip install -r requirements.txt
+fastapi==0.141.1
+starlette==1.7.0
+uvicorn[standard]==0.35.0
+pydantic==2.11.7
+psycopg[binary]==3.2.9
+firebase-admin==7.1.0
+PyYAML==6.0.2
+# Image validation + EXIF GPS stripping for listing photos (API-022)
+pillow==12.3.0
+# At-rest field encryption: message bodies + listing geo (Fernet/AES-256-GCM)
+cryptography==44.0.1
