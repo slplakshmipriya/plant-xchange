@@ -60,7 +60,7 @@ public class ExploreActivity extends AppCompatActivity {
 
         // Sticky title bar: the leaf + wordmark row never scrolls away.
         LinearLayout header = Ui.column(this, 20);
-        header.addView(appTitleRow());
+        header.addView(Ui.appTitleRow(this));
         int pad = Ui.dp(this, 20);
         header.setPadding(pad, pad, pad, 0);
 
@@ -116,25 +116,6 @@ public class ExploreActivity extends AppCompatActivity {
         loadWallet();
         loadWantMatches();
         loadFeed();
-    }
-
-    /** App title row: leaf mark + "Garden Swap" wordmark. */
-    private LinearLayout appTitleRow() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        android.widget.ImageView mark = new android.widget.ImageView(this);
-        mark.setImageResource(R.drawable.ic_leaf);
-        mark.setImageTintList(android.content.res.ColorStateList.valueOf(
-                ResourcesCompat.getColor(getResources(), R.color.garden_leaf, getTheme())));
-        int size = Ui.dp(this, 32);
-        row.addView(mark, new LinearLayout.LayoutParams(size, size));
-        TextView title = Ui.display(this, "Garden Swap");
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.leftMargin = Ui.dp(this, 8);
-        row.addView(title, params);
-        return row;
     }
 
     /** Two way cards side by side. */

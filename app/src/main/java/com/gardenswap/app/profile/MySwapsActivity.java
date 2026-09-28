@@ -30,14 +30,15 @@ public class MySwapsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Sticky title bar: "My swaps" stays fixed while sections scroll.
+        // Sticky brand bar, same as Explore; the screen title scrolls below.
         LinearLayout header = Ui.column(this, 24);
-        header.addView(Ui.headline(this, "My swaps"));
+        header.addView(Ui.appTitleRow(this));
         int pad = Ui.dp(this, 24);
         header.setPadding(pad, pad, pad, 0);
 
         LinearLayout root = Ui.column(this, 24);
         root.setPadding(pad, 0, pad, pad);
+        root.addView(Ui.headline(this, "My swaps"));
         Ui.gap(root, this, 16);
 
         SwapLogic.Partition partition =

@@ -38,17 +38,22 @@ public class SitterListActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Sticky title bar: title + intro stay fixed while sitters scroll.
+        // Sticky brand bar, same as Explore; the screen title sits below it
+        // while the sitter list scrolls.
         LinearLayout header = Ui.column(this, 24);
-        header.addView(Ui.headline(this, "Find a plant sitter"));
-        Ui.gap(header, this, 4);
-        header.addView(Ui.body(this, "Local sitters for watering, repotting, and vacation care."));
-        Ui.gap(header, this, 12);
-        statusText = Ui.status(this);
-        header.addView(statusText);
-        Ui.gap(header, this, 8);
+        header.addView(Ui.appTitleRow(this));
         int pad = Ui.dp(this, 24);
         header.setPadding(pad, pad, pad, 0);
+
+        LinearLayout titleBlock = Ui.column(this, 24);
+        titleBlock.setPadding(pad, 0, pad, 0);
+        titleBlock.addView(Ui.headline(this, "Find a plant sitter"));
+        Ui.gap(titleBlock, this, 4);
+        titleBlock.addView(Ui.body(this, "Local sitters for watering, repotting, and vacation care."));
+        Ui.gap(titleBlock, this, 12);
+        statusText = Ui.status(this);
+        titleBlock.addView(statusText);
+        Ui.gap(titleBlock, this, 8);
 
         LinearLayout listWrap = Ui.column(this, 24);
         listWrap.setPadding(pad, 0, pad, pad);
@@ -64,7 +69,13 @@ public class SitterListActivity extends AppCompatActivity {
         listWrap.addView(list, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        setContentView(Ui.stickyHeaderScreen(this, header, listWrap));
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.addView(titleBlock);
+        content.addView(listWrap, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        setContentView(Ui.stickyHeaderScreen(this, header, content));
         Nav.attach(this, NavRouter.Tab.CARE);
 
         load("85281"); // mock zip; real flow reads the profile's homeZip

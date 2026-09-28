@@ -44,19 +44,20 @@ public class ThreadListActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Sticky title bar: "Messages" stays fixed while threads scroll.
+        // Sticky brand bar, same as Explore; the screen title scrolls below.
         LinearLayout header = Ui.column(this, 24);
-        header.addView(Ui.headline(this, "Messages"));
-        Ui.gap(header, this, 8);
-        statusText = Ui.status(this);
-        header.addView(statusText);
-        Ui.gap(header, this, 8);
+        header.addView(Ui.appTitleRow(this));
         int pad = Ui.dp(this, 24);
         header.setPadding(pad, pad, pad, 0);
 
+        statusText = Ui.status(this);
         list = Ui.column(this, 0);
         LinearLayout root = Ui.column(this, 24);
         root.setPadding(pad, 0, pad, pad);
+        root.addView(Ui.headline(this, "Messages"));
+        Ui.gap(root, this, 8);
+        root.addView(statusText);
+        Ui.gap(root, this, 8);
         root.addView(list);
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
