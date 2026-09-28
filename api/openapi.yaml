@@ -1238,6 +1238,110 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/reports:
+    post:
+      tags:
+      - moderation
+      summary: Create Report
+      description: File a report against a listing, user, or booking. Persists and
+        returns {}.
+      operationId: create_report_v1_reports_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Report V1 Reports Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/disputes:
+    post:
+      tags:
+      - moderation
+      summary: Create Dispute
+      description: Open a dispute on a completed exchange. Only the giver or claimer
+        can.
+      operationId: create_dispute_v1_disputes_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisputeIn'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Dispute V1 Disputes Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/disputes/{dispute_id}/resolve:
+    post:
+      tags:
+      - moderation
+      summary: Resolve Dispute
+      description: 'Resolve a dispute. Support staff only; on upheld + reversalCredits
+        > 0,
+
+        compensating ``dispute_reversal`` ledger entries are appended (the ledger
+
+        stays append-only — existing entries are never touched).'
+      operationId: resolve_dispute_v1_disputes__dispute_id__resolve_post
+      parameters:
+      - name: dispute_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Dispute Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Resolve Dispute V1 Disputes  Dispute Id  Resolve Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -1275,6 +1379,35 @@ components:
       required:
       - listing_id
       title: ConfirmIn
+    DisputeIn:
+      properties:
+        exchangeId:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Exchangeid
+        reason:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Reason
+        details:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Details
+      type: object
+      required:
+      - exchangeId
+      - reason
+      - details
+      title: DisputeIn
+    DisputeOutcome:
+      type: string
+      enum:
+      - upheld
+      - rejected
+      title: DisputeOutcome
     FinalizeIn:
       properties:
         key:
@@ -1579,6 +1712,51 @@ components:
       - display_name
       - avatar_url
       title: PublicProfile
+    ReportCategory:
+      type: string
+      enum:
+      - spam
+      - safety
+      - fraud
+      - inappropriate
+      - other
+      title: ReportCategory
+    ReportIn:
+      properties:
+        targetType:
+          $ref: '#/components/schemas/TargetType'
+        targetId:
+          type: string
+          maxLength: 256
+          minLength: 1
+          title: Targetid
+        category:
+          $ref: '#/components/schemas/ReportCategory'
+        details:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          title: Details
+      type: object
+      required:
+      - targetType
+      - targetId
+      - category
+      - details
+      title: ReportIn
+    ResolveIn:
+      properties:
+        outcome:
+          $ref: '#/components/schemas/DisputeOutcome'
+        reversalCredits:
+          type: integer
+          minimum: 0.0
+          title: Reversalcredits
+      type: object
+      required:
+      - outcome
+      - reversalCredits
+      title: ResolveIn
     ReviewIn:
       properties:
         rating:
@@ -1677,6 +1855,13 @@ components:
       required:
       - decision
       title: StubDecision
+    TargetType:
+      type: string
+      enum:
+      - LISTING
+      - USER
+      - BOOKING
+      title: TargetType
     ThreadIn:
       properties:
         listing_id:
