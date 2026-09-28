@@ -1,5 +1,6 @@
 package com.gardenswap.app.sitters;
 
+import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.content.Intent;
 import android.os.Bundle;
@@ -22,6 +23,7 @@ import com.gardenswap.app.api.BookingRequest;
 import com.gardenswap.app.api.BookingStatus;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.IdvStatus;
+import com.gardenswap.app.api.PaymentIntent;
 import com.gardenswap.app.api.Review;
 import com.gardenswap.app.api.SitterProfile;
 import com.gardenswap.app.idv.IdvActivity;
@@ -114,6 +116,12 @@ public class SitterProfileActivity extends AppCompatActivity {
         content.addView(skillChips());
         Ui.gap(content, this, 16);
 
+        // Availability: SitterProfile exposes no availability data and the
+        // API has no sitter-update endpoint, so this is a read-only strip
+        // showing the next 14 days as open, with the limitation stated.
+        content.addView(availabilitySection());
+        Ui.gap(content, this, 16);
+
         content.addView(Ui.eyebrow(this, "Reviews"));
         Ui.gap(content, this, 8);
         for (Review review : mockReviews(sitter)) {
@@ -122,9 +130,9 @@ public class SitterProfileActivity extends AppCompatActivity {
         }
         Ui.gap(content, this, 8);
 
-        // Mock-phase entry point: no per-booking history endpoint exists yet,
-        // so this opens the review form against a mock completed booking
-        // (API-072 is proposed). The form itself still gates on COMPLETED.
+        // ReviewActivity resolves the real completed booking via
+        // GET /v1/bookings (role + completed filter); the id passed here is
+        // only the fallback if that endpoint is not available yet.
         Button writeReview = Ui.secondaryButton(this, "Write a review");
         writeReview.setOnClickListener(v -> {
             Intent intent = new Intent(this, ReviewActivity.class);
@@ -381,6 +389,56 @@ public class SitterProfileActivity extends AppCompatActivity {
         return row;
     }
 
+    /**
+     * Read-only strip of the next 14 days. The {@link SitterProfile} model
+     * carries no availability data and the API exposes no sitter-update
+     * endpoint, so days cannot be toggled or persisted — the strip defaults
+     * to "Available" and states the limitation explicitly.
+     */
+    private LinearLayout availabilitySection() {
+        LinearLayout section = new LinearLayout(this);
+        section.setOrientation(LinearLayout.VERTICAL);
+        section.addView(Ui.eyebrow(this, "Availability"));
+        Ui.gap(section, this, 8);
+        SimpleDateFormat dayFormat = new SimpleDateFormat("EEE d", Locale.US);
+        Calendar cal = Calendar.getInstance();
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        section.addView(row);
+        for (int i = 0; i < 14; i++) {
+            if (i > 0 && i % 7 == 0) {
+                Ui.gap(section, this, 8);
+                row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                section.addView(row);
+            }
+            row.addView(dayCell(dayFormat.format(cal.getTime())));
+            cal.add(Calendar.DAY_OF_MONTH, 1);
+        }
+        Ui.gap(section, this, 8);
+        section.addView(Ui.caption(this,
+                "This sitter hasn't shared a calendar, so all days show as open. "
+                        + "Availability editing isn't supported by the API yet."));
+        return section;
+    }
+
+    private LinearLayout dayCell(String label) {
+        LinearLayout cell = new LinearLayout(this);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        TextView day = Ui.caption(this, label);
+        day.setGravity(Gravity.CENTER);
+        cell.addView(day);
+        TextView chip = Ui.chip(this, "Available");
+        chip.setClickable(false);
+        chip.setFocusable(false);
+        cell.addView(chip);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        params.setMarginEnd(Ui.dp(this, 4));
+        cell.setLayoutParams(params);
+        return cell;
+    }
+
     private void toggleService(TextView chip, String service) {
         boolean now = !selectedServices.contains(service);
         if (now) {
@@ -453,6 +511,7 @@ public class SitterProfileActivity extends AppCompatActivity {
                 requestButton.setVisibility(View.GONE);
                 FirebaseAnalytics.getInstance(SitterProfileActivity.this)
                         .logEvent("booking_requested", null);
+                requestPaymentIntentStub(booking.getBookingId());
             }
 
             @Override
@@ -462,5 +521,43 @@ public class SitterProfileActivity extends AppCompatActivity {
                 statusText.setText("Couldn't request the booking (" + e.getCode() + ").");
             }
         });
+    }
+
+    /**
+     * Payment sheet scaffold (API-070). Once the booking exists, the client
+     * mints a sitting payment intent and would hand its client secret to the
+     * Stripe payment sheet. Stripe is not integrated yet, so this only shows
+     * the stub dialog; no SDK, no keys, no charge.
+     */
+    private void requestPaymentIntentStub(final String bookingId) {
+        statusText.setText("Preparing payment…");
+        ApiProvider.get().createSittingPaymentIntent(bookingId,
+                new GardenSwapApi.Callback<PaymentIntent>() {
+                    @Override
+                    public void onSuccess(PaymentIntent intent) {
+                        statusText.setText("");
+                        showPaymentStubDialog(bookingId, intent.getClientSecret());
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        statusText.setText("");
+                        Toast.makeText(SitterProfileActivity.this,
+                                "Couldn't start payment (" + e.getCode() + ")",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    private void showPaymentStubDialog(String bookingId, String clientSecret) {
+        new AlertDialog.Builder(this)
+                .setTitle("Payment (stub — Stripe not integrated)")
+                .setMessage("A Stripe payment sheet would open here for booking "
+                        + bookingId + " with the client secret:\n\n"
+                        + clientSecret
+                        + "\n\nNo payment was made — Stripe is not integrated yet, "
+                        + "so there is nothing to charge against.")
+                .setPositiveButton("Done", null)
+                .show();
     }
 }

@@ -18,6 +18,7 @@ import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.UserProfile;
 import com.gardenswap.app.api.Wallet;
+import com.gardenswap.app.notifications.NotificationPrefsActivity;
 import com.gardenswap.app.ui.BadgeState;
 import com.gardenswap.app.ui.Nav;
 import com.gardenswap.app.ui.Ui;
@@ -73,6 +74,12 @@ public class ProfileActivity extends AppCompatActivity {
         swapsButton.setOnClickListener(v -> startActivity(
                 new Intent(this, MySwapsActivity.class)));
         root.addView(swapsButton);
+        Ui.gap(root, this, 8);
+
+        TextView prefsButton = Ui.secondaryButton(this, "Notification preferences");
+        prefsButton.setOnClickListener(v -> startActivity(
+                new Intent(this, NotificationPrefsActivity.class)));
+        root.addView(prefsButton);
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);

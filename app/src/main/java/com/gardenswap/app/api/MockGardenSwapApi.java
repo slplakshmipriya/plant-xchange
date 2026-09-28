@@ -45,6 +45,12 @@ public class MockGardenSwapApi implements GardenSwapApi {
     /** In-memory harvest events per listing (AND-040). */
     private final Map<String, List<HarvestEvent>> harvestEvents = new LinkedHashMap<>();
 
+    /** In-memory pick-your-own slots per tree (PRD parity, r2). */
+    private final Map<String, List<Slot>> slotsByTree = new LinkedHashMap<>();
+
+    /** In-memory notification preferences (PRD parity, r2). */
+    private NotificationPrefs notificationPrefs = NotificationPrefs.defaultAllOn();
+
     public MockGardenSwapApi() {
         seedSampleListings();
     }
@@ -289,6 +295,9 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 .sprayDisclosure(input.getSprayDisclosure())
                 .status(ListingStatus.LIVE)
                 .free(input.isFree())
+                .potSize(input.getPotSize())
+                .plantAge(input.getPlantAge())
+                .pickupWindowDays(input.getPickupWindowDays())
                 .build();
         listings.put(listing.getId(), listing);
         Log.d(TAG, "createListing id=" + listing.getId() + " type=" + input.getType());
@@ -422,6 +431,9 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 .claimerUid(claimerUid)
                 .remainingQty(remainingQty)
                 .visitRules(current.getVisitRules())
+                .potSize(current.getPotSize())
+                .plantAge(current.getPlantAge())
+                .pickupWindowDays(current.getPickupWindowDays())
                 .build();
     }
 
@@ -461,6 +473,9 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 .claimerUid(current.getClaimerUid())
                 .remainingQty(current.getRemainingQty())
                 .visitRules(current.getVisitRules())
+                .potSize(current.getPotSize())
+                .plantAge(current.getPlantAge())
+                .pickupWindowDays(current.getPickupWindowDays())
                 .build();
         listings.put(listingId, cancelled);
         emit(callback, cancelled);
@@ -596,6 +611,158 @@ public class MockGardenSwapApi implements GardenSwapApi {
         }
         events.add(event);
         emit(callback, event);
+    }
+
+    // ------------------------------------------------------------ PRD parity (r2)
+
+    @Override
+    public void acceptClaim(String listingId, String claimId,
+            Callback<Listing> callback) {
+        Listing current = listings.get(listingId);
+        if (current == null) {
+            emitError(callback, new ApiException("listing_not_found", "No such listing"));
+            return;
+        }
+        // Owner accepts: the exchange completes; the claimer stays recorded.
+        Log.d(TAG, "acceptClaim id=" + listingId + " claim=" + claimId);
+        Listing accepted = rebuild(current, ListingStatus.COMPLETED,
+                current.getClaimerUid(), current.getRemainingQty(),
+                current.getPickupStartMs(), current.getPickupEndMs());
+        listings.put(listingId, accepted);
+        emit(callback, accepted);
+    }
+
+    @Override
+    public void declineClaim(String listingId, String claimId,
+            Callback<Listing> callback) {
+        Listing current = listings.get(listingId);
+        if (current == null) {
+            emitError(callback, new ApiException("listing_not_found", "No such listing"));
+            return;
+        }
+        // Owner declines: back to LIVE, claimer released.
+        Log.d(TAG, "declineClaim id=" + listingId + " claim=" + claimId);
+        Listing declined = rebuild(current, ListingStatus.LIVE, null,
+                current.getRemainingQty(),
+                current.getPickupStartMs(), current.getPickupEndMs());
+        listings.put(listingId, declined);
+        emit(callback, declined);
+    }
+
+    @Override
+    public void listBookings(String role, boolean completedOnly,
+            Callback<List<Booking>> callback) {
+        // Fixed list; the Booking model carries no party names (only ids).
+        long now = System.currentTimeMillis();
+        long day = 24 * 3_600_000L;
+        List<Booking> bookings = new ArrayList<>();
+        Booking completed = new Booking("b-completed-1", "s1", BookingStatus.COMPLETED,
+                now - 30 * day, now - 23 * day,
+                new String[]{"watering", "harvesting"}, 2400, 432,
+                "Water the tomatoes every morning.");
+        bookings.add(completed);
+        Booking upcoming = new Booking("b-upcoming-1", "s2", BookingStatus.CONFIRMED,
+                now + 7 * day, now + 14 * day,
+                new String[]{"watering"}, 1500, 270, "Feed the cat too.");
+        bookings.add(upcoming);
+        if (completedOnly) {
+            List<Booking> filtered = new ArrayList<>();
+            for (Booking b : bookings) {
+                if (b.getStatus() == BookingStatus.COMPLETED) {
+                    filtered.add(b);
+                }
+            }
+            bookings = filtered;
+        }
+        Log.d(TAG, "listBookings role=" + role + " completedOnly=" + completedOnly);
+        emit(callback, bookings);
+    }
+
+    @Override
+    public void listTreeSlots(String treeId, Callback<List<Slot>> callback) {
+        emit(callback, new ArrayList<>(slotsForTree(treeId)));
+    }
+
+    /** Lazy-seeded pick-your-own slots for a tree. */
+    private List<Slot> slotsForTree(String treeId) {
+        List<Slot> slots = slotsByTree.get(treeId);
+        if (slots == null) {
+            slots = new ArrayList<>();
+            long now = System.currentTimeMillis();
+            long day = 24 * 3_600_000L;
+            for (int i = 0; i < 3; i++) {
+                long start = now + (2 + i) * day + 9 * 3_600_000L;
+                slots.add(new Slot("slot-" + treeId + "-" + i, treeId, now + (2 + i) * day,
+                        start, start + 3 * 3_600_000L, 6, i == 0 ? 2 : 0, 1, null));
+            }
+            slotsByTree.put(treeId, slots);
+        }
+        return slots;
+    }
+
+    @Override
+    public void claimTreeSlot(String treeId, String slotId, Callback<Slot> callback) {
+        for (Slot slot : slotsForTree(treeId)) {
+            if (slot.getId().equals(slotId)) {
+                if (slot.getRemainingCount() <= 0) {
+                    emitError(callback, new ApiException("slot_full",
+                            "This slot is full"));
+                    return;
+                }
+                Slot claimed = slot.withClaimedCount(slot.getClaimedCount() + 1);
+                List<Slot> slots = slotsByTree.get(treeId);
+                slots.set(slots.indexOf(slot), claimed);
+                emit(callback, claimed);
+                return;
+            }
+        }
+        emitError(callback, new ApiException("slot_not_found", "No such slot"));
+    }
+
+    @Override
+    public void sendAttachment(String threadId, String photoUrl,
+            Callback<ChatMessage> callback) {
+        String trimmed = photoUrl == null ? "" : photoUrl.trim();
+        if (trimmed.isEmpty()) {
+            emitError(callback, new ApiException("empty_attachment", "Pick a photo first."));
+            return;
+        }
+        emit(callback, new ChatMessage("m" + System.currentTimeMillis(), threadId,
+                "You", true, ChatMessage.Kind.PHOTO, trimmed,
+                System.currentTimeMillis()));
+    }
+
+    @Override
+    public void getCreditExpiry(Callback<CreditExpiry> callback) {
+        // Balance 5 with one chunk expiring in 6 days: demos the 7-day
+        // warning; season ends ~60 days out.
+        long now = System.currentTimeMillis();
+        long day = 24 * 3_600_000L;
+        List<CreditExpiry.ExpiringChunk> chunks = new ArrayList<>();
+        chunks.add(new CreditExpiry.ExpiringChunk(2, now + 6 * day));
+        emit(callback, new CreditExpiry(5, chunks, now + 60 * day));
+    }
+
+    @Override
+    public void getNotificationPrefs(Callback<NotificationPrefs> callback) {
+        emit(callback, notificationPrefs);
+    }
+
+    @Override
+    public void updateNotificationPrefs(NotificationPrefs prefs,
+            Callback<NotificationPrefs> callback) {
+        notificationPrefs = prefs == null
+                ? NotificationPrefs.defaultAllOn() : prefs;
+        Log.d(TAG, "updateNotificationPrefs harvest=" + notificationPrefs.isHarvestAlerts()
+                + " quiet=" + notificationPrefs.getQuietHoursStart());
+        emit(callback, notificationPrefs);
+    }
+
+    @Override
+    public void createSittingPaymentIntent(String bookingId,
+            Callback<PaymentIntent> callback) {
+        Log.d(TAG, "createSittingPaymentIntent booking=" + bookingId);
+        emit(callback, new PaymentIntent("stub_secret_for_test"));
     }
 
     private <T> void emit(Callback<T> callback, T value) {

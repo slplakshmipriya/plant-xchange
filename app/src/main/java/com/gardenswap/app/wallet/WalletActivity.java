@@ -1,6 +1,7 @@
 package com.gardenswap.app.wallet;
 
 import android.app.AlertDialog;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
@@ -16,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.gardenswap.app.R;
 import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
+import com.gardenswap.app.api.CreditExpiry;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.api.LedgerEntry;
 import com.gardenswap.app.api.Wallet;
@@ -24,8 +26,11 @@ import com.gardenswap.app.ui.Ui;
 import com.gardenswap.app.util.LedgerFormatter;
 import com.gardenswap.app.util.WalletLogic;
 
+import java.text.SimpleDateFormat;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Credit wallet (AND-060), restyled to the garden-swap-app-ui-design
@@ -43,6 +48,7 @@ public class WalletActivity extends AppCompatActivity {
 
     private TextView statusText;
     private LedgerAdapter adapter;
+    private LinearLayout expirySection;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -100,6 +106,7 @@ public class WalletActivity extends AppCompatActivity {
         adapter.setHeader(buildHeader(wallet, now));
         List<LedgerEntry> entries = wallet.getEntries();
         adapter.setEntries(entries == null ? Collections.emptyList() : entries);
+        loadCreditExpiry(now);
     }
 
     /** Header: balance card, expiry cue, cap lines, explainer, history title. */
@@ -135,10 +142,21 @@ public class WalletActivity extends AppCompatActivity {
             Ui.gap(header, this, 8);
         }
 
+        // Credit expiry section (r2 contract: GET /v1/users/me/credit-expiry).
+        // Empty placeholder until the call succeeds; on error it stays empty,
+        // so the section is hidden silently (backend may 404 before it lands).
+        expirySection = Ui.column(this, 0);
+        header.addView(expirySection);
+
         header.addView(Ui.caption(this,
                 LedgerFormatter.weeklyCapLine(wallet.getEarnedThisWeek())));
         Ui.gap(header, this, 4);
         header.addView(Ui.caption(this, LedgerFormatter.starterNote()));
+        Ui.gap(header, this, 4);
+        header.addView(Ui.caption(this, "You can earn up to 10 credits per week."));
+        Ui.gap(header, this, 4);
+        header.addView(Ui.caption(this,
+                "New accounts (under 14 days) can claim up to 5 listings per week."));
         Ui.gap(header, this, 12);
 
         Button explainerButton = Ui.secondaryButton(this, "How credits work");
@@ -163,6 +181,61 @@ public class WalletActivity extends AppCompatActivity {
             return null;
         }
         return (int) ((nextExpiryMs - nowMs) / DAY_MS);
+    }
+
+    /**
+     * Fills the "Credit expiry" section from GET /v1/users/me/credit-expiry.
+     * The endpoint 404s until the backend lands (PRD parity, r2 contract) —
+     * on error the section is hidden silently and nothing else changes.
+     */
+    private void loadCreditExpiry(long nowMs) {
+        final LinearLayout section = expirySection;
+        if (section == null) {
+            return;
+        }
+        ApiProvider.get().getCreditExpiry(new GardenSwapApi.Callback<CreditExpiry>() {
+            @Override
+            public void onSuccess(CreditExpiry expiry) {
+                if (expiry != null) {
+                    renderCreditExpiry(section, expiry, nowMs);
+                }
+            }
+
+            @Override
+            public void onError(ApiException e) {
+                // Silently hide: the placeholder stays empty.
+            }
+        });
+    }
+
+    /** Renders one line per expiring chunk plus the season end date. */
+    private void renderCreditExpiry(LinearLayout section, CreditExpiry expiry, long nowMs) {
+        section.addView(Ui.headline(this, "Credit expiry"));
+        Ui.gap(section, this, 8);
+        List<CreditExpiry.ExpiringChunk> chunks = expiry.getExpiring();
+        if (chunks != null) {
+            for (CreditExpiry.ExpiringChunk chunk : chunks) {
+                int credits = chunk.getCredits();
+                int days = Math.max(0, (int) ((chunk.getExpiresAtMs() - nowMs) / DAY_MS));
+                String noun = credits == 1 ? "credit expires" : "credits expire";
+                String line = credits + " " + noun
+                        + (days == 0 ? " today" : " in " + days + " days");
+                TextView row = Ui.body(this, line);
+                if (days <= 7) {
+                    // No warning text style in Ui — emphasize with bold + red.
+                    row.setTypeface(Typeface.DEFAULT_BOLD);
+                    Ui.textColor(this, row, R.color.garden_red);
+                }
+                section.addView(row);
+                Ui.gap(section, this, 4);
+            }
+        }
+        if (expiry.getSeasonEndMs() > 0) {
+            String seasonEnd = new SimpleDateFormat("MMM d", Locale.getDefault())
+                    .format(new Date(expiry.getSeasonEndMs()));
+            section.addView(Ui.caption(this, "Season ends " + seasonEnd));
+        }
+        Ui.gap(section, this, 12);
     }
 
     private void showExplainer() {
