@@ -25,6 +25,9 @@
         </activity>
 
         <activity
+            android:name=".explore.ExploreActivity"
+            android:exported="false" />
+        <activity
             android:name=".onboarding.PhoneAuthActivity"
             android:exported="false" />
         <activity
