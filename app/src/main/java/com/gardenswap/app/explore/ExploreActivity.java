@@ -4,7 +4,9 @@ import android.content.Intent;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -23,6 +25,7 @@ import com.gardenswap.app.api.Listing;
 import com.gardenswap.app.api.ListingType;
 import com.gardenswap.app.api.UserProfile;
 import com.gardenswap.app.api.Wallet;
+import com.gardenswap.app.listings.CreateListingActivity;
 import com.gardenswap.app.listings.ListingDetailActivity;
 import com.gardenswap.app.sitters.SitterListActivity;
 import com.gardenswap.app.ui.FilterChipRow;
@@ -87,7 +90,21 @@ public class ExploreActivity extends AppCompatActivity {
         root.addView(wantPanel());
         Ui.gap(root, this, 20);
 
-        root.addView(Ui.headline(this, "Nearby listings"));
+        LinearLayout listingsHeader = new LinearLayout(this);
+        listingsHeader.setOrientation(LinearLayout.HORIZONTAL);
+        listingsHeader.setGravity(Gravity.CENTER_VERTICAL);
+        TextView listingsTitle = Ui.headline(this, "Nearby listings");
+        listingsTitle.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button newListing = Ui.secondaryButton(this, "+ New");
+        newListing.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        newListing.setOnClickListener(v ->
+                startActivity(new Intent(this, CreateListingActivity.class)));
+        listingsHeader.addView(listingsTitle);
+        listingsHeader.addView(newListing);
+        root.addView(listingsHeader);
         Ui.gap(root, this, 8);
         chipRow = new FilterChipRow(this);
         chipRow.setOnFilterChanged(this::applyFilter);
