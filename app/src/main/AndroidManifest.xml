@@ -48,6 +48,9 @@
             android:name=".trees.TreeDetailActivity"
             android:exported="false" />
         <activity
+            android:name=".trees.TreeListActivity"
+            android:exported="false" />
+        <activity
             android:name=".wallet.WalletActivity"
             android:exported="false" />
         <activity
@@ -86,6 +89,14 @@
         <activity
             android:name=".profile.ProfileActivity"
             android:exported="false" />
+
+        <service
+            android:name=".notifications.GardenSwapMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
     </application>
 

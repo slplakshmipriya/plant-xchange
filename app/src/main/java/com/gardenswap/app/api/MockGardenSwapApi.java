@@ -142,11 +142,11 @@ public class MockGardenSwapApi implements GardenSwapApi {
 
     // ------------------------------------------------------------ Wave 3 (proposed)
 
-    @Override
-    public void getTreeDetail(String treeId, Callback<TreeListing> callback) {
+    /** In-memory PYO tree; shared by {@link #getTreeDetail} and {@link #listTrees}. */
+    private TreeListing mockTree(String treeId) {
         long now = System.currentTimeMillis();
         long day = 24 * 3_600_000L;
-        TreeListing tree = TreeListing.builder(treeId)
+        return TreeListing.builder(treeId)
                 .variety("Meyer lemon")
                 .ripeWindow(now - day, now + 14 * day)
                 .perPickerLimit("5 lbs per visit")
@@ -157,7 +157,18 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 .addressUnlocked(false)
                 .ripeAlertsSubscribed(false)
                 .build();
-        emit(callback, tree);
+    }
+
+    @Override
+    public void getTreeDetail(String treeId, Callback<TreeListing> callback) {
+        emit(callback, mockTree(treeId));
+    }
+
+    @Override
+    public void listTrees(Callback<List<TreeListing>> callback) {
+        List<TreeListing> trees = new ArrayList<>();
+        trees.add(mockTree("mock-tree-1"));
+        emit(callback, trees);
     }
 
     @Override
@@ -326,6 +337,12 @@ public class MockGardenSwapApi implements GardenSwapApi {
 
     @Override
     public void claimListing(String listingId, Callback<Listing> callback) {
+        claimListing(listingId, ClaimRequest.single(), callback);
+    }
+
+    @Override
+    public void claimListing(String listingId, ClaimRequest request,
+            Callback<Listing> callback) {
         Listing current = listings.get(listingId);
         if (current == null) {
             emitError(callback, new ApiException("listing_not_found", "No such listing"));
@@ -336,7 +353,58 @@ public class MockGardenSwapApi implements GardenSwapApi {
                     "Someone just claimed this listing"));
             return;
         }
-        Listing claimed = Listing.builder(current.getId())
+        int qty = Math.max(1, request.quantity);
+        Double remaining = current.getRemainingQty();
+        ListingStatus status = ListingStatus.CLAIMED;
+        String claimer = profile.getUserId();
+        Double newRemaining = null;
+        if (remaining != null) {
+            // Partial-claim model: decrement tracked quantity; the listing
+            // stays LIVE until the last unit is claimed.
+            newRemaining = Math.max(0, remaining - qty);
+            if (newRemaining > 0) {
+                status = ListingStatus.LIVE;
+                claimer = null;
+            }
+        }
+        Long pickupStart = request.pickupStartMs != null
+                ? request.pickupStartMs : current.getPickupStartMs();
+        Long pickupEnd = request.pickupEndMs != null
+                ? request.pickupEndMs : current.getPickupEndMs();
+        if (request.notes != null && !request.notes.trim().isEmpty()) {
+            Log.d(TAG, "claimListing id=" + listingId + " notes=" + request.notes.trim());
+        }
+        Listing claimed = rebuild(current, status, claimer, newRemaining,
+                pickupStart, pickupEnd);
+        listings.put(listingId, claimed);
+        emit(callback, claimed);
+    }
+
+    @Override
+    public void cancelClaim(String listingId, Callback<Listing> callback) {
+        Listing current = listings.get(listingId);
+        if (current == null) {
+            emitError(callback, new ApiException("listing_not_found", "No such listing"));
+            return;
+        }
+        if (!profile.getUserId().equals(current.getClaimerUid())) {
+            emitError(callback, new ApiException("not_claimer",
+                    "Only the claimer can cancel the claim"));
+            return;
+        }
+        // Restore: back to LIVE, held quantity released to the full amount.
+        Double restored = current.getQuantity() != null
+                ? current.getQuantity() : current.getRemainingQty();
+        Listing restoredListing = rebuild(current, ListingStatus.LIVE, null, restored,
+                current.getPickupStartMs(), current.getPickupEndMs());
+        listings.put(listingId, restoredListing);
+        emit(callback, restoredListing);
+    }
+
+    /** Rebuild a listing with claim/cancel state applied. */
+    private Listing rebuild(Listing current, ListingStatus status, String claimerUid,
+            Double remainingQty, Long pickupStartMs, Long pickupEndMs) {
+        return Listing.builder(current.getId())
                 .ownerUid(current.getOwnerUid())
                 .type(current.getType())
                 .photos(current.getPhotos())
@@ -344,19 +412,24 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 .quantity(current.getQuantity())
                 .unit(current.getUnit())
                 .creditCost(current.getCreditCost())
-                .pickupWindow(current.getPickupStartMs(), current.getPickupEndMs())
+                .pickupWindow(pickupStartMs, pickupEndMs)
                 .expiresAtMs(current.getExpiresAtMs())
                 .geo(current.getGeoLat(), current.getGeoLon())
                 .sprayDisclosure(current.getSprayDisclosure())
-                .status(ListingStatus.CLAIMED)
+                .status(status)
                 .createdAtMs(current.getCreatedAtMs())
                 .free(current.isFree())
-                .claimerUid(profile.getUserId())
-                .remainingQty(current.getRemainingQty())
+                .claimerUid(claimerUid)
+                .remainingQty(remainingQty)
                 .visitRules(current.getVisitRules())
                 .build();
-        listings.put(listingId, claimed);
-        emit(callback, claimed);
+    }
+
+    @Override
+    public void reportContent(ReportRequest request, Callback<Void> callback) {
+        Log.d(TAG, "reportContent type=" + request.targetType
+                + " id=" + request.targetId + " category=" + request.category);
+        emit(callback, null);
     }
 
     @Override
@@ -445,21 +518,55 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     /**
-     * Nearby-listings feed for Explore (UID-010). Mock-phase only: live
-     * listings from other gardeners, insertion order. There is no feed
-     * endpoint in the API contract yet; when one lands this becomes a real
-     * {@link GardenSwapApi} method and the {@code instanceof} branch in
-     * ExploreActivity goes away. Existing behavior is unchanged.
+     * Ranked feed for Explore (planned: API-123). Mock-phase: live listings
+     * from other gardeners, insertion order, filtered by
+     * {@link FeedRequest#way}. The backend replaces ordering when the real
+     * endpoint lands.
      */
-    public void getFeed(Callback<List<Listing>> callback) {
+    @Override
+    public void getFeed(FeedRequest request, Callback<List<Listing>> callback) {
         List<Listing> feed = new ArrayList<>();
         for (Listing listing : listings.values()) {
-            if (!profile.getUserId().equals(listing.getOwnerUid())
-                    && listing.getStatus() == ListingStatus.LIVE) {
-                feed.add(listing);
+            if (profile.getUserId().equals(listing.getOwnerUid())) {
+                continue;
             }
+            if (listing.getStatus() != ListingStatus.LIVE) {
+                continue;
+            }
+            if (!wayMatches(request.way, listing.getType())) {
+                continue;
+            }
+            feed.add(listing);
         }
-        emit(callback, feed);
+        int limit = request.limit <= 0 ? feed.size() : Math.min(request.limit, feed.size());
+        emit(callback, feed.subList(0, limit));
+    }
+
+    private static boolean wayMatches(String way, ListingType type) {
+        if (way == null || way.trim().isEmpty()) {
+            return true;
+        }
+        switch (way.trim().toLowerCase()) {
+            case "seedling":
+                return type == ListingType.SEEDLING;
+            case "harvest":
+                return type == ListingType.HARVEST;
+            case "pick":
+                return type == ListingType.TREE;
+            case "sitting":
+                return false; // sitters live on a separate API
+            default:
+                return true;
+        }
+    }
+
+    /**
+     * @deprecated Use {@link #getFeed(FeedRequest, Callback)}. Kept so
+     * existing callers compile until the feed track rewrites them.
+     */
+    @Deprecated
+    public void getFeed(Callback<List<Listing>> callback) {
+        getFeed(new FeedRequest(null, 50), callback);
     }
 
     @Override

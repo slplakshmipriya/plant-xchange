@@ -26,6 +26,12 @@ public final class ListingInput {
     private final String visitRules;
     /** See {@link Listing#isFree}. */
     private final boolean free;
+    /** Pot size for seedling listings (e.g. "4 in"), nullable. */
+    private final String potSize;
+    /** Plant age for seedling listings (e.g. "6 weeks"), nullable. */
+    private final String plantAge;
+    /** Requested pickup window length in days; PRD §4 default is 4. */
+    private final int pickupWindowDays;
 
     private ListingInput(Builder builder) {
         this.type = builder.type;
@@ -42,6 +48,9 @@ public final class ListingInput {
         this.sprayDisclosure = builder.sprayDisclosure;
         this.visitRules = builder.visitRules;
         this.free = builder.free;
+        this.potSize = builder.potSize;
+        this.plantAge = builder.plantAge;
+        this.pickupWindowDays = builder.pickupWindowDays;
     }
 
     public ListingType getType() {
@@ -100,6 +109,18 @@ public final class ListingInput {
         return free;
     }
 
+    public String getPotSize() {
+        return potSize;
+    }
+
+    public String getPlantAge() {
+        return plantAge;
+    }
+
+    public int getPickupWindowDays() {
+        return pickupWindowDays;
+    }
+
     public static Builder builder(ListingType type) {
         return new Builder(type);
     }
@@ -119,6 +140,9 @@ public final class ListingInput {
         private String sprayDisclosure;
         private String visitRules;
         private boolean free = false;
+        private String potSize;
+        private String plantAge;
+        private int pickupWindowDays = 4;
 
         public Builder(ListingType type) {
             this.type = type;
@@ -178,6 +202,21 @@ public final class ListingInput {
 
         public Builder free(boolean free) {
             this.free = free;
+            return this;
+        }
+
+        public Builder potSize(String potSize) {
+            this.potSize = potSize;
+            return this;
+        }
+
+        public Builder plantAge(String plantAge) {
+            this.plantAge = plantAge;
+            return this;
+        }
+
+        public Builder pickupWindowDays(int pickupWindowDays) {
+            this.pickupWindowDays = pickupWindowDays;
             return this;
         }
 

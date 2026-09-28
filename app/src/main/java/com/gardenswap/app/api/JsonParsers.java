@@ -251,6 +251,18 @@ public final class JsonParsers {
                 .build();
     }
 
+    /** Parse {@code GET /v1/trees} ({@code {"items": [...]}}). */
+    public static List<TreeListing> parseTreeItems(JSONObject o) throws JSONException {
+        List<TreeListing> out = new ArrayList<>();
+        JSONArray items = o.optJSONArray("items");
+        if (items != null) {
+            for (int i = 0; i < items.length(); i++) {
+                out.add(parseTreeListing(items.getJSONObject(i), null));
+            }
+        }
+        return out;
+    }
+
     /** Parse {@code GET /v1/wallet}. */
     public static Wallet parseWallet(JSONObject o) throws JSONException {
         List<LedgerEntry> entries = new ArrayList<>();
