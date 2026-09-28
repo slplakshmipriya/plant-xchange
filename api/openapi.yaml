@@ -1238,6 +1238,119 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/trees/{tree_id}/slots:
+    post:
+      tags:
+      - trees
+      - trees
+      summary: Create Slot
+      description: Open a pick-your-own slot window on a tree. Owner only.
+      operationId: create_slot_v1_trees__tree_id__slots_post
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tree Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SlotIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Create Slot V1 Trees  Tree Id  Slots Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+    get:
+      tags:
+      - trees
+      - trees
+      summary: List Slots
+      description: 'List a tree''s slots. Wire shape: exactly {slots: [...]}.'
+      operationId: list_slots_v1_trees__tree_id__slots_get
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tree Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Slots V1 Trees  Tree Id  Slots Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
+  /v1/trees/{tree_id}/slots/{slot_id}/claim:
+    post:
+      tags:
+      - trees
+      - trees
+      summary: Claim Slot
+      description: 'Claim a spot in a slot. credit_cost credits move claimer -> owner
+        via
+
+        the ledger; claimed_count increments. Not the owner, not when suspended,
+
+        not when full, not when the wallet is short.'
+      operationId: claim_slot_v1_trees__tree_id__slots__slot_id__claim_post
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Tree Id
+      - name: slot_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slot Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Claim Slot V1 Trees  Tree Id  Slots  Slot Id  Claim
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /me:
     get:
       tags:
@@ -1667,6 +1780,42 @@ components:
       - start_date
       - end_date
       title: SittingRequestIn
+    SlotIn:
+      properties:
+        dayMs:
+          type: integer
+          minimum: 0.0
+          title: Dayms
+        startMs:
+          type: integer
+          minimum: 0.0
+          title: Startms
+        endMs:
+          type: integer
+          minimum: 0.0
+          title: Endms
+        maxPickers:
+          type: integer
+          minimum: 1.0
+          title: Maxpickers
+        creditCost:
+          type: integer
+          minimum: 0.0
+          title: Creditcost
+        cashCents:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Cashcents
+      type: object
+      required:
+      - dayMs
+      - startMs
+      - endMs
+      - maxPickers
+      - creditCost
+      title: SlotIn
     StubDecision:
       properties:
         decision:
