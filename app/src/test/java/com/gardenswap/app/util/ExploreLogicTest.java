@@ -81,9 +81,9 @@ public class ExploreLogicTest {
 
     @Test
     public void sortByFreshnessOrdersByExpiryNullsLast() {
-        Listing soon = new Listing.Builder().expiresAtMs(100L).build();
-        Listing later = new Listing.Builder().expiresAtMs(500L).build();
-        Listing noExpiry = new Listing.Builder().build();
+        Listing soon = new Listing.Builder("test-id").expiresAtMs(100L).build();
+        Listing later = new Listing.Builder("test-id").expiresAtMs(500L).build();
+        Listing noExpiry = new Listing.Builder("test-id").build();
         List<Listing> sorted = ExploreLogic.sortByFreshness(
                 Arrays.asList(noExpiry, later, soon));
         assertEquals(soon, sorted.get(0));
@@ -93,8 +93,8 @@ public class ExploreLogicTest {
 
     @Test
     public void sortByFreshnessDoesNotModifyInput() {
-        Listing soon = new Listing.Builder().expiresAtMs(100L).build();
-        Listing later = new Listing.Builder().expiresAtMs(500L).build();
+        Listing soon = new Listing.Builder("test-id").expiresAtMs(100L).build();
+        Listing later = new Listing.Builder("test-id").expiresAtMs(500L).build();
         List<Listing> input = new ArrayList<>(Arrays.asList(later, soon));
         ExploreLogic.sortByFreshness(input);
         assertEquals(later, input.get(0));
@@ -104,7 +104,7 @@ public class ExploreLogicTest {
     @Test
     public void sortByFreshnessHandlesAllNulls() {
         List<Listing> input = Arrays.asList(
-                new Listing.Builder().build(), new Listing.Builder().build());
+                new Listing.Builder("test-id").build(), new Listing.Builder("test-id").build());
         assertEquals(2, ExploreLogic.sortByFreshness(input).size());
     }
 
