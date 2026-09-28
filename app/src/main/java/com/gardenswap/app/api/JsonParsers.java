@@ -379,7 +379,8 @@ public final class JsonParsers {
                 o.optString("other_display_name", "Neighbor"),
                 o.optString("last_message_preview", ""),
                 parseIsoMs(o.optString("last_message_at", null)),
-                0); // no read receipts on the wire; unread is always 0
+                0) // no read receipts on the wire; unread is always 0
+                .withParticipantUserId(o.optString("participant_user_id", null));
     }
 
     /** Parse {@code GET /v1/threads} ({@code {"threads": [...]}}). */
@@ -446,5 +447,99 @@ public final class JsonParsers {
         int cost = listing != null ? listing.optInt("credit_cost", 0) : 0;
         return new ExchangeConfirmation(exchangeId, mine || already,
                 other || already, cost, completed || already);
+    }
+
+    // ------------------------------------------------------------ PRD parity (r2)
+
+    /**
+     * Unwrap a {@code {listing: {...}}} / {@code {slot: {...}}} /
+     * {@code {message: {...}}} envelope; passes the object through unchanged
+     * when the key is absent (defensive: the backend may return the bare
+     * object).
+     */
+    public static JSONObject unwrap(JSONObject o, String key) {
+        if (o == null) {
+            return new JSONObject();
+        }
+        JSONObject inner = o.optJSONObject(key);
+        return inner != null ? inner : o;
+    }
+
+    /** Parse {@code GET /v1/bookings} ({@code {"bookings": [...]}}). */
+    public static List<Booking> parseBookings(JSONObject o) throws JSONException {
+        List<Booking> out = new ArrayList<>();
+        JSONArray arr = o.optJSONArray("bookings");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                out.add(parseBooking(arr.getJSONObject(i)));
+            }
+        }
+        return out;
+    }
+
+    /** Parse a pick-your-own slot. {@code credit_cost} defaults to 1. */
+    public static Slot parseSlot(JSONObject o) throws JSONException {
+        return new Slot(o.getString("id"), o.optString("tree_id", ""),
+                o.optLong("day_ms", 0), o.optLong("start_ms", 0),
+                o.optLong("end_ms", 0), o.optInt("max_pickers", 1),
+                o.optInt("claimed_count", 0), o.optInt("credit_cost", 1),
+                o.isNull("cash_cents") ? null : o.optInt("cash_cents"));
+    }
+
+    /** Parse {@code GET /v1/trees/{id}/slots} ({@code {"slots": [...]}}). */
+    public static List<Slot> parseSlots(JSONObject o) throws JSONException {
+        List<Slot> out = new ArrayList<>();
+        JSONArray arr = o.optJSONArray("slots");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                out.add(parseSlot(arr.getJSONObject(i)));
+            }
+        }
+        return out;
+    }
+
+    /** Parse {@code GET /v1/users/me/credit-expiry}. */
+    public static CreditExpiry parseCreditExpiry(JSONObject o) throws JSONException {
+        List<CreditExpiry.ExpiringChunk> chunks = new ArrayList<>();
+        JSONArray arr = o.optJSONArray("expiring");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject c = arr.getJSONObject(i);
+                chunks.add(new CreditExpiry.ExpiringChunk(c.optInt("credits", 0),
+                        c.optLong("expires_at_ms", 0)));
+            }
+        }
+        return new CreditExpiry(o.optInt("balance", 0), chunks,
+                o.optLong("season_end_ms", 0));
+    }
+
+    /**
+     * Parse {@code GET /v1/users/me/notification-prefs}. Missing category
+     * keys default to on (the product default); a missing
+     * {@code quiet_hours} means no quiet hours.
+     */
+    public static NotificationPrefs parseNotificationPrefs(JSONObject o)
+            throws JSONException {
+        JSONObject categories = o.optJSONObject("categories");
+        if (categories == null) {
+            categories = new JSONObject();
+        }
+        JSONObject quiet = o.optJSONObject("quiet_hours");
+        NotificationPrefs.Builder b = NotificationPrefs.builder()
+                .harvestAlerts(categories.optBoolean("harvest_alerts", true))
+                .wantMatches(categories.optBoolean("want_matches", true))
+                .expiryNudges(categories.optBoolean("expiry_nudges", true))
+                .creditWarnings(categories.optBoolean("credit_warnings", true))
+                .bookingReminders(categories.optBoolean("booking_reminders", true));
+        if (quiet != null) {
+            b.quietHours(quiet.optString("start", null),
+                    quiet.optString("end", null));
+        }
+        return b.build();
+    }
+
+    /** Parse {@code POST /v1/payments/sitting-intent} ({@code {client_secret}}). */
+    public static PaymentIntent parsePaymentIntent(JSONObject o) throws JSONException {
+        return new PaymentIntent(o.optString("client_secret", ""));
     }
 }

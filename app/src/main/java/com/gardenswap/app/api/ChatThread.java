@@ -10,10 +10,19 @@ public final class ChatThread {
     private final String lastMessagePreview;
     private final long lastMessageAtMs;
     private final int unreadCount;
+    /** Uid of the other participant; null when the wire doesn't identify them. */
+    private final String participantUserId;
 
     public ChatThread(String threadId, String listingSummary, String listingStatus,
                       String otherPartyName, String lastMessagePreview,
                       long lastMessageAtMs, int unreadCount) {
+        this(threadId, listingSummary, listingStatus, otherPartyName,
+                lastMessagePreview, lastMessageAtMs, unreadCount, null);
+    }
+
+    public ChatThread(String threadId, String listingSummary, String listingStatus,
+                      String otherPartyName, String lastMessagePreview,
+                      long lastMessageAtMs, int unreadCount, String participantUserId) {
         this.threadId = threadId;
         this.listingSummary = listingSummary;
         this.listingStatus = listingStatus;
@@ -21,6 +30,7 @@ public final class ChatThread {
         this.lastMessagePreview = lastMessagePreview;
         this.lastMessageAtMs = lastMessageAtMs;
         this.unreadCount = unreadCount;
+        this.participantUserId = participantUserId;
     }
 
     public String getThreadId() {
@@ -50,5 +60,17 @@ public final class ChatThread {
 
     public int getUnreadCount() {
         return unreadCount;
+    }
+
+    /** Uid of the other participant; null when the wire doesn't identify them. */
+    public String getParticipantUserId() {
+        return participantUserId;
+    }
+
+    /** Immutable copy with the participant uid set (optional wire field). */
+    public ChatThread withParticipantUserId(String participantUserId) {
+        return new ChatThread(threadId, listingSummary, listingStatus,
+                otherPartyName, lastMessagePreview, lastMessageAtMs, unreadCount,
+                participantUserId);
     }
 }

@@ -172,4 +172,75 @@ public interface GardenSwapApi {
      */
     void logHarvestEvent(String listingId, double delta, String note,
             Callback<HarvestEvent> callback);
+
+    // ------------------------------------------------------------ PRD parity (r2)
+
+    /**
+     * Owner accepts a pending claim (planned:
+     * {@code POST /v1/listings/{id}/claims/accept} with {@code {claim_id}}).
+     * Returns the updated listing.
+     */
+    void acceptClaim(String listingId, String claimId, Callback<Listing> callback);
+
+    /**
+     * Owner declines a pending claim (planned:
+     * {@code POST /v1/listings/{id}/claims/decline} with {@code {claim_id}}).
+     * Returns the updated listing (back to LIVE in the mock).
+     */
+    void declineClaim(String listingId, String claimId, Callback<Listing> callback);
+
+    /**
+     * Sitting bookings for the signed-in user (planned:
+     * {@code GET /v1/bookings?role=&completed=}). {@code role} is
+     * {@code "sitter"} or {@code "owner"}; {@code completedOnly} filters to
+     * completed bookings (the review flow's input).
+     */
+    void listBookings(String role, boolean completedOnly, Callback<List<Booking>> callback);
+
+    /**
+     * Pick-your-own slots for a tree (planned:
+     * {@code GET /v1/trees/{id}/slots} → {@code {"slots": [...]}}).
+     */
+    void listTreeSlots(String treeId, Callback<List<Slot>> callback);
+
+    /**
+     * Claim one pick-your-own slot (planned:
+     * {@code POST /v1/trees/{treeId}/slots/{slotId}/claim}).
+     */
+    void claimTreeSlot(String treeId, String slotId, Callback<Slot> callback);
+
+    /**
+     * Send a photo attachment to a thread (planned:
+     * {@code POST /v1/threads/{id}/attachments} with {@code {photo_url}}).
+     * Returns the created {@link ChatMessage} ({@link ChatMessage.Kind#PHOTO}).
+     */
+    void sendAttachment(String threadId, String photoUrl, Callback<ChatMessage> callback);
+
+    /**
+     * Seasonal credit expiry state (planned:
+     * {@code GET /v1/users/me/credit-expiry} → {@code {balance, expiring:
+     * [{credits, expires_at_ms}], season_end_ms}}).
+     */
+    void getCreditExpiry(Callback<CreditExpiry> callback);
+
+    /**
+     * Notification preferences (planned:
+     * {@code GET /v1/users/me/notification-prefs}).
+     */
+    void getNotificationPrefs(Callback<NotificationPrefs> callback);
+
+    /**
+     * Update notification preferences (planned:
+     * {@code PUT /v1/users/me/notification-prefs} with
+     * {@code {categories: {...}, quiet_hours: {start, end}}}).
+     */
+    void updateNotificationPrefs(NotificationPrefs prefs,
+            Callback<NotificationPrefs> callback);
+
+    /**
+     * Create a Stripe payment intent for a sitting booking (planned:
+     * {@code POST /v1/payments/sitting-intent} with {@code {booking_id}} →
+     * {@code {client_secret}}).
+     */
+    void createSittingPaymentIntent(String bookingId, Callback<PaymentIntent> callback);
 }
