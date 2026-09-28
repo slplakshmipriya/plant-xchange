@@ -1,9 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- AppCompat theme is required: every activity extends AppCompatActivity. -->
-    <style name="Theme.GardenSwap" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="colorPrimary">#2E7D32</item>
-        <item name="colorPrimaryDark">#1B5E20</item>
-        <item name="colorAccent">#66BB6A</item>
+    <!-- Garden Swap theme (UID-001/UID-002). DayNight parent gives automatic
+         dark-theme switching via values-night/colors.xml. -->
+    <style name="Theme.GardenSwap" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/garden_leaf</item>
+        <item name="colorPrimaryDark">@color/garden_leaf_dark</item>
+        <item name="colorAccent">@color/garden_focus</item>
+        <item name="android:windowBackground">@color/garden_bg</item>
+        <item name="android:textColorPrimary">@color/garden_ink</item>
+        <item name="android:textColorSecondary">@color/garden_muted</item>
+        <item name="android:fontFamily">@font/dm_sans</item>
+    </style>
+
+    <!-- Typography scale (UID-002). Display/Headline use Libre Franklin;
+         everything else DM Sans. -->
+    <style name="TextAppearance.GardenSwap.Display">
+        <item name="android:fontFamily">@font/libre_franklin</item>
+        <item name="android:textSize">28sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">-0.02</item>
+        <item name="android:textColor">?android:textColorPrimary</item>
+    </style>
+
+    <style name="TextAppearance.GardenSwap.Headline">
+        <item name="android:fontFamily">@font/libre_franklin</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">-0.02</item>
+        <item name="android:textColor">?android:textColorPrimary</item>
+    </style>
+
+    <style name="TextAppearance.GardenSwap.Title">
+        <item name="android:fontFamily">@font/libre_franklin</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?android:textColorPrimary</item>
+    </style>
+
+    <style name="TextAppearance.GardenSwap.Body">
+        <item name="android:fontFamily">@font/dm_sans</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">?android:textColorPrimary</item>
+    </style>
+
+    <style name="TextAppearance.GardenSwap.Label">
+        <item name="android:fontFamily">@font/dm_sans</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.03</item>
+        <item name="android:textColor">?android:textColorSecondary</item>
+    </style>
+
+    <style name="TextAppearance.GardenSwap.Caption">
+        <item name="android:fontFamily">@font/dm_sans</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">?android:textColorSecondary</item>
     </style>
 </resources>
