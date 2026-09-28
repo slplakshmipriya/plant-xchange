@@ -27,12 +27,19 @@ import com.google.firebase.auth.FirebaseAuth;
  */
 public class MainActivity extends AppCompatActivity {
 
+    /**
+     * DEBUG BRANCH ONLY — never merge to main. When true, the auth gate is
+     * skipped and the app opens straight into the home screen with no
+     * login. For testing flows past the login screen without signing in.
+     */
+    private static final boolean BYPASS_AUTH = true;
+
     private VerifiedBadgeView badgeView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (FirebaseAuth.getInstance().getCurrentUser() == null) {
+        if (!BYPASS_AUTH && FirebaseAuth.getInstance().getCurrentUser() == null) {
             startActivity(new Intent(this, PhoneAuthActivity.class));
             finish();
             return;
