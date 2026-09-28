@@ -17,7 +17,7 @@ Tickets: `garden-swap-app/JIRA_BACKLOG.md` → PHASE: PRD parity (AND-122..165, 
 |---|---|
 | contract | `api/**`, `AndroidManifest.xml`, `app/build.gradle` (firebase-messaging only, if missing) |
 | feed | `explore/ExploreActivity.java`, `util/ExploreLogic.java`, `util/ExploreLogicTest.java` |
-| create | `listings/CreateListingActivity.java`, `listings/CreateListingValidator.java` |
+| create | `listings/CreateListingActivity.java`, `util/CreateListingValidator.java` |
 | claim | `ui/ClaimBottomSheet.java`, `listings/ListingDetailActivity.java`, `wallet/ConfirmExchangeActivity.java` |
 | sitter | `sitters/SitterProfileActivity.java`, `sitters/ReviewActivity.java` |
 | pyo | `trees/TreeListActivity.java` (new), `trees/TreeDetailActivity.java` |
