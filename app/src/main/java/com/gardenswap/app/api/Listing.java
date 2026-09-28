@@ -39,6 +39,12 @@ public final class Listing {
     private final String claimerUid;
     /** Tree visit rules (type=tree); null otherwise. */
     private final String visitRules;
+    /** Pot size for seedling listings (e.g. "4 in"); null when unset. */
+    private final String potSize;
+    /** Plant age for seedling listings (e.g. "6 weeks"); null when unset. */
+    private final String plantAge;
+    /** Requested pickup window length in days; 0 when unset. */
+    private final int pickupWindowDays;
 
     private Listing(Builder builder) {
         this.id = builder.id;
@@ -61,6 +67,9 @@ public final class Listing {
         this.remainingQty = builder.remainingQty;
         this.claimerUid = builder.claimerUid;
         this.visitRules = builder.visitRules;
+        this.potSize = builder.potSize;
+        this.plantAge = builder.plantAge;
+        this.pickupWindowDays = builder.pickupWindowDays;
     }
 
     public String getId() {
@@ -143,6 +152,18 @@ public final class Listing {
         return visitRules;
     }
 
+    public String getPotSize() {
+        return potSize;
+    }
+
+    public String getPlantAge() {
+        return plantAge;
+    }
+
+    public int getPickupWindowDays() {
+        return pickupWindowDays;
+    }
+
     public static Builder builder(String id) {
         return new Builder(id);
     }
@@ -168,6 +189,9 @@ public final class Listing {
         private Double remainingQty;
         private String claimerUid;
         private String visitRules;
+        private String potSize;
+        private String plantAge;
+        private int pickupWindowDays;
 
         public Builder(String id) {
             this.id = id;
@@ -257,6 +281,21 @@ public final class Listing {
 
         public Builder visitRules(String visitRules) {
             this.visitRules = visitRules;
+            return this;
+        }
+
+        public Builder potSize(String potSize) {
+            this.potSize = potSize;
+            return this;
+        }
+
+        public Builder plantAge(String plantAge) {
+            this.plantAge = plantAge;
+            return this;
+        }
+
+        public Builder pickupWindowDays(int pickupWindowDays) {
+            this.pickupWindowDays = pickupWindowDays;
             return this;
         }
 

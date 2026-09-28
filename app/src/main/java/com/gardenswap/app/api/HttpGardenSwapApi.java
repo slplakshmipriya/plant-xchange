@@ -292,6 +292,16 @@ public class HttpGardenSwapApi implements GardenSwapApi {
             if (input.getVisitRules() != null) {
                 body.put("visit_rules", input.getVisitRules());
             }
+            // PRD parity (r2): seedling extras; PRD field names mirror the
+            // ListingInput model. pickupWindowDays is a required int (PRD §4
+            // default 4), always sent; the nullables are omitted when unset.
+            if (input.getPotSize() != null) {
+                body.put("pot_size", input.getPotSize());
+            }
+            if (input.getPlantAge() != null) {
+                body.put("plant_age", input.getPlantAge());
+            }
+            body.put("pickup_window_days", input.getPickupWindowDays());
             // The create flow publishes immediately (mock-era semantics).
             body.put("status", "live");
             authed("POST", "/v1/listings", body,
@@ -709,6 +719,156 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                     callback);
         } catch (Exception e) {
             fail(callback, new ApiException("encode_error", "Couldn't encode the message."));
+        }
+    }
+
+    // ------------------------------------------------------------ PRD parity (r2)
+
+    @Override
+    public void acceptClaim(String listingId, String claimId, Callback<Listing> callback) {
+        // Owner accepts a pending claim; the backend completes the claim
+        // atomically. Defensive envelope: accept {listing: {...}} or the
+        // bare listing object.
+        try {
+            JSONObject body = new JSONObject();
+            body.put("claim_id", claimId);
+            authed("POST", "/v1/listings/" + enc(listingId) + "/claims/accept", body,
+                    (status, json) -> callback.onSuccess(
+                            JsonParsers.parseListing(
+                                    JsonParsers.unwrap(json, "listing"))),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error", "Couldn't encode the claim."));
+        }
+    }
+
+    @Override
+    public void declineClaim(String listingId, String claimId, Callback<Listing> callback) {
+        // Owner declines a pending claim; the backend returns the listing to
+        // LIVE and releases the held quantity/credits.
+        try {
+            JSONObject body = new JSONObject();
+            body.put("claim_id", claimId);
+            authed("POST", "/v1/listings/" + enc(listingId) + "/claims/decline", body,
+                    (status, json) -> callback.onSuccess(
+                            JsonParsers.parseListing(
+                                    JsonParsers.unwrap(json, "listing"))),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error", "Couldn't encode the claim."));
+        }
+    }
+
+    @Override
+    public void listBookings(String role, boolean completedOnly,
+            Callback<List<Booking>> callback) {
+        String path = "/v1/bookings?role=" + enc(role == null ? "" : role)
+                + "&completed=" + (completedOnly ? "true" : "false");
+        authed("GET", path, null,
+                (status, json) -> callback.onSuccess(JsonParsers.parseBookings(json)),
+                callback);
+    }
+
+    @Override
+    public void listTreeSlots(String treeId, Callback<List<Slot>> callback) {
+        authed("GET", "/v1/trees/" + enc(treeId) + "/slots", null,
+                (status, json) -> callback.onSuccess(JsonParsers.parseSlots(json)),
+                callback);
+    }
+
+    @Override
+    public void claimTreeSlot(String treeId, String slotId, Callback<Slot> callback) {
+        authed("POST", "/v1/trees/" + enc(treeId) + "/slots/" + enc(slotId)
+                        + "/claim", new JSONObject(),
+                (status, json) -> callback.onSuccess(
+                        JsonParsers.parseSlot(JsonParsers.unwrap(json, "slot"))),
+                callback);
+    }
+
+    @Override
+    public void sendAttachment(String threadId, String photoUrl,
+            Callback<ChatMessage> callback) {
+        String trimmed = photoUrl == null ? "" : photoUrl.trim();
+        if (trimmed.isEmpty()) {
+            fail(callback, new ApiException("empty_attachment", "Pick a photo first."));
+            return;
+        }
+        try {
+            JSONObject body = new JSONObject();
+            body.put("photo_url", trimmed);
+            final String uid = myUid();
+            authed("POST", "/v1/threads/" + enc(threadId) + "/attachments", body,
+                    (status, json) -> callback.onSuccess(
+                            JsonParsers.parseChatMessage(
+                                    JsonParsers.unwrap(json, "message"), uid)),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error",
+                    "Couldn't encode the attachment."));
+        }
+    }
+
+    @Override
+    public void getCreditExpiry(Callback<CreditExpiry> callback) {
+        authed("GET", "/v1/users/me/credit-expiry", null,
+                (status, json) -> callback.onSuccess(
+                        JsonParsers.parseCreditExpiry(json)),
+                callback);
+    }
+
+    @Override
+    public void getNotificationPrefs(Callback<NotificationPrefs> callback) {
+        authed("GET", "/v1/users/me/notification-prefs", null,
+                (status, json) -> callback.onSuccess(
+                        JsonParsers.parseNotificationPrefs(json)),
+                callback);
+    }
+
+    @Override
+    public void updateNotificationPrefs(NotificationPrefs prefs,
+            Callback<NotificationPrefs> callback) {
+        try {
+            JSONObject body = new JSONObject();
+            JSONObject categories = new JSONObject();
+            categories.put("harvest_alerts", prefs.isHarvestAlerts());
+            categories.put("want_matches", prefs.isWantMatches());
+            categories.put("expiry_nudges", prefs.isExpiryNudges());
+            categories.put("credit_warnings", prefs.isCreditWarnings());
+            categories.put("booking_reminders", prefs.isBookingReminders());
+            body.put("categories", categories);
+            if (prefs.getQuietHoursStart() != null || prefs.getQuietHoursEnd() != null) {
+                JSONObject quiet = new JSONObject();
+                if (prefs.getQuietHoursStart() != null) {
+                    quiet.put("start", prefs.getQuietHoursStart());
+                }
+                if (prefs.getQuietHoursEnd() != null) {
+                    quiet.put("end", prefs.getQuietHoursEnd());
+                }
+                body.put("quiet_hours", quiet);
+            }
+            authed("PUT", "/v1/users/me/notification-prefs", body,
+                    (status, json) -> callback.onSuccess(
+                            JsonParsers.parseNotificationPrefs(json)),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error",
+                    "Couldn't encode the preferences."));
+        }
+    }
+
+    @Override
+    public void createSittingPaymentIntent(String bookingId,
+            Callback<PaymentIntent> callback) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("booking_id", bookingId);
+            authed("POST", "/v1/payments/sitting-intent", body,
+                    (status, json) -> callback.onSuccess(
+                            JsonParsers.parsePaymentIntent(json)),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error",
+                    "Couldn't encode the payment intent."));
         }
     }
 }
