@@ -10,6 +10,8 @@
     <application
         android:name=".GardenSwapApp"
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="Garden Swap"
         android:theme="@style/Theme.GardenSwap"
         android:supportsRtl="true">

@@ -11,6 +11,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.gardenswap.app.R;
 import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.GardenSwapApi;
@@ -55,6 +56,7 @@ public final class ClaimBottomSheet {
         LinearLayout root = Ui.column(activity, 24);
 
         TextView status = Ui.status(activity);
+        Ui.textColor(activity, status, R.color.garden_sheet_muted);
         status.setText("Loading\u2026");
         root.addView(status);
 
@@ -82,30 +84,44 @@ public final class ClaimBottomSheet {
                                           OnClaimedListener listener) {
         LinearLayout form = Ui.column(activity, 0);
 
-        form.addView(Ui.headline(activity, "Claim this listing"));
+        // The sheet always uses the fixed Light dialog theme while the host
+        // activity may be in dark mode, so every text/background color here is
+        // pinned to the night-independent garden_sheet_* tokens.
+        TextView title = Ui.headline(activity, "Claim this listing");
+        Ui.textColor(activity, title, R.color.garden_sheet_ink);
+        form.addView(title);
         Ui.gap(form, activity, 4);
         String variety = listing.getVariety() == null ? "Listing" : listing.getVariety();
-        form.addView(Ui.caption(activity, variety
+        TextView subtitle = Ui.caption(activity, variety
                 + " \u2014 the giver will be notified. Credits move when you both "
-                + "confirm the exchange."));
+                + "confirm the exchange.");
+        Ui.textColor(activity, subtitle, R.color.garden_sheet_muted);
+        form.addView(subtitle);
         Ui.gap(form, activity, 16);
 
         // Quantity stepper.
         Double available = listing.getQuantity();
         final double[] qty = {ClaimSheetLogic.clampQuantity(1, available)};
-        form.addView(Ui.eyebrow(activity, "Quantity"));
+        TextView qtyEyebrow = Ui.eyebrow(activity, "Quantity");
+        Ui.textColor(activity, qtyEyebrow, R.color.garden_sheet_ink);
+        form.addView(qtyEyebrow);
         Ui.gap(form, activity, 8);
         LinearLayout stepper = new LinearLayout(activity);
         stepper.setOrientation(LinearLayout.HORIZONTAL);
         stepper.setGravity(Gravity.CENTER_VERTICAL);
 
         Button minus = Ui.secondaryButton(activity, "\u2212");
+        minus.setBackgroundResource(R.drawable.btn_sheet_secondary);
+        Ui.textColor(activity, minus, R.color.garden_sheet_leaf);
         minus.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         Button plus = Ui.secondaryButton(activity, "+");
+        plus.setBackgroundResource(R.drawable.btn_sheet_secondary);
+        Ui.textColor(activity, plus, R.color.garden_sheet_leaf);
         plus.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         TextView qtyView = Ui.title(activity, formatQty(qty[0], listing.getUnit()));
+        Ui.textColor(activity, qtyView, R.color.garden_sheet_ink);
         qtyView.setGravity(Gravity.CENTER);
         qtyView.setLayoutParams(new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -125,7 +141,9 @@ public final class ClaimBottomSheet {
         Ui.gap(form, activity, 16);
 
         // Pickup window chips (single-select).
-        form.addView(Ui.eyebrow(activity, "Pickup window"));
+        TextView pickupEyebrow = Ui.eyebrow(activity, "Pickup window");
+        Ui.textColor(activity, pickupEyebrow, R.color.garden_sheet_ink);
+        form.addView(pickupEyebrow);
         Ui.gap(form, activity, 8);
         LinearLayout chips = new LinearLayout(activity);
         chips.setOrientation(LinearLayout.HORIZONTAL);
@@ -143,29 +161,38 @@ public final class ClaimBottomSheet {
             chip.setOnClickListener(v -> {
                 pickupIndex[0] = index;
                 for (int j = 0; j < chipViews.length; j++) {
-                    Ui.setChipSelected(activity, chipViews[j], j == index);
+                    setSheetChipSelected(activity, chipViews[j], j == index);
                 }
             });
             chipViews[i] = chip;
             chips.addView(chip);
         }
-        Ui.setChipSelected(activity, chipViews[0], true);
+        setSheetChipSelected(activity, chipViews[0], true);
         form.addView(chips);
         Ui.gap(form, activity, 16);
 
         // Optional note.
-        form.addView(Ui.eyebrow(activity, "Note for the giver \u00b7 optional"));
+        TextView noteEyebrow = Ui.eyebrow(activity, "Note for the giver \u00b7 optional");
+        Ui.textColor(activity, noteEyebrow, R.color.garden_sheet_ink);
+        form.addView(noteEyebrow);
         Ui.gap(form, activity, 8);
         EditText notes = Ui.input(activity, "e.g. I can pick up after 5pm",
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        Ui.textColor(activity, notes, R.color.garden_sheet_ink);
+        notes.setHintTextColor(activity.getResources().getColor(
+                R.color.garden_sheet_muted, activity.getTheme()));
         form.addView(notes);
         Ui.gap(form, activity, 8);
 
         TextView error = Ui.status(activity);
+        Ui.textColor(activity, error, R.color.garden_sheet_red);
         form.addView(error);
         Ui.gap(form, activity, 8);
 
         Button claim = Ui.primaryButton(activity, "Claim");
+        claim.setBackgroundResource(R.drawable.btn_sheet_primary);
+        claim.setTextColor(activity.getResources().getColor(
+                android.R.color.white, activity.getTheme()));
         claim.setOnClickListener(v -> {
             String noteText = notes.getText() == null ? "" : notes.getText().toString().trim();
             if (!ClaimSheetLogic.validQuantity(qty[0], available)) {
@@ -202,8 +229,20 @@ public final class ClaimBottomSheet {
         return form;
     }
 
-    private static String formatQty(double qty, String unit) {
-        String number = qty == Math.floor(qty)
+    /**
+     * Sheet-local chip selection with night-independent colors. The shared
+     * {@link Ui#setChipSelected} resolves theme colors that go light in dark
+     * mode, which is unreadable on this always-light sheet.
+     */
+    private static void setSheetChipSelected(AppCompatActivity activity,
+                                             TextView chip, boolean selected) {
+        chip.setBackgroundResource(selected
+                ? R.drawable.chip_sheet_selected : R.drawable.chip_sheet);
+        Ui.textColor(activity, chip, selected
+                ? android.R.color.white : R.color.garden_sheet_ink);
+    }
+
+    private static String formatQty(double qty, String unit) {        String number = qty == Math.floor(qty)
                 ? String.valueOf((int) qty)
                 : String.format(Locale.US, "%.1f", qty);
         return unit == null || unit.trim().isEmpty() ? number : number + " " + unit;

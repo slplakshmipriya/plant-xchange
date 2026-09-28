@@ -177,4 +177,10 @@ public final class Ui {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(context, dp)));
         parent.addView(spacer);
     }
+
+    /** Sets a TextView's color from a color resource (theme-aware). */
+    public static void textColor(Context context, TextView view, int colorRes) {
+        view.setTextColor(ResourcesCompat.getColor(
+                context.getResources(), colorRes, context.getTheme()));
+    }
 }
