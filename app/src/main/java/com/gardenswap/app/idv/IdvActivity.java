@@ -34,7 +34,8 @@ public class IdvActivity extends AppCompatActivity {
 
     private enum Action {
         START_VERIFICATION,
-        REFRESH_STATUS
+        REFRESH_STATUS,
+        DONE
     }
 
     private VerifiedBadgeView badgeView;
@@ -60,6 +61,8 @@ public class IdvActivity extends AppCompatActivity {
         actionButton.setOnClickListener(v -> {
             if (pendingAction == Action.START_VERIFICATION) {
                 startVerification();
+            } else if (pendingAction == Action.DONE) {
+                finish(); // verified — back to the app
             } else {
                 refreshStatus();
             }
@@ -117,7 +120,8 @@ public class IdvActivity extends AppCompatActivity {
         switch (status) {
             case VERIFIED:
                 statusText.setText("You're ID-verified.");
-                actionButton.setVisibility(View.GONE);
+                actionButton.setText("Continue");
+                pendingAction = Action.DONE;
                 break;
             case PENDING:
                 statusText.setText("Verification is pending review — check back soon.");
