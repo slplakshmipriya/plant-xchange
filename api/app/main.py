@@ -36,6 +36,7 @@ from . import exchange as exchange_module
 from . import sitter as sitter_module
 from . import msg as msg_module
 from . import slots as slots_module
+from . import payments as payments_module
 
 API_DIR = Path(__file__).resolve().parent.parent
 OPENAPI_PATH = API_DIR / "openapi.yaml"
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
     app.include_router(sitter_module.router)
     app.include_router(msg_module.router)
     app.include_router(slots_module.router)
+    app.include_router(payments_module.router)
 
     @app.get("/me", tags=["auth"])
     def me(uid: str = Depends(get_current_uid)) -> dict:

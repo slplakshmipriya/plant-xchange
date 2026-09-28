@@ -33,6 +33,10 @@ class Settings:
     uploads_dir: str               # UPLOADS_DIR: local stub upload root
     user_tz: str                   # USER_TZ: IANA tz for quiet-hours evaluation
     notify_daily_cap: int          # NOTIFY_DAILY_CAP: max notifications per user per day
+    # --- Stripe Connect seam (API-071; stub until wired) ---
+    payment_provider: str          # PAYMENT_PROVIDER: "stub" (dev) or "stripe"
+    stripe_secret_key: str | None  # STRIPE_SECRET_KEY: platform secret key (sk_...)
+    stripe_webhook_secret: str | None  # STRIPE_WEBHOOK_SECRET: whsec_... for webhooks
 
 
 def get_settings() -> Settings:
@@ -49,4 +53,7 @@ def get_settings() -> Settings:
         uploads_dir=os.environ.get("UPLOADS_DIR", "var/uploads"),
         user_tz=os.environ.get("USER_TZ", "America/New_York"),
         notify_daily_cap=_int("NOTIFY_DAILY_CAP", 5),
+        payment_provider=os.environ.get("PAYMENT_PROVIDER", "stub"),
+        stripe_secret_key=os.environ.get("STRIPE_SECRET_KEY"),
+        stripe_webhook_secret=os.environ.get("STRIPE_WEBHOOK_SECRET"),
     )
