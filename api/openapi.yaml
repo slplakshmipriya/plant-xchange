@@ -1577,6 +1577,58 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - bearerAuth: []
+  /v1/support/threads/{thread_id}/messages:
+    get:
+      tags:
+      - messaging
+      - support
+      summary: Support Read Messages
+      description: 'Support dashboard: full decrypted thread view for moderation.
+
+
+        Support staff only (``SUPPORT_UIDS`` — 403 otherwise, fail closed).
+
+        Not participant-scoped: that is the point — a reported user''s
+
+        conversation must be reviewable. Every message returned writes one
+
+        audit row (viewer, thread, message, reason) into ``moderation_views``.'
+      operationId: support_read_messages_v1_support_threads__thread_id__messages_get
+      parameters:
+      - name: thread_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Thread Id
+      - name: reason
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Why this thread is being reviewed (audit log)
+          title: Reason
+        description: Why this thread is being reviewed (audit log)
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Support Read Messages V1 Support Threads  Thread Id  Messages
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - bearerAuth: []
   /v1/trees/{tree_id}/slots:
     post:
       tags:

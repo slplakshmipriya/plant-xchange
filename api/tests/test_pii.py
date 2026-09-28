@@ -101,9 +101,15 @@ def test_owner_profile_serializer_leaks_nothing_sensitive():
 def test_listing_serializer_fuzzes_geo_and_leaks_nothing():
     import random
 
+    from app.crypto import GEO_KEY_ENV, encrypt_float
     from app.listings import public_listing
 
-    out = public_listing(SENSITIVE_LISTING_ROW, rng=random.Random(7))
+    # Repo rows carry ENCRYPTED geo (at-rest contract); the serializer
+    # decrypts in-process immediately before fuzzing.
+    row = dict(SENSITIVE_LISTING_ROW)
+    row["geo_lat"] = encrypt_float(row["geo_lat"], GEO_KEY_ENV)
+    row["geo_lon"] = encrypt_float(row["geo_lon"], GEO_KEY_ENV)
+    out = public_listing(row, rng=random.Random(7))
     leaks = _find_leaks(out, FORBIDDEN_KEYS, _sensitive_values())
     assert leaks == [], leaks
     # exact coordinates must never be returned

@@ -11,8 +11,12 @@ server-side:
 - Lifecycle is a strict state machine; illegal transitions are 422, never
   silently coerced. Terminal states: completed, expired, cancelled.
 - SEC-010: responses carry FUZZED geo (~0.5 mi jitter) via ``fuzz_location``.
-  True coordinates never leave the server. (Exact address stays hidden until
-  the exchange-confirm flow lands in a later wave.)
+  True coordinates never leave the server. True coordinates are stored
+  ENCRYPTED at rest (Fernet, ``GEO_ENCRYPTION_KEY``): the ``geo_lat`` /
+  ``geo_lon`` columns hold ciphertext, encrypted on every repo write and
+  decrypted in-process only inside the serializers, immediately before
+  fuzzing. (Exact address stays hidden until the exchange-confirm flow
+  lands in a later wave.)
 - Expiry: ``POST /v1/internal/sweep`` flips live->expired past ``expires_at``.
   Idempotent; service-to-service auth via ``X-Sweep-Secret``.
 """
@@ -31,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .auth import ensure_owner, get_current_uid
 from .config import get_settings
+from .crypto import GEO_KEY_ENV, decrypt_float, encrypt_float
 from .db import get_db_conn
 from .notify import (
     NotificationRepo,
@@ -93,8 +98,13 @@ def fuzz_location(lat: float, lon: float, rng: random.Random | None = None) -> t
 
 
 def public_listing(row: dict[str, Any], rng: random.Random | None = None) -> dict[str, Any]:
-    """Public serializer: fuzzed geo, no owner PII (owner is just a uid)."""
-    lat, lon = row.get("geo_lat"), row.get("geo_lon")
+    """Public serializer: fuzzed geo, no owner PII (owner is just a uid).
+
+    ``row`` carries ENCRYPTED geo (repo contract); decrypt in-process here,
+    immediately before fuzzing, so true coordinates never sit in a served
+    dict. Fail closed: bad ciphertext raises."""
+    lat = decrypt_float(row.get("geo_lat"), GEO_KEY_ENV)
+    lon = decrypt_float(row.get("geo_lon"), GEO_KEY_ENV)
     flat, flon = (fuzz_location(lat, lon, rng) if lat is not None and lon is not None else (None, None))
     window = row.get("pickup_window")
     return {
@@ -192,7 +202,9 @@ class PostgresListingRepo:
                 data.get("variety"), data.get("quantity"), data.get("unit"),
                 data["credit_cost"],
                 window[0] if window else None, window[1] if window else None,
-                data.get("expires_at"), data.get("geo_lat"), data.get("geo_lon"),
+                data.get("expires_at"),
+                encrypt_float(data.get("geo_lat"), GEO_KEY_ENV),
+                encrypt_float(data.get("geo_lon"), GEO_KEY_ENV),
                 data["spray_disclosure"], data.get("status", "draft"),
                 data.get("remaining_qty"), data.get("visit_rules"),
                 data.get("pot_size"), data.get("plant_age_years"),
@@ -210,6 +222,9 @@ class PostgresListingRepo:
         if not fields:
             return self.get(listing_id)
         window = fields.pop("pickup_window", None)
+        for geo_key in ("geo_lat", "geo_lon"):
+            if geo_key in fields:
+                fields[geo_key] = encrypt_float(fields[geo_key], GEO_KEY_ENV)
         sets, params = [], []
         for k, v in fields.items():
             sets.append(f"{k} = %s")
@@ -313,6 +328,8 @@ class MemoryListingRepo:
 
     def create(self, data: dict[str, Any]) -> dict[str, Any]:
         row = dict(data)
+        row["geo_lat"] = encrypt_float(row.get("geo_lat"), GEO_KEY_ENV)
+        row["geo_lon"] = encrypt_float(row.get("geo_lon"), GEO_KEY_ENV)
         row.setdefault("created_at", utcnow().isoformat())
         self._rows[row["id"]] = row
         return dict(row)
@@ -325,6 +342,9 @@ class MemoryListingRepo:
         row = self._rows.get(listing_id)
         if row is None:
             return None
+        for geo_key in ("geo_lat", "geo_lon"):
+            if geo_key in fields:
+                fields[geo_key] = encrypt_float(fields[geo_key], GEO_KEY_ENV)
         row.update(fields)
         return dict(row)
 
@@ -636,8 +656,12 @@ def get_harvest_events(
 
 
 def _tree_card(row: dict[str, Any]) -> dict[str, Any]:
-    """Compact public tree card: id, variety, approx location, ripe window."""
-    lat, lon = row.get("geo_lat"), row.get("geo_lon")
+    """Compact public tree card: id, variety, approx location, ripe window.
+
+    Same encrypted-geo contract as ``public_listing``: decrypt in-process,
+    immediately before fuzzing."""
+    lat = decrypt_float(row.get("geo_lat"), GEO_KEY_ENV)
+    lon = decrypt_float(row.get("geo_lon"), GEO_KEY_ENV)
     flat, flon = (fuzz_location(lat, lon) if lat is not None and lon is not None else (None, None))
     window = row.get("pickup_window")
     return {

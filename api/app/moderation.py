@@ -398,6 +398,72 @@ def _require_support(uid: str) -> None:
         )
 
 
+def require_support(uid: str) -> None:
+    """Public support-staff gate for other tracks (e.g. the support message
+    dashboard in msg.py). Same fail-closed semantics as dispute resolution:
+    empty SUPPORT_UIDS means nobody passes."""
+    _require_support(uid)
+
+
+class ModerationViewRepo(Protocol):
+    """Audit log of privileged plaintext views (support dashboard decrypts).
+
+    Every time support staff views decrypted messages, one row is written
+    per message viewed, recording who looked at what and why. Read paths
+    exist so audits can be reviewed; there is no update/delete.
+    """
+
+    def log_view(self, viewer_uid: str, thread_id: str, message_id: str | None,
+                 reason: str) -> dict[str, Any]: ...
+    def list_views_for_thread(self, thread_id: str) -> list[dict[str, Any]]: ...
+
+
+class PostgresModerationViewRepo:
+    def __init__(self, conn):
+        self._conn = conn
+
+    @staticmethod
+    def _row(row) -> dict:
+        d = dict(row)
+        v = d.get("viewed_at")
+        d["viewed_at"] = v.isoformat() if hasattr(v, "isoformat") else v
+        return d
+
+    def log_view(self, viewer_uid, thread_id, message_id, reason):
+        row = self._conn.execute(
+            "INSERT INTO moderation_views (id, viewer_uid, thread_id, message_id, reason) "
+            "VALUES (%s,%s,%s,%s,%s) RETURNING *",
+            (str(uuid.uuid4()), viewer_uid, thread_id, message_id, reason),
+        ).fetchone()
+        self._conn.commit()
+        return self._row(row)
+
+    def list_views_for_thread(self, thread_id):
+        rows = self._conn.execute(
+            "SELECT * FROM moderation_views WHERE thread_id = %s ORDER BY viewed_at",
+            (thread_id,)).fetchall()
+        return [self._row(r) for r in rows]
+
+
+class MemoryModerationViewRepo:
+    def __init__(self):
+        self._views: list[dict[str, Any]] = []
+
+    def log_view(self, viewer_uid, thread_id, message_id, reason):
+        row = {"id": str(uuid.uuid4()), "viewer_uid": viewer_uid,
+               "thread_id": thread_id, "message_id": message_id,
+               "reason": reason, "viewed_at": _now().isoformat()}
+        self._views.append(row)
+        return dict(row)
+
+    def list_views_for_thread(self, thread_id):
+        return [dict(v) for v in self._views if v["thread_id"] == thread_id]
+
+
+def get_moderation_view_repo(conn=Depends(get_db_conn)) -> ModerationViewRepo:
+    return PostgresModerationViewRepo(conn)
+
+
 def _serialize_dispute(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),

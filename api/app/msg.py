@@ -17,6 +17,14 @@
 - Geo rule: thread/message payloads never carry coordinates — exact geo stays
   hidden until the exchange-confirm flow (API-060) completes, and even then
   it is exchanged out of band, not through these serializers.
+- At-rest encryption: ``messages.body`` holds Fernet ciphertext
+  (``MESSAGE_ENCRYPTION_KEY``), encrypted on write in both repos and
+  decrypted in ``_serialize_message`` — the single read boundary. Photo
+  messages store the URL as the body, so the body is uniformly ciphertext.
+- ``GET /v1/support/threads/{id}/messages``: support-staff dashboard
+  (``SUPPORT_UIDS`` gate, same as dispute resolution). Returns the thread's
+  messages decrypted for moderation and writes one audit row per message
+  viewed into ``moderation_views`` (viewer, thread, message, reason).
 """
 
 from __future__ import annotations
@@ -29,8 +37,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .auth import get_current_uid
+from .crypto import MESSAGE_KEY_ENV, decrypt_text, encrypt_text
 from .db import get_db_conn
 from .listings import ListingRepo, get_listing_repo
+from .moderation import ModerationViewRepo, get_moderation_view_repo, require_support
 from .users import UserRepo, get_user_repo
 
 router = APIRouter(prefix="/v1", tags=["messaging"])
@@ -84,12 +94,14 @@ def _serialize_thread(row: dict[str, Any], message_count: int = 0,
 
 
 def _serialize_message(row: dict[str, Any]) -> dict[str, Any]:
+    """Public message shape. The single read boundary: ``body`` is decrypted
+    here (fail closed — tampered token or missing key raises)."""
     return {
         "id": str(row["id"]),
         "thread_id": str(row["thread_id"]),
         "sender_uid": row["sender_uid"],
         "kind": row.get("kind", "text"),
-        "body": row["body"],
+        "body": decrypt_text(row["body"], MESSAGE_KEY_ENV),
         "photo_url": row.get("photo_url"),
         "created_at": row.get("created_at"),
     }
@@ -145,7 +157,8 @@ class PostgresMessageRepo:
         row = self._conn.execute(
             "INSERT INTO messages (id, thread_id, sender_uid, body, kind, photo_url) "
             "VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
-            (mid, thread_id, sender_uid, body, kind, photo_url)).fetchone()
+            (mid, thread_id, sender_uid, encrypt_text(body, MESSAGE_KEY_ENV),
+             kind, photo_url)).fetchone()
         self._conn.commit()
         return self._row(row)
 
@@ -196,8 +209,10 @@ class MemoryMessageRepo:
     def add_message(self, thread_id, sender_uid, body, kind="text", photo_url=None):
         from .listings import utcnow
         row = {"id": str(uuid.uuid4()), "thread_id": thread_id,
-               "sender_uid": sender_uid, "body": body, "kind": kind,
-               "photo_url": photo_url, "created_at": utcnow().isoformat()}
+               "sender_uid": sender_uid,
+               "body": encrypt_text(body, MESSAGE_KEY_ENV),
+               "kind": kind, "photo_url": photo_url,
+               "created_at": utcnow().isoformat()}
         self._messages[thread_id].append(row)
         return dict(row)
 
@@ -341,3 +356,34 @@ def read_messages(
         "messages": [_serialize_message(m) for m in rows[:limit]],
         "next_cursor": _encode_cursor(offset + limit) if has_more else None,
     }
+
+
+@router.get("/support/threads/{thread_id}/messages", tags=["support"])
+def support_read_messages(
+    thread_id: str,
+    reason: str = Query(min_length=1, max_length=500,
+                        description="Why this thread is being reviewed (audit log)"),
+    uid: str = Depends(get_current_uid),
+    repo: MessageRepo = Depends(get_message_repo),
+    view_repo: ModerationViewRepo = Depends(get_moderation_view_repo),
+) -> dict[str, Any]:
+    """Support dashboard: full decrypted thread view for moderation.
+
+    Support staff only (``SUPPORT_UIDS`` — 403 otherwise, fail closed).
+    Not participant-scoped: that is the point — a reported user's
+    conversation must be reviewable. Every message returned writes one
+    audit row (viewer, thread, message, reason) into ``moderation_views``.
+    """
+    require_support(uid)
+    thread = repo.get_thread(thread_id)
+    if thread is None:
+        raise HTTPException(404, {"code": "thread_not_found",
+                                  "message": "No such thread"})
+    rows = repo.list_messages(thread_id, 0, 10_000)
+    messages = []
+    for m in rows:
+        message = _serialize_message(m)  # decrypts; fail closed
+        view_repo.log_view(viewer_uid=uid, thread_id=thread_id,
+                           message_id=str(m["id"]), reason=reason.strip())
+        messages.append(message)
+    return {"thread_id": thread_id, "messages": messages}

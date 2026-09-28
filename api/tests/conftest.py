@@ -4,7 +4,15 @@ from __future__ import annotations
 import os
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
+
+# Deterministic-at-import test keys for at-rest encryption (crypto.py).
+# setdefault: a real env-provided key is never clobbered. get_cipher() reads
+# the env fresh on every call, so tests can still monkeypatch.delenv to
+# exercise the fail-closed paths.
+os.environ.setdefault("MESSAGE_ENCRYPTION_KEY", Fernet.generate_key().decode())
+os.environ.setdefault("GEO_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
 
 @pytest.fixture()
