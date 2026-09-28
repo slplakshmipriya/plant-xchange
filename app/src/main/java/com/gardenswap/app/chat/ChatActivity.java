@@ -1,8 +1,12 @@
 package com.gardenswap.app.chat;
 
 import android.app.AlertDialog;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.InputType;
+import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -10,26 +14,32 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.res.ResourcesCompat;
 
+import com.gardenswap.app.R;
 import com.gardenswap.app.api.ApiException;
 import com.gardenswap.app.api.ApiProvider;
 import com.gardenswap.app.api.ChatMessage;
 import com.gardenswap.app.api.GardenSwapApi;
 import com.gardenswap.app.ui.Ui;
+import com.gardenswap.app.util.ChatLogic;
 import com.gardenswap.app.util.CoordinateGuard;
 import com.google.firebase.analytics.FirebaseAnalytics;
 
 import java.util.List;
 
 /**
- * Message thread (AND-080).
+ * Message thread (AND-080), restyled to the prototype (UID-019).
  *
- * <p>Exchange-context header on top, system messages rendered distinctly,
- * photo share placeholder (Wave 3 mock). Before sending, text is screened
- * by {@link CoordinateGuard}: pasting GPS coordinates triggers a warning
- * dialog (SEC-010 — exact location stays private until the exchange is
- * confirmed). The server-side abuse filter (API-080) is the real
- * enforcement; this is the client-side nudge.
+ * <p>Exchange-context header on top, chat bubbles below (sent = leaf /
+ * right, received = surface / left, 16dp radius), consecutive messages from
+ * the same sender clustered via {@link ChatLogic#groupConsecutive}. A
+ * location-privacy banner stays visible above the input at all times; before
+ * sending, text is screened by {@link CoordinateGuard} exactly as before:
+ * pasting GPS coordinates triggers a warning dialog (SEC-010 — exact
+ * location stays private until the exchange is confirmed). The server-side
+ * abuse filter (API-080) is the real enforcement; this is the client-side
+ * nudge.
  */
 public class ChatActivity extends AppCompatActivity {
 
@@ -37,6 +47,7 @@ public class ChatActivity extends AppCompatActivity {
     public static final String EXTRA_OTHER_NAME = "other_name";
     public static final String EXTRA_CONTEXT = "context";
 
+    private ScrollView scroll;
     private TextView statusText;
     private LinearLayout messages;
     private EditText input;
@@ -54,21 +65,20 @@ public class ChatActivity extends AppCompatActivity {
         }
 
         LinearLayout root = Ui.column(this, 24);
-        TextView title = Ui.label(this, otherName == null ? "Chat" : otherName);
-        title.setTextSize(20);
+        TextView title = Ui.headline(this, otherName == null ? "Chat" : otherName);
         if (context != null) {
-            root.addView(Ui.label(this, context));
+            root.addView(Ui.eyebrow(this, context));
             Ui.gap(root, this, 4);
         }
         statusText = Ui.status(this);
 
-        ScrollView scroll = new ScrollView(this);
+        scroll = new ScrollView(this);
         messages = Ui.column(this, 8);
         scroll.addView(messages);
 
         input = Ui.input(this, "Message…", InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        Button send = Ui.button(this, "Send");
+        Button send = Ui.primaryButton(this, "Send");
         send.setOnClickListener(v -> onSend());
 
         root.addView(title);
@@ -78,12 +88,46 @@ public class ChatActivity extends AppCompatActivity {
         root.addView(scroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
         Ui.gap(root, this, 8);
+        root.addView(locationBanner());
+        Ui.gap(root, this, 8);
         root.addView(input);
-        Ui.gap(root, this, 4);
+        Ui.gap(root, this, 8);
         root.addView(send);
         setContentView(root);
 
         load();
+    }
+
+    /**
+     * Persistent location-privacy banner above the input (UID-019 T3).
+     * The send-time {@link CoordinateGuard} dialog behavior is unchanged.
+     */
+    private LinearLayout locationBanner() {
+        LinearLayout banner = new LinearLayout(this);
+        banner.setOrientation(LinearLayout.HORIZONTAL);
+        banner.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView badge = new TextView(this);
+        badge.setText("!");
+        badge.setGravity(Gravity.CENTER);
+        badge.setTypeface(null, Typeface.BOLD);
+        badge.setTextSize(14);
+        badge.setTextColor(ResourcesCompat.getColor(getResources(),
+                R.color.garden_ink, getTheme()));
+        GradientDrawable badgeBg = new GradientDrawable();
+        badgeBg.setShape(GradientDrawable.OVAL);
+        badgeBg.setColor(ResourcesCompat.getColor(getResources(),
+                R.color.garden_yellow, getTheme()));
+        badge.setBackground(badgeBg);
+        int badgeSize = Ui.dp(this, 24);
+        badge.setLayoutParams(new LinearLayout.LayoutParams(badgeSize, badgeSize));
+        banner.addView(badge);
+        banner.addView(ChatViews.hGap(this, 8));
+
+        TextView note = Ui.caption(this,
+                "Keep your exact location private — it stays hidden until an exchange is confirmed.");
+        banner.addView(note);
+        return banner;
     }
 
     private void load() {
@@ -104,20 +148,21 @@ public class ChatActivity extends AppCompatActivity {
 
     private void render(List<ChatMessage> result) {
         messages.removeAllViews();
-        for (ChatMessage message : result) {
-            TextView view;
-            if (message.getKind() == ChatMessage.Kind.SYSTEM) {
-                view = Ui.label(this, "— " + message.getText() + " —");
-            } else {
-                String prefix = message.isMine() ? "You: " : message.getSenderName() + ": ";
-                String body = message.getKind() == ChatMessage.Kind.PHOTO
-                        ? "[photo] " + message.getText()
-                        : message.getText();
-                view = Ui.label(this, prefix + body);
+        boolean first = true;
+        for (List<ChatMessage> group : ChatLogic.groupConsecutive(result)) {
+            if (!first) {
+                Ui.gap(messages, this, 12);
             }
-            messages.addView(view);
-            Ui.gap(messages, this, 4);
+            first = false;
+            boolean system = group.get(0).getKind() == ChatMessage.Kind.SYSTEM;
+            for (ChatMessage message : group) {
+                messages.addView(system
+                        ? ChatViews.systemMessage(this, message.getText())
+                        : ChatViews.bubbleRow(this, message));
+                Ui.gap(messages, this, 4);
+            }
         }
+        scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
     }
 
     private void onSend() {

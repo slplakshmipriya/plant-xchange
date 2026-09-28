@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sent chat bubble: leaf fill, 16dp radius (UID-019).
+     Text color is set in ChatViews: nav-ink in light mode, nav in dark mode. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="16dp" />
+    <solid android:color="@color/garden_leaf" />
+</shape>
