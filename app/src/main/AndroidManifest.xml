@@ -11,6 +11,7 @@
         android:name=".GardenSwapApp"
         android:allowBackup="false"
         android:label="Garden Swap"
+        android:theme="@style/Theme.GardenSwap"
         android:supportsRtl="true">
 
         <activity
