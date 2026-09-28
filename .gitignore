@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# Android / Gradle
+# ---------------------------------------------------------------------------
+
+# Local SDK location and per-machine secrets — NEVER commit these.
+local.properties
+
+# Build outputs
+build/
+*/build/
+out/
+*.apk
+*.aar
+*.aab
+
+# Gradle caches and state (project-local)
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Signing: keystores and key passwords must never enter the repo.
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+signing.properties
+
+# ---------------------------------------------------------------------------
+# Android Studio / IntelliJ
+# ---------------------------------------------------------------------------
+.idea/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+
+# Local run configurations that may embed machine-specific paths
+.idea/runConfigurations/
+
+# ---------------------------------------------------------------------------
+# Firebase / Google services
+# ---------------------------------------------------------------------------
+# google-services.json is committed intentionally (it is not a secret), but
+# ignore any per-developer copies or backups.
+google-services.json.bak
+google-services*.orig
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+*.log
+*.tmp
+*.orig
+captures/
+.externalNativeBuild/
+.cxx/
