@@ -79,23 +79,26 @@ public class PhoneAuthActivity extends AppCompatActivity {
         googleSignInClient = buildGoogleSignInClient();
 
         LinearLayout root = Ui.column(this, 24);
-        TextView title = Ui.label(this, "Welcome to Garden Swap");
-        title.setTextSize(20);
+        TextView title = Ui.display(this, "Welcome to Garden Swap");
+        TextView subtitle = Ui.body(this,
+                "Sign in with your phone number to start swapping plants.");
         phoneInput = Ui.input(this, "Phone number (e.g. +1 555 010 2030)",
                 InputType.TYPE_CLASS_PHONE);
-        sendCodeButton = Ui.button(this, "Send code");
+        sendCodeButton = Ui.primaryButton(this, "Continue");
         codeInput = Ui.input(this, "6-digit code", InputType.TYPE_CLASS_NUMBER);
         codeInput.setVisibility(View.GONE);
-        verifyButton = Ui.button(this, "Verify code");
+        verifyButton = Ui.primaryButton(this, "Verify code");
         verifyButton.setVisibility(View.GONE);
-        resendButton = Ui.button(this, "Resend code");
+        resendButton = Ui.secondaryButton(this, "Resend code");
         resendButton.setVisibility(View.GONE);
         statusText = Ui.status(this);
 
         root.addView(title);
-        Ui.gap(root, this, 16);
-        root.addView(phoneInput);
         Ui.gap(root, this, 8);
+        root.addView(subtitle);
+        Ui.gap(root, this, 24);
+        root.addView(phoneInput);
+        Ui.gap(root, this, 12);
         root.addView(sendCodeButton);
         Ui.gap(root, this, 16);
         root.addView(codeInput);
@@ -103,12 +106,12 @@ public class PhoneAuthActivity extends AppCompatActivity {
         root.addView(verifyButton);
         Ui.gap(root, this, 8);
         root.addView(resendButton);
-        Ui.gap(root, this, 16);
-        TextView divider = Ui.label(this, "— or —");
+        Ui.gap(root, this, 24);
+        TextView divider = Ui.caption(this, "— or —");
         divider.setGravity(Gravity.CENTER);
         root.addView(divider);
-        Ui.gap(root, this, 8);
-        googleSignInButton = Ui.button(this, "Continue with Google");
+        Ui.gap(root, this, 12);
+        googleSignInButton = Ui.secondaryButton(this, "Continue with Google");
         if (googleSignInClient == null) {
             // google-services.json has no web OAuth client; hide Google sign-in.
             divider.setVisibility(View.GONE);
