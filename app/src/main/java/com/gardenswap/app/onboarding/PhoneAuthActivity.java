@@ -17,7 +17,6 @@ import com.gardenswap.app.util.OnboardingValidator;
 import com.google.firebase.FirebaseException;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException;
-import com.google.firebase.auth.FirebaseTooManyRequestsException;
 import com.google.firebase.auth.PhoneAuthCredential;
 import com.google.firebase.auth.PhoneAuthOptions;
 import com.google.firebase.auth.PhoneAuthProvider;
@@ -179,15 +178,29 @@ public class PhoneAuthActivity extends AppCompatActivity {
         });
     }
 
-    private String friendlyError(FirebaseException e) {
-        if (e instanceof FirebaseAuthInvalidCredentialsException) {
+    private String friendlyError(FirebaseException e) {        if (e instanceof FirebaseAuthInvalidCredentialsException) {
             return "That phone number format isn't valid.";
         }
-        if (e instanceof FirebaseTooManyRequestsException) {
+        if (isQuotaExceeded(e)) {
             return "Too many attempts — try again later.";
         }
         String message = e.getMessage();
         return message == null ? "unknown error" : message;
+    }
+
+    /**
+     * Detects SMS quota-exceeded failures without referencing
+     * {@code FirebaseTooManyRequestsException}, which was removed in
+     * firebase-auth 23.x. Matches by class name so this keeps working
+     * on older SDK versions and degrades gracefully on newer ones.
+     */
+    private static boolean isQuotaExceeded(FirebaseException e) {
+        for (Class<?> c = e.getClass(); c != null; c = c.getSuperclass()) {
+            if ("FirebaseTooManyRequestsException".equals(c.getSimpleName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void setStatus(String text) {

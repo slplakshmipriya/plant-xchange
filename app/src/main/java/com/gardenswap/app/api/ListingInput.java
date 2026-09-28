@@ -23,6 +23,7 @@ public final class ListingInput {
     private final Double geoLat;
     private final Double geoLon;
     private final String sprayDisclosure;
+    private final String visitRules;
     /** See {@link Listing#isFree}. */
     private final boolean free;
 
