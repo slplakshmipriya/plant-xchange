@@ -25,6 +25,7 @@ from .middleware import (
     configure_logging,
 )
 from . import users as users_module
+from . import credits as credits_module
 from . import verify as verify_module
 from . import idv as idv_module
 from . import listings as listings_module
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
 
     # Domain routers (each owns its /v1/* routes and repo factory).
     app.include_router(users_module.router)
+    app.include_router(credits_module.router)
     app.include_router(verify_module.router)
     app.include_router(idv_module.router)
     app.include_router(listings_module.router)

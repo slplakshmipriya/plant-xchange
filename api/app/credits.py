@@ -1,10 +1,28 @@
-"""Credit ledger (API-060).
+"""Credit ledger (API-060) + seasonal credit economy (R2).
 
-- The ledger is append-only and is the source of truth; balances are derived
-  as ``SUM(delta)``. Reasons: ``starter`` / ``exchange_spend`` / ``exchange_earn``.
+Ledger:
+- The ledger is append-only and is the source of truth. Reasons:
+  ``starter`` / ``exchange_spend`` / ``exchange_earn``.
 - New users get 3 starter credits (PRD bootstrap) via ``ensure_starter_credits``
   — idempotent, safe to call from every user-creation path; the 0009 migration
   backfills pre-existing users.
+
+Seasonal expiry:
+- Two credit seasons per year (UTC): Mar 1–Sep 30 and Oct 1–Feb 28/29.
+  Credits expire at the end of the season they were issued in. Expiry is a
+  DERIVED view over ``created_at`` (FIFO lots via ``_remaining_lots``) — the
+  ledger is never mutated or deleted for expiry, so it stays append-only.
+- ``season_end_ms`` / ``expiry_warnings`` are pure helpers; the 30-day and
+  7-day warning windows feed ``GET /v1/users/me/credit-expiry``.
+
+Anti-gaming earn cap:
+- Max 10 credits earned per user per rolling 7 days, enforced inside
+  ``add_entry`` — the single choke point every issuance flow goes through
+  (exchange confirm, future earn paths). Breaches raise
+  ``EarnCapExceededError`` (HTTP 409 ``earn_cap_exceeded``), which the app's
+  exception handler renders in the standard error envelope. The starter
+  bootstrap is not "earned" and is exempt.
+
 - This module imports nothing from the users domain (users.py imports from
   here) so the dependency direction stays one-way.
 """
@@ -15,26 +33,197 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from fastapi import Depends
+from fastapi import APIRouter, Depends, HTTPException
 
+from .auth import get_current_uid
 from .db import get_db_conn
 
 STARTER_CREDITS = 3
+
+# Anti-gaming: max credits earnable per rolling window.
+EARN_CAP_PER_7D = 10
+EARN_CAP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+# Expiry warning windows (both visible on the credit-expiry endpoint).
+WARNING_30D_MS = 30 * 24 * 60 * 60 * 1000
+WARNING_7D_MS = 7 * 24 * 60 * 60 * 1000
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _now_ms() -> int:
+    return int(_utcnow().timestamp() * 1000)
+
+
+# ---------------------------------------------------------------------------
+# Seasonal expiry (pure helpers)
+# ---------------------------------------------------------------------------
+
+def season_end_ms(ts_ms: int) -> int:
+    """End of the credit season containing ``ts_ms`` (UTC), as epoch ms.
+
+    Seasons: Mar 1–Sep 30 and Oct 1–Feb 28/29. The returned instant is the
+    last millisecond of the season — credits issued at ``ts_ms`` expire then.
+    """
+    dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+    if 3 <= dt.month <= 9:
+        end = datetime(dt.year, 9, 30, 23, 59, 59, 999000, tzinfo=timezone.utc)
+    else:
+        # Oct–Dec -> next February; Jan–Feb -> this February.
+        year = dt.year + 1 if dt.month >= 10 else dt.year
+        leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+        last = 29 if leap else 28
+        end = datetime(year, 2, last, 23, 59, 59, 999000, tzinfo=timezone.utc)
+    return int(end.timestamp() * 1000)
+
+
+def _entry_ms(entry: dict[str, Any]) -> int:
+    """Ledger ``created_at`` -> epoch ms. Tolerates ISO strings, datetimes
+    (naive assumed UTC), and raw epoch ms."""
+    c = entry.get("created_at")
+    if c is None:
+        return 0
+    if isinstance(c, (int, float)):
+        return int(c)
+    if isinstance(c, datetime):
+        if c.tzinfo is None:
+            c = c.replace(tzinfo=timezone.utc)
+        return int(c.timestamp() * 1000)
+    if isinstance(c, str):
+        s = c.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            return 0
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+    return 0
+
+
+def _remaining_lots(entries: list[dict[str, Any]], now_ms: int) -> list[dict[str, int]]:
+    """Unexpired, unspent credit lots (FIFO) as ``{"credits", "expires_at_ms"}``.
+
+    Positive deltas open lots expiring at the end of their issue season;
+    negative deltas consume the oldest live lots first. Expired lots are
+    simply dropped — the ledger rows are never touched (append-only).
+    """
+    lots: list[dict[str, int]] = []
+    for e in sorted(entries, key=_entry_ms):  # stable: ties keep ledger order
+        delta = int(e.get("delta", 0))
+        if delta > 0:
+            lots.append({"credits": delta,
+                         "expires_at_ms": season_end_ms(_entry_ms(e))})
+        elif delta < 0:
+            need = -delta
+            for lot in lots:
+                if need <= 0:
+                    break
+                if lot["expires_at_ms"] <= now_ms:
+                    continue  # expired lots are already gone; spends can't touch them
+                take = min(lot["credits"], need)
+                lot["credits"] -= take
+                need -= take
+            # Leftover spend beyond live lots is dropped: the balance gate at
+            # claim/confirm time makes this unreachable in practice.
+    return [lot for lot in lots
+            if lot["credits"] > 0 and lot["expires_at_ms"] > now_ms]
+
+
+def _tranche_totals(entries: list[dict[str, Any]], now_ms: int) -> dict[int, int]:
+    """Live credits grouped by expiry instant: ``{expires_at_ms: credits}``."""
+    totals: dict[int, int] = {}
+    for lot in _remaining_lots(entries, now_ms):
+        totals[lot["expires_at_ms"]] = totals.get(lot["expires_at_ms"], 0) + lot["credits"]
+    return totals
+
+
+def expiry_warnings(balance_entries: list[dict[str, Any]],
+                    now_ms: int) -> dict[str, list[dict[str, int]]]:
+    """Warning tranches for credits nearing expiry.
+
+    Returns ``{"warn_30d": [...], "warn_7d": [...]}`` where each tranche is
+    ``{"credits": int, "expiresAtMs": int}``, ordered by expiry. ``warn_7d``
+    is the subset of ``warn_30d`` inside the 7-day window. Expired tranches
+    are never listed — they are already gone.
+    """
+    totals = _tranche_totals(balance_entries, now_ms)
+
+    def _within(window_ms: int) -> list[dict[str, int]]:
+        horizon = now_ms + window_ms
+        return [{"credits": c, "expiresAtMs": e}
+                for e, c in sorted(totals.items()) if e <= horizon]
+
+    return {"warn_30d": _within(WARNING_30D_MS), "warn_7d": _within(WARNING_7D_MS)}
+
+
+# ---------------------------------------------------------------------------
+# Anti-gaming earn cap
+# ---------------------------------------------------------------------------
+
+class EarnCapExceededError(HTTPException):
+    """409: rolling 7-day earn cap hit. Raised by the issuance choke point;
+    the app's HTTPException handler renders the standard error envelope."""
+
+    def __init__(self, earned: int, cap: int = EARN_CAP_PER_7D):
+        super().__init__(
+            status_code=409,
+            detail={
+                "code": "earn_cap_exceeded",
+                "message": (
+                    f"Earn cap reached: {earned}/{cap} credits earned in the "
+                    "last 7 days"
+                ),
+            },
+        )
+
+
+def _earned_in_window(entries: list[dict[str, Any]], now_ms: int,
+                      window_ms: int = EARN_CAP_WINDOW_MS) -> int:
+    """Credits earned inside the rolling window. Positive issuance counts;
+    the starter bootstrap and spends do not."""
+    cutoff = now_ms - window_ms
+    total = 0
+    for e in entries:
+        if e.get("reason") == "starter":
+            continue
+        delta = int(e.get("delta", 0))
+        if delta > 0 and _entry_ms(e) > cutoff:
+            total += delta
+    return total
+
+
+def _check_earn_cap(uid: str, delta: int, reason: str,
+                    credit_repo: "CreditRepo", now_ms: int) -> None:
+    """Enforce the rolling 7-day earn cap. Called by every ``add_entry`` —
+    the single choke point all issuance flows through."""
+    if delta <= 0 or reason == "starter":
+        return
+    earned = _earned_in_window(credit_repo.entries(uid), now_ms)
+    if earned + delta > EARN_CAP_PER_7D:
+        raise EarnCapExceededError(earned)
+
+
+# ---------------------------------------------------------------------------
+# Repositories
+# ---------------------------------------------------------------------------
+
 class CreditRepo(Protocol):
     def add_entry(self, uid: str, delta: int, reason: str,
                   ref_id: str | None = None,
                   idempotency_key: str | None = None) -> dict[str, Any]:
         """Append a ledger entry. Idempotent on idempotency_key: repeats
-        return the existing entry instead of double-posting."""
+        return the existing entry instead of double-posting. Positive
+        issuance is subject to the rolling 7-day earn cap (409)."""
         ...
     def find_by_idempotency_key(self, key: str) -> dict[str, Any] | None: ...
-    def balance(self, uid: str) -> int: ...
+    def balance(self, uid: str) -> int:
+        """Effective (spendable) balance: derived SUM excluding expired lots."""
+        ...
     def entries(self, uid: str) -> list[dict[str, Any]]: ...
     def add_confirmation(self, listing_id: str, uid: str) -> bool:
         """Record an exchange confirmation. Returns True when newly added."""
@@ -54,6 +243,13 @@ class PostgresCreditRepo:
         return d
 
     def add_entry(self, uid, delta, reason, ref_id=None, idempotency_key=None):
+        # Idempotent replay first: a repeat is not new issuance, so it must
+        # not be cap-checked.
+        if idempotency_key:
+            existing = self.find_by_idempotency_key(idempotency_key)
+            if existing is not None:
+                return existing
+        _check_earn_cap(uid, delta, reason, self, _now_ms())
         # Concurrent same-key inserts: exactly one wins; the loser re-reads.
         row = self._conn.execute(
             "INSERT INTO credit_ledger (id, uid, delta, reason, ref_id, idempotency_key) "
@@ -75,11 +271,8 @@ class PostgresCreditRepo:
         return self._row(row) if row else None
 
     def balance(self, uid):
-        row = self._conn.execute(
-            "SELECT COALESCE(SUM(delta), 0) AS b FROM credit_ledger WHERE uid = %s",
-            (uid,),
-        ).fetchone()
-        return int(row["b"])
+        now_ms = _now_ms()
+        return sum(lot["credits"] for lot in _remaining_lots(self.entries(uid), now_ms))
 
     def entries(self, uid):
         rows = self._conn.execute(
@@ -112,6 +305,7 @@ class MemoryCreditRepo:
     def add_entry(self, uid, delta, reason, ref_id=None, idempotency_key=None):
         if idempotency_key and idempotency_key in self._by_key:
             return dict(self._by_key[idempotency_key])
+        _check_earn_cap(uid, delta, reason, self, _now_ms())
         row = {
             "id": str(uuid.uuid4()), "uid": uid, "delta": delta, "reason": reason,
             "ref_id": ref_id, "idempotency_key": idempotency_key,
@@ -127,7 +321,8 @@ class MemoryCreditRepo:
         return dict(row) if row else None
 
     def balance(self, uid):
-        return sum(e["delta"] for e in self._entries if e["uid"] == uid)
+        now_ms = _now_ms()
+        return sum(lot["credits"] for lot in _remaining_lots(self.entries(uid), now_ms))
 
     def entries(self, uid):
         return [dict(e) for e in self._entries if e["uid"] == uid]
@@ -152,3 +347,27 @@ def ensure_starter_credits(uid: str, credit_repo: CreditRepo) -> None:
     from every user-creation path (profile upsert, phone verify)."""
     if not any(e["reason"] == "starter" for e in credit_repo.entries(uid)):
         credit_repo.add_entry(uid, STARTER_CREDITS, "starter", ref_id=uid)
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+router = APIRouter(prefix="/v1/users", tags=["credits"])
+
+
+@router.get("/me/credit-expiry")
+def credit_expiry(
+    uid: str = Depends(get_current_uid),
+    credit_repo: CreditRepo = Depends(get_credit_repo),
+) -> dict[str, Any]:
+    """Credit expiry outlook: effective balance, tranches expiring within the
+    next 30 days (covers both the 30-day and 7-day warning windows), and the
+    end of the current season."""
+    now_ms = _now_ms()
+    warnings = expiry_warnings(credit_repo.entries(uid), now_ms)
+    return {
+        "balance": credit_repo.balance(uid),
+        "expiring": warnings["warn_30d"],
+        "seasonEndMs": season_end_ms(now_ms),
+    }
