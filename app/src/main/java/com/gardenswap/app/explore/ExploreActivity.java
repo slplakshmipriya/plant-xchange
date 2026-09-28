@@ -58,11 +58,14 @@ public class ExploreActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout root = Ui.column(this, 20);
-        scroll.addView(root);
+        // Sticky title bar: the leaf + wordmark row never scrolls away.
+        LinearLayout header = Ui.column(this, 20);
+        header.addView(appTitleRow());
+        int pad = Ui.dp(this, 20);
+        header.setPadding(pad, pad, pad, 0);
 
-        root.addView(appTitleRow());
+        LinearLayout root = Ui.column(this, 20);
+        root.setPadding(pad, 0, pad, pad);
         heroSubline = Ui.body(this, "Find fresh swaps near you");
         root.addView(heroSubline);
         Ui.gap(root, this, 20);
@@ -104,7 +107,9 @@ public class ExploreActivity extends AppCompatActivity {
         emptyState.setVisibility(TextView.GONE);
         root.addView(emptyState);
 
-        setContentView(scroll);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(root);
+        setContentView(Ui.stickyHeaderScreen(this, header, scroll));
         Nav.attach(this, NavRouter.Tab.EXPLORE);
 
         loadProfile();

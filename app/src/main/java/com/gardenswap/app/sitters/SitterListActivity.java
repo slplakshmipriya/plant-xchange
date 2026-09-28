@@ -38,20 +38,22 @@ public class SitterListActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        LinearLayout root = Ui.column(this, 24);
-        root.addView(Ui.headline(this, "Find a plant sitter"));
-        Ui.gap(root, this, 4);
-        root.addView(Ui.body(this, "Local sitters for watering, repotting, and vacation care."));
-        Ui.gap(root, this, 12);
-
+        // Sticky title bar: title + intro stay fixed while sitters scroll.
+        LinearLayout header = Ui.column(this, 24);
+        header.addView(Ui.headline(this, "Find a plant sitter"));
+        Ui.gap(header, this, 4);
+        header.addView(Ui.body(this, "Local sitters for watering, repotting, and vacation care."));
+        Ui.gap(header, this, 12);
         statusText = Ui.status(this);
-        root.addView(statusText);
-        Ui.gap(root, this, 8);
+        header.addView(statusText);
+        Ui.gap(header, this, 8);
+        int pad = Ui.dp(this, 24);
+        header.setPadding(pad, pad, pad, 0);
 
+        LinearLayout listWrap = Ui.column(this, 24);
+        listWrap.setPadding(pad, 0, pad, pad);
         RecyclerView list = new RecyclerView(this);
         list.setLayoutManager(new LinearLayoutManager(this));
-        list.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         adapter = new SitterCardAdapter(null);
         adapter.setOnSitterClickListener(sitter -> {
             Intent intent = new Intent(this, SitterProfileActivity.class);
@@ -59,9 +61,10 @@ public class SitterListActivity extends AppCompatActivity {
             startActivity(intent);
         });
         list.setAdapter(adapter);
-        root.addView(list);
+        listWrap.addView(list, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        setContentView(root);
+        setContentView(Ui.stickyHeaderScreen(this, header, listWrap));
         Nav.attach(this, NavRouter.Tab.CARE);
 
         load("85281"); // mock zip; real flow reads the profile's homeZip

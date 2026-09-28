@@ -7,6 +7,7 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -43,17 +44,23 @@ public class ThreadListActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        LinearLayout root = Ui.column(this, 24);
-        TextView title = Ui.headline(this, "Messages");
+        // Sticky title bar: "Messages" stays fixed while threads scroll.
+        LinearLayout header = Ui.column(this, 24);
+        header.addView(Ui.headline(this, "Messages"));
+        Ui.gap(header, this, 8);
         statusText = Ui.status(this);
-        list = Ui.column(this, 0);
+        header.addView(statusText);
+        Ui.gap(header, this, 8);
+        int pad = Ui.dp(this, 24);
+        header.setPadding(pad, pad, pad, 0);
 
-        root.addView(title);
-        Ui.gap(root, this, 8);
-        root.addView(statusText);
-        Ui.gap(root, this, 8);
+        list = Ui.column(this, 0);
+        LinearLayout root = Ui.column(this, 24);
+        root.setPadding(pad, 0, pad, pad);
         root.addView(list);
-        setContentView(root);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(root);
+        setContentView(Ui.stickyHeaderScreen(this, header, scroll));
         Nav.attach(this, NavRouter.Tab.MESSAGES);
     }
 
