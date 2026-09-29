@@ -10,7 +10,7 @@
     <application
         android:name=".GardenSwapApp"
         android:allowBackup="false"
-        android:label="Garden Swap"
+        android:label="Garden Swap Test"
         android:supportsRtl="true">
 
         <activity
