@@ -81,7 +81,8 @@ public class ThreadListActivity extends AppCompatActivity {
 
             @Override
             public void onError(ApiException e) {
-                statusText.setText("Couldn't load messages (" + e.getCode() + ").");
+                // DEBUG ONLY: surface the server message to distinguish 401 causes.
+                statusText.setText("Couldn't load messages (" + e.getCode() + ": " + e.getMessage() + ").");
             }
         });
     }

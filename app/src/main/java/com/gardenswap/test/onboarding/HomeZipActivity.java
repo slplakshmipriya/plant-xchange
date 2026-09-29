@@ -104,8 +104,9 @@ public class HomeZipActivity extends AppCompatActivity {
             @Override
             public void onError(ApiException e) {
                 setBusy(false);
+                // DEBUG ONLY: surface the server message to distinguish 401 causes.
                 statusText.setText(
-                        "Couldn't save your profile (" + e.getCode() + "). Try again.");
+                        "Couldn't save your profile (" + e.getCode() + ": " + e.getMessage() + "). Try again.");
             }
         });
     }
