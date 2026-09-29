@@ -77,6 +77,9 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         tokenTask.addOnSuccessListener(result -> net.execute(() -> {
             try {
                 String token = result.getToken();
+                // DEBUG ONLY: log token presence/length, never the value.
+                Log.d(TAG, "attaching auth token, length="
+                        + (token == null ? -1 : token.length()));
                 HttpURLConnection conn = (HttpURLConnection)
                         new URL(baseUrl + path).openConnection();
                 try {
