@@ -5,6 +5,9 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.View;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -25,6 +28,7 @@ import com.gardenswap.test.ui.Nav;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.ui.VerifiedBadgeView;
 import com.gardenswap.test.util.IdvStatusMapper;
+import com.gardenswap.test.util.ImageLoader;
 import com.gardenswap.test.util.NavRouter;
 import com.gardenswap.test.util.SwapLogic;
 
@@ -39,7 +43,8 @@ import com.gardenswap.test.util.SwapLogic;
 public class ProfileActivity extends AppCompatActivity {
 
     private TextView nameView;
-    private TextView avatarView;
+    private TextView avatarInitialView;
+    private ImageView avatarPhotoView;
     private TextView locationView;
     private VerifiedBadgeView badgeView;
     private TextView creditsView;
@@ -97,10 +102,16 @@ public class ProfileActivity extends AppCompatActivity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
 
-        avatarView = new TextView(this);
-        TextView avatar = avatarView;        int size = Ui.dp(this, 64);
-        avatar.setLayoutParams(
+        // Avatar: initial-letter disc, with the real profile photo layered on
+        // top when the user has one.
+        FrameLayout avatarFrame = new FrameLayout(this);
+        int size = Ui.dp(this, 64);
+        avatarFrame.setLayoutParams(
                 new LinearLayout.LayoutParams(size, size));
+
+        avatarInitialView = new TextView(this);
+        TextView avatar = avatarInitialView;
+        avatar.setLayoutParams(new FrameLayout.LayoutParams(size, size));
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
         bg.setColor(ResourcesCompat.getColor(getResources(),
@@ -113,7 +124,14 @@ public class ProfileActivity extends AppCompatActivity {
         avatar.setTextColor(ResourcesCompat.getColor(getResources(),
                 R.color.garden_ink, getTheme()));
         avatar.setText("?");
-        row.addView(avatar);
+        avatarFrame.addView(avatar);
+
+        avatarPhotoView = new ImageView(this);
+        avatarPhotoView.setLayoutParams(new FrameLayout.LayoutParams(size, size));
+        avatarPhotoView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        avatarPhotoView.setVisibility(View.GONE);
+        avatarFrame.addView(avatarPhotoView);
+        row.addView(avatarFrame);
 
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
@@ -217,7 +235,14 @@ public class ProfileActivity extends AppCompatActivity {
             name = "Gardener";
         }
         nameView.setText(name);
-        avatarView.setText(name.substring(0, 1).toUpperCase());
+        avatarInitialView.setText(name.substring(0, 1).toUpperCase());
+        // Real profile photo when the user uploaded one; else the initial disc.
+        String avatarUrl = profile.getAvatarUrl();
+        boolean hasAvatar = avatarUrl != null && !avatarUrl.trim().isEmpty();
+        avatarPhotoView.setVisibility(hasAvatar ? View.VISIBLE : View.GONE);
+        if (hasAvatar) {
+            ImageLoader.loadCircularInto(avatarPhotoView, avatarUrl);
+        }
 
         String zip = profile.getHomeZip();
         locationView.setText(zip == null || zip.trim().isEmpty()

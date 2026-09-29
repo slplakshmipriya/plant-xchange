@@ -13,6 +13,7 @@ import androidx.core.content.res.ResourcesCompat;
 
 import com.gardenswap.test.R;
 import com.gardenswap.test.api.Listing;
+import com.gardenswap.test.util.ImageLoader;
 import com.gardenswap.test.util.ListingCardLogic;
 
 /**
@@ -20,9 +21,8 @@ import com.gardenswap.test.util.ListingCardLogic;
  * cost, distance, urgency cue. Matches the garden-swap-app-ui-design
  * prototype: 18dp card, surface background, ink text.
  *
- * <p>No image-loading dependency exists in the app, so the photo area is
- * always a styled placeholder (leaf glyph on leaf green). When an image
- * loader is added, load {@code listing.getPhotos()} here instead.
+ * <p>Shows the first listing photo via {@link ImageLoader} when the listing
+ * has one; otherwise the styled leaf-glyph placeholder.
  */
 public class ListingCardView extends LinearLayout {
 
@@ -30,6 +30,8 @@ public class ListingCardView extends LinearLayout {
     private final TextView titleView;
     private final TextView metaView;
     private final TextView cueView;
+    private final ImageView photoView;
+    private final ImageView photoGlyph;
 
     public ListingCardView(Context context) {
         super(context);
@@ -38,18 +40,26 @@ public class ListingCardView extends LinearLayout {
         setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // Photo area: placeholder box with leaf glyph and overlaid kind tag.
+        // Photo area: real photo when the listing has one, else the styled
+        // leaf-glyph placeholder.
         FrameLayout photo = new FrameLayout(context);
         photo.setBackgroundResource(R.drawable.photo_placeholder_bg);
         photo.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 140)));
 
-        ImageView glyph = new ImageView(context);
-        glyph.setImageResource(R.drawable.ic_leaf);
+        photoGlyph = new ImageView(context);
+        photoGlyph.setImageResource(R.drawable.ic_leaf);
         int glyphSize = Ui.dp(context, 56);
-        glyph.setLayoutParams(new FrameLayout.LayoutParams(
+        photoGlyph.setLayoutParams(new FrameLayout.LayoutParams(
                 glyphSize, glyphSize, Gravity.CENTER));
-        photo.addView(glyph);
+        photo.addView(photoGlyph);
+
+        photoView = new ImageView(context);
+        photoView.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        photoView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        photoView.setVisibility(View.GONE);
+        photo.addView(photoView);
 
         kindTag = Ui.chip(context, "");
         kindTag.setClickable(false);
@@ -107,6 +117,16 @@ public class ListingCardView extends LinearLayout {
         cueView.setVisibility(cue != null ? View.VISIBLE : View.GONE);
         if (cue != null) {
             cueView.setText(cue);
+        }
+
+        // Photo: show the first listing photo; fall back to the leaf placeholder.
+        boolean hasPhoto = listing.getPhotos() != null && !listing.getPhotos().isEmpty()
+                && listing.getPhotos().get(0) != null
+                && !listing.getPhotos().get(0).trim().isEmpty();
+        photoView.setVisibility(hasPhoto ? View.VISIBLE : View.GONE);
+        photoGlyph.setVisibility(hasPhoto ? View.GONE : View.VISIBLE);
+        if (hasPhoto) {
+            ImageLoader.loadFirstInto(photoView, listing.getPhotos());
         }
     }
 

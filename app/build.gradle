@@ -91,6 +91,10 @@ dependencies {
     // Google Sign-In (for Firebase Auth via GoogleAuthProvider)
     implementation 'com.google.android.gms:play-services-auth:21.3.0'
 
+    // Image loading (listing photos, avatars)
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
+
     // JVM unit tests (src/test): run on every debug build, no emulator needed.
     testImplementation 'junit:junit:4.13.2'
     // Real org.json for unit tests (android.jar only ships throwing stubs).

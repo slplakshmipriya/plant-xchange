@@ -7,6 +7,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -16,6 +17,7 @@ import com.gardenswap.test.R;
 import com.gardenswap.test.api.ChatMessage;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.ChatLogic;
+import com.gardenswap.test.util.ImageLoader;
 
 /**
  * Shared view builders for the messaging screens (UID-019).
@@ -114,18 +116,28 @@ final class ChatViews {
                 mine ? (isNight(context) ? R.color.garden_nav : R.color.garden_nav_ink)
                         : R.color.garden_ink,
                 context.getTheme());
-        String bodyText = message.getKind() == ChatMessage.Kind.PHOTO
-                ? "[photo] " + message.getText()
-                : message.getText();
-        TextView body = Ui.body(context, bodyText);
-        body.setTextColor(onBubble);
-        body.setMaxWidth(Ui.dp(context, 280));
+        boolean isPhoto = message.getKind() == ChatMessage.Kind.PHOTO;
+        if (isPhoto) {
+            // Photo attachment: render the image; fall back to text on failure.
+            ImageView photoView = new ImageView(context);
+            int photoSize = Ui.dp(context, 200);
+            photoView.setLayoutParams(new LinearLayout.LayoutParams(
+                    photoSize, photoSize));
+            photoView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            photoView.setContentDescription("Photo attachment");
+            bubble.addView(photoView);
+            ImageLoader.loadInto(photoView, message.getText());
+        } else {
+            TextView body = Ui.body(context, message.getText());
+            body.setTextColor(onBubble);
+            body.setMaxWidth(Ui.dp(context, 280));
+            bubble.addView(body);
+        }
         TextView time = Ui.caption(context,
                 ChatLogic.shortTime(System.currentTimeMillis(), message.getSentAtMs()));
         time.setTextColor(onBubble);
         time.setGravity(mine ? Gravity.END : Gravity.START);
 
-        bubble.addView(body);
         bubble.addView(time);
         bubble.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));

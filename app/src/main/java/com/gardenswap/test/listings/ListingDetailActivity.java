@@ -28,6 +28,7 @@ import com.gardenswap.test.ui.ClaimBottomSheet;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.ui.VerifiedBadgeView;
 import com.gardenswap.test.util.DetailViewLogic;
+import com.gardenswap.test.util.ImageLoader;
 import com.gardenswap.test.util.ListingCardLogic;
 import com.gardenswap.test.util.ListingDetailLogic;
 import com.google.firebase.auth.FirebaseAuth;
@@ -224,6 +225,18 @@ public class ListingDetailActivity extends AppCompatActivity {
         glyph.setLayoutParams(new FrameLayout.LayoutParams(
                 glyphSize, glyphSize, Gravity.CENTER));
         header.addView(glyph);
+
+        // Real listing photo when available (covers the placeholder glyph).
+        if (listing.getPhotos() != null && !listing.getPhotos().isEmpty()) {
+            ImageView photoView = new ImageView(this);
+            photoView.setLayoutParams(new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+            photoView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            header.addView(photoView);
+            glyph.setVisibility(View.GONE);
+            ImageLoader.loadFirstInto(photoView, listing.getPhotos());
+        }
 
         TextView kindTag = Ui.chip(this, ListingCardLogic.kindLabel(listing.getType()));
         kindTag.setClickable(false);
