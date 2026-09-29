@@ -48,7 +48,7 @@ final class JourneysSocial {
                 })
                 .step("Remove it", ctx -> {
                     String id = ctx.get("wantId");
-                    ctx.call("remove want",
+                    ctx.<Void>call("remove want",
                             cb -> ctx.api().removeWant(id, cb));
                 })
                 .build();

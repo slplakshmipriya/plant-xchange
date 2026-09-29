@@ -44,7 +44,7 @@ final class JourneysClaims {
                 })
                 .step("Clean up: cancel the listing", ctx -> {
                     String id = ctx.get("listingId");
-                    ctx.call("cancel listing",
+                    ctx.<Listing>call("cancel listing",
                             cb -> ctx.api().cancelListing(id, cb));
                 })
                 .build();

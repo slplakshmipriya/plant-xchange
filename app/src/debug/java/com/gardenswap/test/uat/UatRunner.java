@@ -106,7 +106,7 @@ public final class UatRunner {
                     .append(r.journey.title()).append('\n');
             for (StepResult s : r.steps) {
                 sb.append("  ").append(s.passed ? "✓ " : "✗ ")
-                        .append(s.description());
+                        .append(s.description);
                 if (!s.passed) {
                     sb.append("  << ").append(s.detail);
                 }

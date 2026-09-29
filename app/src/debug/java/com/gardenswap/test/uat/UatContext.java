@@ -96,7 +96,7 @@ public final class UatContext {
      * Runs an API call that is EXPECTED to fail (negative journeys, e.g.
      * claiming your own listing). Throws {@link UatFailure} if it succeeds.
      */
-    public void expectError(String what, String expectedCode, ApiCall<?> apiCall) throws UatFailure {
+    public <T> void expectError(String what, String expectedCode, ApiCall<T> apiCall) throws UatFailure {
         try {
             Object result = call(what, apiCall);
             throw new UatFailure(what + ": expected error '" + expectedCode
