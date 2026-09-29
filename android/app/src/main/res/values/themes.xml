@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Required: every Activity extends AppCompatActivity, which crashes on
+         launch without an AppCompat theme (IllegalStateException). -->
+    <style name="Theme.GardenSwap" parent="Theme.AppCompat.Light.NoActionBar" />
+</resources>
