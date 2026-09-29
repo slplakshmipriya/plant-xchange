@@ -8,6 +8,7 @@ import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 
+import com.gardenswap.test.BuildConfig;
 import com.gardenswap.test.MainActivity;
 import com.gardenswap.test.api.ApiException;
 import com.gardenswap.test.api.ApiProvider;
@@ -41,6 +42,15 @@ public class GardenSwapMessagingService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(RemoteMessage message) {
         Map<String, String> data = message.getData();
+
+        // Debug-only remote UAT trigger: a data message with type=uat_run
+        // and journey=<id|all|photo-regression> launches the UAT console.
+        // The harness lives in the debug source set; reflection keeps the
+        // release build compiling without it.
+        if ("uat_run".equals(data.get("type")) && BuildConfig.DEBUG) {
+            launchUat(data.get("journey"));
+            return;
+        }
 
         // Prefer the data payload; fall back to the notification payload so
         // console-sent messages still render.
@@ -94,6 +104,25 @@ public class GardenSwapMessagingService extends FirebaseMessagingService {
             return CHANNEL_BOOKINGS;
         }
         return CHANNEL_ALERTS;
+    }
+
+    /**
+     * Debug-only: launches the UAT console via reflection so release builds
+     * (which lack the debug source set) keep compiling.
+     */
+    private void launchUat(String journey) {
+        try {
+            Class<?> cls = Class.forName("com.gardenswap.test.uat.UatRunnerActivity");
+            Intent intent = new Intent(this, cls);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (journey != null) {
+                intent.putExtra("uat_journey", journey);
+            }
+            startActivity(intent);
+            Log.i(TAG, "UAT console launched (journey=" + journey + ")");
+        } catch (ClassNotFoundException e) {
+            Log.w(TAG, "uat_run received but the UAT harness is not in this build", e);
+        }
     }
 
     private void postNotification(String channelId, String title, String body,
