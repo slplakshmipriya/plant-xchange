@@ -180,6 +180,9 @@ public class HttpGardenSwapApi implements GardenSwapApi {
             if (update.getHomeZip() != null) {
                 body.put("home_zip", update.getHomeZip());
             }
+            if (update.getAgeAttestation() != null) {
+                body.put("age_attestation", update.getAgeAttestation());
+            }
             authed("POST", "/v1/users", body,
                     (s, json) -> callback.onSuccess(
                             JsonParsers.parseUserProfile(json, phoneVerified())),

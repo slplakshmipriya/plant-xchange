@@ -88,7 +88,9 @@ public class HomeZipActivity extends AppCompatActivity {
         String avatar = getIntent().getStringExtra(ProfileFormActivity.EXTRA_AVATAR);
         // Avatar byte upload lands with the photo pipeline (API-022, Wave 3);
         // until then the local URI/path is passed through as the avatar ref.
-        ProfileUpdate update = new ProfileUpdate(name, avatar, zip.trim());
+        // Age attestation: onboarding is 13+ only; the explicit checkbox UI
+        // lands with the Terms screen, until then attest inline.
+        ProfileUpdate update = new ProfileUpdate(name, avatar, zip.trim(), true);
         ApiProvider.get().upsertProfile(update, new GardenSwapApi.Callback<UserProfile>() {
             @Override
             public void onSuccess(UserProfile profile) {
