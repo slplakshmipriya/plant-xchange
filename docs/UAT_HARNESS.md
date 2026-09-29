@@ -13,11 +13,13 @@ produced; the report comes back for review.
 
 Two ways to run:
 
-1. **On-device console** (debug build): open the UAT Console activity
-   (`adb shell am start -n com.gardenswap.test/com.gardenswap.test.uat.UatRunnerActivity`),
-   tap "Run all" / "Run photo regression" / any single journey. Results render
-   inline; the full report goes to logcat (tag `UAT`) and to the app's files
-   dir (`uat-report.txt`) for copy-paste.
+1. **On-device console** (debug build): install the debug APK and tap the
+   **"UAT Console"** launcher icon (debug builds only — it's a second icon
+   next to the app). Tap "Run all" / "Run photo regression" / any single
+   journey. Results render inline (PASS/FAIL per journey, with the failing
+   step's detail). The full text report goes to logcat (tag `UAT`), to the
+   app's files dir (`uat-report.txt`), and to the clipboard via the
+   "Copy report" button — paste it back for review.
 
 2. **Remote trigger** (how Pepper drives it): send an FCM data message with
    `type=uat_run` and `journey=<id|all|photo-regression>`. The debug-only hook

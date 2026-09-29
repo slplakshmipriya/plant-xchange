@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
-        <!-- Debug-only UAT console. Merged into debug builds only. -->
+        <!-- Debug-only UAT console. Merged into debug builds only.
+             Launcher entry so it's tappable without adb. -->
         <activity
             android:name="com.gardenswap.test.uat.UatRunnerActivity"
-            android:exported="false"
-            android:label="UAT Console" />
+            android:exported="true"
+            android:label="UAT Console">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

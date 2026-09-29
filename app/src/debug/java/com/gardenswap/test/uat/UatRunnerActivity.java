@@ -26,6 +26,7 @@ public class UatRunnerActivity extends Activity {
 
     private LinearLayout resultsBox;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private String lastReport = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,6 +53,17 @@ public class UatRunnerActivity extends Activity {
         Button runPhotos = Ui.secondaryButton(this, "Photo regression");
         runPhotos.setOnClickListener(v -> runJourneys(UatRegistry.photoRegression()));
         actions.addView(runPhotos);
+        Button copyReport = Ui.secondaryButton(this, "Copy report");
+        copyReport.setOnClickListener(v -> {
+            if (lastReport == null) {
+                return;
+            }
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                    "UAT report", lastReport));
+        });
+        actions.addView(copyReport);
         page.addView(actions);
         Ui.gap(page, this, 8);
 
@@ -124,6 +136,7 @@ public class UatRunnerActivity extends Activity {
             @Override
             public void onRunFinished(List<UatRunner.JourneyResult> results) {
                 final String report = UatRunner.renderReport(results);
+                lastReport = report;
                 android.util.Log.i("UAT", "\n" + report);
                 UatReporter.saveLocal(UatRunnerActivity.this, report);
                 main.post(() -> {
