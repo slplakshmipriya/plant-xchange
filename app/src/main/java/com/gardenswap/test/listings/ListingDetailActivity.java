@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -214,6 +215,12 @@ public class ListingDetailActivity extends AppCompatActivity {
 
     /** 012-T1: full-width photo header reusing the card's placeholder treatment. */
     private View photoHeader() {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
         FrameLayout header = new FrameLayout(this);
         header.setBackgroundResource(R.drawable.photo_placeholder_bg);
         header.setLayoutParams(new LinearLayout.LayoutParams(
@@ -226,16 +233,21 @@ public class ListingDetailActivity extends AppCompatActivity {
                 glyphSize, glyphSize, Gravity.CENTER));
         header.addView(glyph);
 
-        // Real listing photo when available (covers the placeholder glyph).
-        if (listing.getPhotos() != null && !listing.getPhotos().isEmpty()) {
-            ImageView photoView = new ImageView(this);
-            photoView.setLayoutParams(new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT));
-            photoView.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            header.addView(photoView);
+        // Main photo (swapped when a thumbnail is tapped).
+        ImageView photoView = new ImageView(this);
+        photoView.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        photoView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        header.addView(photoView);
+
+        java.util.List<String> photos = listing.getPhotos() != null
+                ? listing.getPhotos() : java.util.Collections.<String>emptyList();
+        if (!photos.isEmpty()) {
             glyph.setVisibility(View.GONE);
-            ImageLoader.loadFirstInto(photoView, listing.getPhotos());
+            ImageLoader.loadFirstInto(photoView, photos);
+        } else {
+            photoView.setVisibility(View.GONE);
         }
 
         TextView kindTag = Ui.chip(this, ListingCardLogic.kindLabel(listing.getType()));
@@ -250,7 +262,7 @@ public class ListingDetailActivity extends AppCompatActivity {
         header.addView(kindTag);
 
         TextView photoCount = Ui.caption(this,
-                DetailViewLogic.photoCountLabel(listing.getPhotos().size()));
+                DetailViewLogic.photoCountLabel(photos.size()));
         photoCount.setTextColor(ResourcesCompat.getColor(
                 getResources(), R.color.garden_nav_ink, getTheme()));
         FrameLayout.LayoutParams countParams = new FrameLayout.LayoutParams(
@@ -260,7 +272,44 @@ public class ListingDetailActivity extends AppCompatActivity {
         photoCount.setLayoutParams(countParams);
         header.addView(photoCount);
 
-        return header;
+        wrapper.addView(header);
+
+        // Thumbnail strip when there are multiple photos; tapping one swaps
+        // the main photo above.
+        if (photos.size() > 1) {
+            HorizontalScrollView stripScroll = new HorizontalScrollView(this);
+            stripScroll.setLayoutParams(new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+            stripScroll.setHorizontalScrollBarEnabled(false);
+            LinearLayout strip = new LinearLayout(this);
+            strip.setOrientation(LinearLayout.HORIZONTAL);
+            int stripPad = Ui.dp(this, 12);
+            strip.setPadding(stripPad, Ui.dp(this, 8), stripPad, Ui.dp(this, 4));
+            int thumbSize = Ui.dp(this, 64);
+            int thumbGap = Ui.dp(this, 8);
+            for (int i = 0; i < photos.size(); i++) {
+                final String url = photos.get(i);
+                ImageView thumb = new ImageView(this);
+                LinearLayout.LayoutParams thumbParams = new LinearLayout.LayoutParams(
+                        thumbSize, thumbSize);
+                if (i > 0) {
+                    thumbParams.setMarginStart(thumbGap);
+                }
+                thumb.setLayoutParams(thumbParams);
+                thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                thumb.setContentDescription("Photo " + (i + 1) + " of " + photos.size());
+                thumb.setClickable(true);
+                thumb.setFocusable(true);
+                ImageLoader.loadInto(thumb, url);
+                thumb.setOnClickListener(v -> ImageLoader.loadInto(photoView, url));
+                strip.addView(thumb);
+            }
+            stripScroll.addView(strip);
+            wrapper.addView(stripScroll);
+        }
+
+        return wrapper;
     }
 
     /** 012-T2: eyebrow + body detail section. */

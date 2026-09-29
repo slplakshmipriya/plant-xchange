@@ -32,6 +32,7 @@ public class ListingCardView extends LinearLayout {
     private final TextView cueView;
     private final ImageView photoView;
     private final ImageView photoGlyph;
+    private final TextView photoCountBadge;
 
     public ListingCardView(Context context) {
         super(context);
@@ -71,6 +72,19 @@ public class ListingCardView extends LinearLayout {
         tagParams.setMargins(tagMargin, tagMargin, tagMargin, tagMargin);
         kindTag.setLayoutParams(tagParams);
         photo.addView(kindTag);
+
+        // Photo-count badge (bottom-end) when the listing has multiple photos.
+        photoCountBadge = Ui.chip(context, "");
+        photoCountBadge.setClickable(false);
+        photoCountBadge.setFocusable(false);
+        FrameLayout.LayoutParams badgeParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.END);
+        badgeParams.setMargins(tagMargin, tagMargin, tagMargin, tagMargin);
+        photoCountBadge.setLayoutParams(badgeParams);
+        photoCountBadge.setVisibility(View.GONE);
+        photo.addView(photoCountBadge);
+
         addView(photo);
 
         // Text content.
@@ -120,13 +134,19 @@ public class ListingCardView extends LinearLayout {
         }
 
         // Photo: show the first listing photo; fall back to the leaf placeholder.
-        boolean hasPhoto = listing.getPhotos() != null && !listing.getPhotos().isEmpty()
-                && listing.getPhotos().get(0) != null
-                && !listing.getPhotos().get(0).trim().isEmpty();
+        // A count badge signals when there are more photos to see in detail.
+        java.util.List<String> photos = listing.getPhotos();
+        boolean hasPhoto = photos != null && !photos.isEmpty()
+                && photos.get(0) != null && !photos.get(0).trim().isEmpty();
         photoView.setVisibility(hasPhoto ? View.VISIBLE : View.GONE);
         photoGlyph.setVisibility(hasPhoto ? View.GONE : View.VISIBLE);
         if (hasPhoto) {
-            ImageLoader.loadFirstInto(photoView, listing.getPhotos());
+            ImageLoader.loadFirstInto(photoView, photos);
+        }
+        boolean multiPhoto = photos != null && photos.size() > 1;
+        photoCountBadge.setVisibility(multiPhoto ? View.VISIBLE : View.GONE);
+        if (multiPhoto) {
+            photoCountBadge.setText(photos.size() + " photos");
         }
     }
 
