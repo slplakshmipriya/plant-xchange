@@ -404,12 +404,12 @@ public class HttpGardenSwapApi implements GardenSwapApi {
             // ListingInput model. pickupWindowDays is a required int (PRD §4
             // default 4), always sent; the nullables are omitted when unset.
             if (input.getPotSize() != null) {
-                body.put("pot_size", input.getPotSize());
+                body.put("potSize", input.getPotSize());
             }
             if (input.getPlantAge() != null) {
-                body.put("plant_age", input.getPlantAge());
+                body.put("plant_age_years", input.getPlantAge());
             }
-            body.put("pickup_window_days", input.getPickupWindowDays());
+            body.put("pickupWindowDays", input.getPickupWindowDays());
             // The create flow publishes immediately (mock-era semantics).
             body.put("status", "live");
             authed("POST", "/v1/listings", body,
@@ -488,7 +488,8 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                 body.put("notes", request.notes.trim());
             }
             authed("POST", "/v1/listings/" + enc(listingId) + "/claims", body,
-                    (status, json) -> callback.onSuccess(JsonParsers.parseListing(json)),
+                    (status, json) -> callback.onSuccess(JsonParsers.parseListing(
+                            JsonParsers.unwrap(json, "listing"))),
                     callback);
         } catch (Exception e) {
             fail(callback, new ApiException("encode_error", "Couldn't encode the claim."));
@@ -502,7 +503,8 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         // releases the held quantity/credits server-side.
         authed("POST", "/v1/listings/" + enc(listingId) + "/claims/cancel",
                 new JSONObject(),
-                (status, json) -> callback.onSuccess(JsonParsers.parseListing(json)),
+                (status, json) -> callback.onSuccess(JsonParsers.parseListing(
+                        JsonParsers.unwrap(json, "listing"))),
                 callback);
     }
 
@@ -839,7 +841,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         // bare listing object.
         try {
             JSONObject body = new JSONObject();
-            body.put("claim_id", claimId);
+            body.put("claimId", claimId);
             authed("POST", "/v1/listings/" + enc(listingId) + "/claims/accept", body,
                     (status, json) -> callback.onSuccess(
                             JsonParsers.parseListing(
@@ -856,7 +858,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         // LIVE and releases the held quantity/credits.
         try {
             JSONObject body = new JSONObject();
-            body.put("claim_id", claimId);
+            body.put("claimId", claimId);
             authed("POST", "/v1/listings/" + enc(listingId) + "/claims/decline", body,
                     (status, json) -> callback.onSuccess(
                             JsonParsers.parseListing(
@@ -903,7 +905,11 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         }
         try {
             JSONObject body = new JSONObject();
-            body.put("photo_url", trimmed);
+            // TODO: backend requires a /v1/uploads storage key
+            // (u/<uid>/<id>.<ext>), not a URL. The caller must upload the
+            // bytes via POST /v1/uploads/sign -> PUT -> POST /v1/uploads/finalize
+            // first and pass the returned key here instead of a URL.
+            body.put("uploadKey", trimmed);
             final String uid = myUid();
             authed("POST", "/v1/threads/" + enc(threadId) + "/attachments", body,
                     (status, json) -> callback.onSuccess(
@@ -969,7 +975,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
             Callback<PaymentIntent> callback) {
         try {
             JSONObject body = new JSONObject();
-            body.put("booking_id", bookingId);
+            body.put("bookingId", bookingId);
             authed("POST", "/v1/payments/sitting-intent", body,
                     (status, json) -> callback.onSuccess(
                             JsonParsers.parsePaymentIntent(json)),

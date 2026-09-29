@@ -183,10 +183,19 @@ public final class JsonParsers {
         return b.build();
     }
 
-    /** Parse {@code {"items": [...]}} listing envelopes. */
+    /**
+     * Parse listing envelopes. The feed returns {@code {"listings": [...]}} when
+     * a {@code way} filter is set (and {@code {"sitters": [...]}} for
+     * {@code way=sitting}, which carries sitter profiles — not parseable as
+     * listings); {@code {"items": [...]}} when unfiltered. Falls back to
+     * {@code items}.
+     */
     public static List<Listing> parseListingItems(JSONObject o) throws JSONException {
         List<Listing> out = new ArrayList<>();
-        JSONArray items = o.optJSONArray("items");
+        JSONArray items = o.optJSONArray("listings");
+        if (items == null) {
+            items = o.optJSONArray("items");
+        }
         if (items != null) {
             for (int i = 0; i < items.length(); i++) {
                 out.add(parseListing(items.getJSONObject(i)));
@@ -251,10 +260,10 @@ public final class JsonParsers {
                 .build();
     }
 
-    /** Parse {@code GET /v1/trees} ({@code {"items": [...]}}). */
+    /** Parse {@code GET /v1/trees} ({@code {"trees": [...]}}). */
     public static List<TreeListing> parseTreeItems(JSONObject o) throws JSONException {
         List<TreeListing> out = new ArrayList<>();
-        JSONArray items = o.optJSONArray("items");
+        JSONArray items = o.optJSONArray("trees");
         if (items != null) {
             for (int i = 0; i < items.length(); i++) {
                 out.add(parseTreeListing(items.getJSONObject(i), null));
@@ -477,13 +486,14 @@ public final class JsonParsers {
         return out;
     }
 
-    /** Parse a pick-your-own slot. {@code credit_cost} defaults to 1. */
+    /** Parse a pick-your-own slot. {@code creditCost} defaults to 1. */
     public static Slot parseSlot(JSONObject o) throws JSONException {
-        return new Slot(o.getString("id"), o.optString("tree_id", ""),
-                o.optLong("day_ms", 0), o.optLong("start_ms", 0),
-                o.optLong("end_ms", 0), o.optInt("max_pickers", 1),
-                o.optInt("claimed_count", 0), o.optInt("credit_cost", 1),
-                o.isNull("cash_cents") ? null : o.optInt("cash_cents"));
+        // Backend slots.py emits camelCase keys.
+        return new Slot(o.getString("id"), o.optString("treeId", ""),
+                o.optLong("dayMs", 0), o.optLong("startMs", 0),
+                o.optLong("endMs", 0), o.optInt("maxPickers", 1),
+                o.optInt("claimedCount", 0), o.optInt("creditCost", 1),
+                o.isNull("cashCents") ? null : o.optInt("cashCents"));
     }
 
     /** Parse {@code GET /v1/trees/{id}/slots} ({@code {"slots": [...]}}). */
@@ -506,17 +516,18 @@ public final class JsonParsers {
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject c = arr.getJSONObject(i);
                 chunks.add(new CreditExpiry.ExpiringChunk(c.optInt("credits", 0),
-                        c.optLong("expires_at_ms", 0)));
+                        c.optLong("expiresAtMs", 0)));
             }
         }
         return new CreditExpiry(o.optInt("balance", 0), chunks,
-                o.optLong("season_end_ms", 0));
+                o.optLong("seasonEndMs", 0));
     }
 
     /**
      * Parse {@code GET /v1/users/me/notification-prefs}. Missing category
-     * keys default to on (the product default); a missing
-     * {@code quiet_hours} means no quiet hours.
+     * keys default to on (the product default). The backend returns
+     * camelCase category keys plus a camelCase {@code quietHours} object
+     * ({@code quiet_hours} is a legacy bool toggle and is ignored).
      */
     public static NotificationPrefs parseNotificationPrefs(JSONObject o)
             throws JSONException {
@@ -524,13 +535,21 @@ public final class JsonParsers {
         if (categories == null) {
             categories = new JSONObject();
         }
-        JSONObject quiet = o.optJSONObject("quiet_hours");
+        JSONObject quiet = o.optJSONObject("quietHours");
+        if (quiet == null) {
+            // Defensive: tolerate the legacy snake_case object if a bool
+            // was not sent instead.
+            JSONObject legacy = o.optJSONObject("quiet_hours");
+            if (legacy != null) {
+                quiet = legacy;
+            }
+        }
         NotificationPrefs.Builder b = NotificationPrefs.builder()
-                .harvestAlerts(categories.optBoolean("harvest_alerts", true))
-                .wantMatches(categories.optBoolean("want_matches", true))
-                .expiryNudges(categories.optBoolean("expiry_nudges", true))
-                .creditWarnings(categories.optBoolean("credit_warnings", true))
-                .bookingReminders(categories.optBoolean("booking_reminders", true));
+                .harvestAlerts(categories.optBoolean("harvestAlerts", true))
+                .wantMatches(categories.optBoolean("wantMatches", true))
+                .expiryNudges(categories.optBoolean("expiryNudges", true))
+                .creditWarnings(categories.optBoolean("creditWarnings", true))
+                .bookingReminders(categories.optBoolean("bookingReminders", true));
         if (quiet != null) {
             b.quietHours(quiet.optString("start", null),
                     quiet.optString("end", null));
@@ -538,9 +557,9 @@ public final class JsonParsers {
         return b.build();
     }
 
-    /** Parse {@code POST /v1/payments/sitting-intent} ({@code {client_secret}}). */
+    /** Parse {@code POST /v1/payments/sitting-intent}. */
     public static PaymentIntent parsePaymentIntent(JSONObject o) throws JSONException {
-        return new PaymentIntent(o.optString("client_secret", ""));
+        return new PaymentIntent(o.optString("clientSecret", ""));
     }
 
     /** Parse a {@code GET /v1/me/swaps} entry. */
