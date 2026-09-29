@@ -39,7 +39,7 @@ final class JourneysClaims {
                 })
                 .step("Try to claim it (must fail)", ctx -> {
                     String id = ctx.get("listingId");
-                    ctx.expectError("self-claim", "cannot_claim_own",
+                    ctx.<Listing>expectError("self-claim", "cannot_claim_own",
                             cb -> ctx.api().claimListing(id, cb));
                 })
                 .step("Clean up: cancel the listing", ctx -> {
