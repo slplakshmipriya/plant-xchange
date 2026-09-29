@@ -16,8 +16,8 @@ import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.OnboardingValidator;
 import com.google.firebase.FirebaseException;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException;
-import com.google.firebase.auth.FirebaseTooManyRequestsException;
 import com.google.firebase.auth.PhoneAuthCredential;
 import com.google.firebase.auth.PhoneAuthOptions;
 import com.google.firebase.auth.PhoneAuthProvider;
@@ -183,7 +183,8 @@ public class PhoneAuthActivity extends AppCompatActivity {
         if (e instanceof FirebaseAuthInvalidCredentialsException) {
             return "That phone number format isn't valid.";
         }
-        if (e instanceof FirebaseTooManyRequestsException) {
+        if (e instanceof FirebaseAuthException
+                && "ERROR_TOO_MANY_REQUESTS".equals(((FirebaseAuthException) e).getErrorCode())) {
             return "Too many attempts — try again later.";
         }
         String message = e.getMessage();

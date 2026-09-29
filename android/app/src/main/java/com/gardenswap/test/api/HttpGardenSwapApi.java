@@ -18,6 +18,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
@@ -215,5 +216,122 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                                 "Couldn't subscribe to push notifications."));
                     }
                 });
+    }
+
+    // ------------------------------------------------------------ Wave 2/3 stubs
+    // Test-branch scaffolding: the real Wave 2/3 HTTP implementations live on
+    // the integration branch. These stubs exist only so the class compiles;
+    // the auth-test flow (Wave 1: getMe/upsertProfile/idv) is fully wired.
+    // Any stubbed call fails loudly with not_supported.
+
+    private static ApiException notSupported() {
+        return new ApiException("not_supported",
+                "This feature isn't wired to the backend on this test branch yet.");
+    }
+
+    @Override
+    public void getTreeDetail(String treeId, Callback<TreeListing> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void setRipeAlert(String treeId, boolean subscribe, Callback<Boolean> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void getWallet(Callback<Wallet> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void confirmExchange(String exchangeId, Callback<ExchangeConfirmation> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void getSitters(String zip, Callback<List<SitterProfile>> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void getSitter(String sitterId, Callback<SitterProfile> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void requestBooking(BookingRequest request, Callback<Booking> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void submitReview(String bookingId, Review review, Callback<Void> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void getThreads(Callback<List<ChatThread>> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void getMessages(String threadId, Callback<List<ChatMessage>> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void sendMessage(String threadId, String text, Callback<ChatMessage> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void createListing(ListingInput input, Callback<Listing> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void getListing(String listingId, Callback<Listing> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void patchListing(String listingId, ListingPatch patch, Callback<Listing> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void listMyListings(Callback<List<Listing>> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void getWantList(Callback<List<WantItem>> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void addWant(String variety, Callback<WantItem> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void removeWant(String wantId, Callback<Void> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void getMatches(Callback<List<Listing>> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void getHarvestEvents(String listingId, Callback<List<HarvestEvent>> callback) {
+        fail(callback, notSupported());
+    }
+
+    @Override
+    public void logHarvestEvent(String listingId, double delta, String note,
+            Callback<HarvestEvent> callback) {
+        fail(callback, notSupported());
     }
 }
