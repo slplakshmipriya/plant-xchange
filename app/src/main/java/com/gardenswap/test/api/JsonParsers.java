@@ -542,4 +542,25 @@ public final class JsonParsers {
     public static PaymentIntent parsePaymentIntent(JSONObject o) throws JSONException {
         return new PaymentIntent(o.optString("client_secret", ""));
     }
+
+    /** Parse a {@code GET /v1/me/swaps} entry. */
+    public static Swap parseSwap(JSONObject o) throws JSONException {
+        return new Swap(
+                o.optString("swap_id", ""),
+                o.optString("counterparty", "A gardener"),
+                o.optString("listing_title", "A listing"),
+                BookingStatus.fromString(o.optString("status", "REQUESTED")));
+    }
+
+    /** Parse {@code GET /v1/me/swaps} ({@code {swaps: [...]}}). */
+    public static List<Swap> parseSwaps(JSONObject o) throws JSONException {
+        List<Swap> out = new ArrayList<>();
+        JSONArray items = o.optJSONArray("swaps");
+        if (items != null) {
+            for (int i = 0; i < items.length(); i++) {
+                out.add(parseSwap(items.getJSONObject(i)));
+            }
+        }
+        return out;
+    }
 }

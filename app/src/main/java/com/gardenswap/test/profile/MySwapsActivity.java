@@ -8,12 +8,16 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.gardenswap.test.api.ApiException;
+import com.gardenswap.test.api.ApiProvider;
+import com.gardenswap.test.api.GardenSwapApi;
 import com.gardenswap.test.api.Swap;
 import com.gardenswap.test.ui.Nav;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.NavRouter;
 import com.gardenswap.test.util.SwapLogic;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -21,10 +25,13 @@ import java.util.Locale;
  * My swaps screen (UID-023).
  *
  * <p>Active swaps first, then completed/history — each row shows the
- * counterparty, the listing title, and a status chip. Data is
- * {@link SwapSamples} (placeholder) until the swap-history API lands.
+ * counterparty, the listing title, and a status chip. Data comes from
+ * {@code GET /v1/me/swaps} (API-070).
  */
 public class MySwapsActivity extends AppCompatActivity {
+
+    private LinearLayout root;
+    private TextView statusText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,21 +43,39 @@ public class MySwapsActivity extends AppCompatActivity {
         int pad = Ui.dp(this, 24);
         header.setPadding(pad, pad, pad, 0);
 
-        LinearLayout root = Ui.column(this, 24);
+        root = Ui.column(this, 24);
         root.setPadding(pad, 0, pad, pad);
         root.addView(Ui.headline(this, "My swaps"));
         Ui.gap(root, this, 16);
 
-        SwapLogic.Partition partition =
-                SwapLogic.partition(SwapSamples.swaps());
-        addSection(root, "Active", partition.active(), true);
-        Ui.gap(root, this, 16);
-        addSection(root, "Completed", partition.completed(), false);
+        statusText = Ui.status(this);
+        statusText.setText("Loading your swaps...");
+        root.addView(statusText);
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
         setContentView(Ui.stickyHeaderScreen(this, header, scroll));
         Nav.attach(this, NavRouter.Tab.SWAPS);
+
+        loadSwaps();
+    }
+
+    private void loadSwaps() {
+        ApiProvider.get().getSwaps(new GardenSwapApi.Callback<List<Swap>>() {
+            @Override
+            public void onSuccess(List<Swap> swaps) {
+                root.removeView(statusText);
+                SwapLogic.Partition partition = SwapLogic.partition(swaps);
+                addSection(root, "Active", partition.active(), true);
+                Ui.gap(root, MySwapsActivity.this, 16);
+                addSection(root, "Completed", partition.completed(), false);
+            }
+
+            @Override
+            public void onError(ApiException e) {
+                statusText.setText("Couldn't load your swaps (" + e.getCode() + "). Try again.");
+            }
+        });
     }
 
     private void addSection(LinearLayout root, String heading,

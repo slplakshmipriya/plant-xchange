@@ -33,6 +33,15 @@ public interface GardenSwapApi {
     /** Create or update the signed-in user's profile (API-010). */
     void upsertProfile(ProfileUpdate update, Callback<UserProfile> callback);
 
+    /**
+     * Upload an avatar image and return the absolute public URL.
+     * Runs sign → PUT raw bytes → finalize (API-022).
+     */
+    void uploadAvatar(byte[] imageBytes, String contentType, Callback<String> callback);
+
+    /** List the signed-in user's swap history (API-070). */
+    void getSwaps(Callback<List<Swap>> callback);
+
     /** Open an ID-verification session with the provider (API-012). */
     void createIdvSession(Callback<IdvSession> callback);
 

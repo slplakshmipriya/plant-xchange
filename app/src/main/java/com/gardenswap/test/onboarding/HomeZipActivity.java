@@ -1,6 +1,7 @@
 package com.gardenswap.test.onboarding;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
 import android.util.Log;
@@ -10,6 +11,10 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -85,12 +90,65 @@ public class HomeZipActivity extends AppCompatActivity {
         }
         setBusy(true);
         String name = getIntent().getStringExtra(ProfileFormActivity.EXTRA_NAME);
-        String avatar = getIntent().getStringExtra(ProfileFormActivity.EXTRA_AVATAR);
-        // Avatar byte upload lands with the photo pipeline (API-022, Wave 3);
-        // until then the local URI/path is passed through as the avatar ref.
+        String avatarUri = getIntent().getStringExtra(ProfileFormActivity.EXTRA_AVATAR);
+        if (avatarUri != null) {
+            // Upload the photo first, then save the profile with the public URL.
+            statusText.setText("Uploading your photo...");
+            uploadAvatarThenSave(name, avatarUri, zip.trim());
+        } else {
+            saveProfile(name, null, zip.trim());
+        }
+    }
+
+    private void uploadAvatarThenSave(String name, String avatarUri, String zip) {
+        new Thread(() -> {
+            try {
+                byte[] bytes;
+                String contentType;
+                try (InputStream in = getContentResolver().openInputStream(Uri.parse(avatarUri));
+                     ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                    if (in == null) {
+                        throw new IOException("Couldn't open the photo.");
+                    }
+                    contentType = getContentResolver().getType(Uri.parse(avatarUri));
+                    if (contentType == null) {
+                        contentType = "image/jpeg";
+                    }
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        out.write(buf, 0, n);
+                    }
+                    bytes = out.toByteArray();
+                }
+                final String ct = contentType;
+                runOnUiThread(() -> ApiProvider.get().uploadAvatar(bytes, ct,
+                        new GardenSwapApi.Callback<String>() {
+                            @Override
+                            public void onSuccess(String publicUrl) {
+                                saveProfile(name, publicUrl, zip);
+                            }
+
+                            @Override
+                            public void onError(ApiException e) {
+                                setBusy(false);
+                                statusText.setText("Couldn't upload your photo ("
+                                        + e.getCode() + "). Try again or skip the photo.");
+                            }
+                        }));
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    setBusy(false);
+                    statusText.setText("Couldn't read your photo. Try again or skip it.");
+                });
+            }
+        }).start();
+    }
+
+    private void saveProfile(String name, String avatarUrl, String zip) {
         // Age attestation: onboarding is 13+ only; the explicit checkbox UI
         // lands with the Terms screen, until then attest inline.
-        ProfileUpdate update = new ProfileUpdate(name, avatar, zip.trim(), true);
+        ProfileUpdate update = new ProfileUpdate(name, avatarUrl, zip, true);
         ApiProvider.get().upsertProfile(update, new GardenSwapApi.Callback<UserProfile>() {
             @Override
             public void onSuccess(UserProfile profile) {

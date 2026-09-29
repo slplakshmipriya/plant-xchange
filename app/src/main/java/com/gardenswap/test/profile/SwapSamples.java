@@ -15,12 +15,12 @@ import java.util.List;
  * hard-coded list. It exercises active vs completed partitioning and the
  * row UI; it is not real user data.
  */
-final class SwapSamples {
+public final class SwapSamples {
 
     private SwapSamples() {
     }
 
-    static List<Swap> swaps() {
+    public static List<Swap> swaps() {
         List<Swap> out = new ArrayList<>();
         out.add(new Swap("swap-1", "Ana",
                 "Cherry tomato seedlings", BookingStatus.IN_PROGRESS));

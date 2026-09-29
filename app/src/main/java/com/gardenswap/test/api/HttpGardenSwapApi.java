@@ -18,6 +18,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
@@ -190,6 +191,107 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         } catch (Exception e) {
             fail(callback, new ApiException("encode_error", "Couldn't encode the profile."));
         }
+    }
+
+    @Override
+    public void uploadAvatar(byte[] imageBytes, String contentType, Callback<String> callback) {
+        try {
+            JSONObject signBody = new JSONObject();
+            signBody.put("content_type", contentType);
+            signBody.put("size_bytes", imageBytes.length);
+            authed("POST", "/v1/uploads/sign", signBody, (s, signJson) -> {
+                String key = signJson.optString("key", null);
+                String uploadUrl = signJson.optString("upload_url", null);
+                if (key == null || uploadUrl == null) {
+                    callback.onError(new ApiException("upload_error",
+                            "Couldn't start the photo upload."));
+                    return;
+                }
+                // Step 2: PUT raw bytes to the signed upload URL.
+                putRawBytes(uploadUrl, imageBytes, contentType, new Callback<Void>() {
+                    @Override
+                    public void onSuccess(Void v) {
+                        // Step 3: Finalize (strips EXIF GPS, makes it servable).
+                        try {
+                            JSONObject finBody = new JSONObject();
+                            finBody.put("key", key);
+                            authed("POST", "/v1/uploads/finalize", finBody,
+                                    (s2, finJson) -> {
+                                        String publicUrl = finJson.optString("public_url", null);
+                                        if (publicUrl == null) {
+                                            callback.onError(new ApiException("upload_error",
+                                                    "Couldn't finish the photo upload."));
+                                            return;
+                                        }
+                                        // Backend returns a relative URL; make it absolute.
+                                        String absolute = publicUrl.startsWith("http")
+                                                ? publicUrl : baseUrl + publicUrl;
+                                        callback.onSuccess(absolute);
+                                    },
+                                    callback);
+                        } catch (Exception e) {
+                            fail(callback, new ApiException("encode_error",
+                                    "Couldn't encode the upload request."));
+                        }
+                    }
+
+                    @Override
+                    public void onError(ApiException error) {
+                        callback.onError(error);
+                    }
+                });
+            }, callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error", "Couldn't encode the upload request."));
+        }
+    }
+
+    @Override
+    public void getSwaps(Callback<List<Swap>> callback) {
+        authed("GET", "/v1/me/swaps", null,
+                (s, json) -> callback.onSuccess(JsonParsers.parseSwaps(json)),
+                callback);
+    }
+
+    /** PUT raw bytes to an upload URL with Firebase auth. */
+    private void putRawBytes(String path, byte[] bytes, String contentType,
+                             Callback<Void> callback) {        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user == null) {
+            fail(callback, new ApiException("not_signed_in", "No Firebase user signed in."));
+            return;
+        }
+        user.getIdToken(true).addOnSuccessListener(result -> net.execute(() -> {
+            try {
+                String url = path.startsWith("http") ? path : baseUrl + path;
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                try {
+                    conn.setRequestMethod("PUT");
+                    conn.setConnectTimeout(30_000);
+                    conn.setReadTimeout(30_000);
+                    conn.setRequestProperty("Authorization", "Bearer " + result.getToken());
+                    conn.setDoOutput(true);
+                    conn.setRequestProperty("Content-Type", contentType);
+                    conn.setFixedLengthStreamingMode(bytes.length);
+                    try (OutputStream out = conn.getOutputStream()) {
+                        out.write(bytes);
+                    }
+                    int status = conn.getResponseCode();
+                    if (status >= 200 && status < 300) {
+                        main.post(() -> callback.onSuccess(null));
+                    } else {
+                        String raw = readAll(conn.getErrorStream());
+                        main.post(() -> callback.onError(JsonParsers.parseError(status, raw)));
+                    }
+                } finally {
+                    conn.disconnect();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "raw PUT failed", e);
+                fail(callback, new ApiException("network_error",
+                        "Couldn't upload the photo. Check your connection."));
+            }
+        })).addOnFailureListener(e -> fail(callback,
+                new ApiException("auth_error", "Couldn't get an auth token.")));
     }
 
     @Override

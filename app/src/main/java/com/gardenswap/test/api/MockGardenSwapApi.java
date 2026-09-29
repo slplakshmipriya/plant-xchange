@@ -136,6 +136,17 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void uploadAvatar(byte[] imageBytes, String contentType, Callback<String> callback) {
+        // Mock: pretend the upload succeeded and return a fake public URL.
+        emit(callback, "https://mock.gardenswap.test/uploads/mock-avatar.jpg");
+    }
+
+    @Override
+    public void getSwaps(Callback<java.util.List<Swap>> callback) {
+        emit(callback, com.gardenswap.test.profile.SwapSamples.swaps());
+    }
+
+    @Override
     public void getIdvStatus(Callback<IdvStatus> callback) {
         emit(callback, mockIdvStatus);
     }

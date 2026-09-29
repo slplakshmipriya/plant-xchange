@@ -16,6 +16,7 @@ import com.gardenswap.test.R;
 import com.gardenswap.test.api.ApiException;
 import com.gardenswap.test.api.ApiProvider;
 import com.gardenswap.test.api.GardenSwapApi;
+import com.gardenswap.test.api.Swap;
 import com.gardenswap.test.api.UserProfile;
 import com.gardenswap.test.api.Wallet;
 import com.gardenswap.test.notifications.NotificationPrefsActivity;
@@ -167,10 +168,20 @@ public class ProfileActivity extends AppCompatActivity {
 
     private void load() {
         statusView.setText("Loading profile…");
-        SwapLogic.Partition partition =
-                SwapLogic.partition(SwapSamples.swaps());
-        activeView.setText(String.valueOf(partition.active().size()));
-        completedView.setText(String.valueOf(partition.completed().size()));
+        ApiProvider.get().getSwaps(new GardenSwapApi.Callback<java.util.List<Swap>>() {
+            @Override
+            public void onSuccess(java.util.List<Swap> swaps) {
+                SwapLogic.Partition partition = SwapLogic.partition(swaps);
+                activeView.setText(String.valueOf(partition.active().size()));
+                completedView.setText(String.valueOf(partition.completed().size()));
+            }
+
+            @Override
+            public void onError(ApiException e) {
+                activeView.setText("–");
+                completedView.setText("–");
+            }
+        });
 
         ApiProvider.get().getMe(new GardenSwapApi.Callback<UserProfile>() {
             @Override
