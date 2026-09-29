@@ -16,7 +16,7 @@ per-variant overrides.
 ## How to get it
 
 1. Firebase console → create project (or reuse the Garden Swap project).
-2. Add an Android app with package name **`com.gardenswap.app`**.
+2. Add an Android app with package name **`com.gardenswap.test`**.
 3. Download `google-services.json` and place it per the table above.
 4. For phone auth (AND-010, later): add your debug keystore SHA-1 under
    Project settings → Android app. Get it with:

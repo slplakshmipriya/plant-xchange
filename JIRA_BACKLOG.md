@@ -57,7 +57,7 @@
   - AC: `build.gradle` mirrors BareLabel (AGP 8.5.2, SDK 35/35/23,
     firebase-bom 33.7.0, `local.properties` secrets, release signing block,
     `assembleDebug` → `testDebugUnitTest` gate); package
-    `com.gardenswap.app`; debug + release variants build; app launches to
+    `com.gardenswap.test`; debug + release variants build; app launches to
     placeholder home.
 - **AND-002** [P0, 3] Firebase wiring: Auth, Analytics, Crashlytics, FCM
   - AC: `google-services.json` per variant (git-ignored, documented setup);
