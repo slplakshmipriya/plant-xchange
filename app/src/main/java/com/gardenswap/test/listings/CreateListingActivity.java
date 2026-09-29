@@ -3,6 +3,7 @@ package com.gardenswap.test.listings;
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -16,6 +17,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.gardenswap.test.api.ApiException;
@@ -28,6 +31,9 @@ import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.CreateListingValidator;
 import com.gardenswap.test.util.CreditStepperLogic;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -42,9 +48,11 @@ import java.util.Locale;
  * disclosure (mandatory) → visit rules → publish. Draft autosaves to
  * SharedPreferences.
  *
- * <p>Photos are placeholder URIs in the mock phase; real capture/upload lands
- * with the photo pipeline integration (API-022). Validation is owned entirely
- * by {@link CreateListingValidator}; this activity only collects input.
+ * <p>Photos are picked from the gallery and uploaded through
+ * {@code /v1/uploads} (sign → PUT → finalize); {@link #photoUris} holds the
+ * returned absolute public URLs, which is what the backend expects.
+ * Validation is owned entirely by {@link CreateListingValidator}; this
+ * activity only collects input.
  */
 public class CreateListingActivity extends AppCompatActivity {
 
@@ -63,6 +71,10 @@ public class CreateListingActivity extends AppCompatActivity {
     private ListingType selectedType = ListingType.SEEDLING;
     private final List<String> photoUris = new ArrayList<>();
     private TextView photoCountView;
+    /** Gallery picker (multi-select); each pick is uploaded, see {@link #uploadPhotos}. */
+    private ActivityResultLauncher<String> photoPicker;
+    /** In-flight uploads; publish is blocked while this is non-zero. */
+    private int photosUploading = 0;
     private EditText varietyInput;
     private EditText quantityInput;
     private EditText unitInput;
@@ -116,6 +128,16 @@ public class CreateListingActivity extends AppCompatActivity {
         Ui.gap(root, this, 12);
 
         // ---- Photos (014-T1) ----
+        // Real gallery picker (multi-select). Each picked photo is uploaded
+        // through /v1/uploads and only the returned absolute public URL is
+        // stored in photoUris — the backend rejects anything that isn't http(s).
+        photoPicker = registerForActivityResult(
+                new ActivityResultContracts.GetMultipleContents(),
+                uris -> {
+                    if (uris != null && !uris.isEmpty()) {
+                        uploadPhotos(uris);
+                    }
+                });
         root.addView(Ui.eyebrow(this, "Photos · required"));
         Ui.gap(root, this, 4);
         LinearLayout photoCard = Ui.card(this);
@@ -123,12 +145,7 @@ public class CreateListingActivity extends AppCompatActivity {
         photoCard.addView(photoCountView);
         Ui.gap(photoCard, this, 8);
         Button addPhotoButton = Ui.secondaryButton(this, "Add photos");
-        addPhotoButton.setOnClickListener(v -> {
-            // Mock phase: record a placeholder URI. Real camera/gallery +
-            // upload lands with the API-022 integration.
-            photoUris.add("content://mock/photo/" + System.currentTimeMillis());
-            updatePhotoCount();
-        });
+        addPhotoButton.setOnClickListener(v -> photoPicker.launch("image/*"));
         photoCard.addView(addPhotoButton);
         root.addView(photoCard);
         Ui.gap(root, this, 12);
@@ -346,11 +363,87 @@ public class CreateListingActivity extends AppCompatActivity {
     }
 
     private void updatePhotoCount() {
+        StringBuilder text = new StringBuilder();
         if (photoUris.isEmpty()) {
-            photoCountView.setText("No photos yet — add at least one.");
+            text.append("No photos yet — add at least one.");
         } else {
-            photoCountView.setText(photoUris.size()
-                    + (photoUris.size() == 1 ? " photo added." : " photos added."));
+            text.append(photoUris.size())
+                    .append(photoUris.size() == 1 ? " photo added." : " photos added.");
+        }
+        if (photosUploading > 0) {
+            text.append(" Uploading ")
+                    .append(photosUploading)
+                    .append(photosUploading == 1 ? " photo..." : " photos...");
+        }
+        photoCountView.setText(text.toString());
+    }
+
+    /**
+     * Uploads each picked gallery photo through {@code /v1/uploads}
+     * (sign → PUT → finalize) and stores the returned absolute public URL in
+     * {@link #photoUris}. Only successfully-uploaded URLs are stored, so the
+     * "at least one photo" validation always sees real http(s) URLs. Failures
+     * show a message and add nothing.
+     */
+    private void uploadPhotos(List<Uri> uris) {
+        for (Uri uri : uris) {
+            photosUploading++;
+            updatePhotoCount();
+            new Thread(() -> {
+                try {
+                    byte[] bytes;
+                    String contentType;
+                    try (InputStream in = getContentResolver().openInputStream(uri);
+                         ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                        if (in == null) {
+                            throw new IOException("Couldn't open the photo.");
+                        }
+                        contentType = getContentResolver().getType(uri);
+                        if (contentType == null) {
+                            contentType = "image/jpeg";
+                        }
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) != -1) {
+                            out.write(buf, 0, n);
+                        }
+                        bytes = out.toByteArray();
+                    }
+                    if (bytes.length > 8 * 1024 * 1024) {
+                        runOnUiThread(() -> {
+                            photosUploading--;
+                            updatePhotoCount();
+                            statusView.setText(
+                                    "That photo is too large (8 MB max). Pick a smaller one.");
+                        });
+                        return;
+                    }
+                    final String ct = contentType;
+                    runOnUiThread(() -> ApiProvider.get().uploadAvatar(bytes, ct,
+                            new GardenSwapApi.Callback<String>() {
+                                @Override
+                                public void onSuccess(String publicUrl) {
+                                    photoUris.add(publicUrl);
+                                    photosUploading--;
+                                    updatePhotoCount();
+                                }
+
+                                @Override
+                                public void onError(ApiException e) {
+                                    photosUploading--;
+                                    updatePhotoCount();
+                                    statusView.setText("Couldn't upload your photo ("
+                                            + e.getCode() + "). Try again.");
+                                }
+                            }));
+                } catch (Exception e) {
+                    runOnUiThread(() -> {
+                        photosUploading--;
+                        updatePhotoCount();
+                        statusView.setText("Couldn't read your photo. Try again.");
+                    });
+                }
+            }).start();
         }
     }
 
@@ -470,6 +563,10 @@ public class CreateListingActivity extends AppCompatActivity {
     }
 
     private void publish() {
+        if (photosUploading > 0) {
+            statusView.setText("Still uploading your photos — wait a moment, then tap Publish again.");
+            return;
+        }
         applyPickupWindowDefault();
         applyExpiryDefault();
         CreateListingValidator.Draft draft = collectDraft();
