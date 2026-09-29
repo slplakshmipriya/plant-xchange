@@ -731,9 +731,15 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
-    public void sendAttachment(String threadId, String photoUrl,
+    public void uploadFileKey(byte[] bytes, String contentType, Callback<String> callback) {
+        // Mock: pretend the upload succeeded and return a fake storage key.
+        emit(callback, "u/mock-user/mock-key.jpg");
+    }
+
+    @Override
+    public void sendAttachment(String threadId, String uploadKey,
             Callback<ChatMessage> callback) {
-        String trimmed = photoUrl == null ? "" : photoUrl.trim();
+        String trimmed = uploadKey == null ? "" : uploadKey.trim();
         if (trimmed.isEmpty()) {
             emitError(callback, new ApiException("empty_attachment", "Pick a photo first."));
             return;

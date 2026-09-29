@@ -121,6 +121,14 @@ public class HomeZipActivity extends AppCompatActivity {
                     }
                     bytes = out.toByteArray();
                 }
+                if (bytes.length > 8 * 1024 * 1024) {
+                    runOnUiThread(() -> {
+                        setBusy(false);
+                        statusText.setText(
+                                "That photo is too large (8 MB max). Pick a smaller one.");
+                    });
+                    return;
+                }
                 final String ct = contentType;
                 runOnUiThread(() -> ApiProvider.get().uploadAvatar(bytes, ct,
                         new GardenSwapApi.Callback<String>() {
@@ -164,9 +172,7 @@ public class HomeZipActivity extends AppCompatActivity {
             @Override
             public void onError(ApiException e) {
                 setBusy(false);
-                // DEBUG ONLY: surface the server message to distinguish 401 causes.
-                statusText.setText(
-                        "Couldn't save your profile (" + e.getCode() + ": " + e.getMessage() + "). Try again.");
+                statusText.setText("Couldn't save your profile. Try again.");
             }
         });
     }

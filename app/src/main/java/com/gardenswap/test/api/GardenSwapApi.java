@@ -48,7 +48,11 @@ public interface GardenSwapApi {
     /** Current ID-verification status (API-012). */
     void getIdvStatus(Callback<IdvStatus> callback);
 
-    /** Register this device's FCM token for push (AND-002). */
+    /**
+     * Register this device's FCM token for push (AND-002). Delivery is via the
+     * per-user FCM topic ({@code user_<uid>}); the {@code fcmToken} parameter
+     * is intentionally unused and kept for signature stability.
+     */
     void registerFcmToken(String userId, String fcmToken, Callback<Void> callback);
 
     // ------------------------------------------------------------ Wave 3 (proposed)
@@ -177,7 +181,8 @@ public interface GardenSwapApi {
     /**
      * Log a harvest event: positive {@code delta} = produce added, negative =
      * taken. Client-proposed (AND-040); the backend harvest rules (API-040)
-     * define the wire form.
+     * define the wire form. The {@code note} parameter is accepted for API
+     * compatibility but never sent — the backend stores no harvest notes.
      */
     void logHarvestEvent(String listingId, double delta, String note,
             Callback<HarvestEvent> callback);
@@ -219,11 +224,20 @@ public interface GardenSwapApi {
     void claimTreeSlot(String treeId, String slotId, Callback<Slot> callback);
 
     /**
-     * Send a photo attachment to a thread (planned:
-     * {@code POST /v1/threads/{id}/attachments} with {@code {photo_url}}).
-     * Returns the created {@link ChatMessage} ({@link ChatMessage.Kind#PHOTO}).
+     * Upload raw file bytes via the /v1/uploads flow (sign → PUT → finalize).
+     * Returns the storage <b>key</b> (e.g. {@code u/&lt;uid&gt;/&lt;id&gt;.jpg}),
+     * not the public URL. Use the key with {@link #sendAttachment}.
      */
-    void sendAttachment(String threadId, String photoUrl, Callback<ChatMessage> callback);
+    void uploadFileKey(byte[] bytes, String contentType, Callback<String> callback);
+
+    /**
+     * Send a photo attachment to a thread:
+     * {@code POST /v1/threads/{id}/attachments} with {@code {uploadKey}}.
+     * The key must come from {@link #uploadFileKey} (a /v1/uploads storage key,
+     * not a URL). Returns the created {@link ChatMessage}
+     * ({@link ChatMessage.Kind#PHOTO}).
+     */
+    void sendAttachment(String threadId, String uploadKey, Callback<ChatMessage> callback);
 
     /**
      * Seasonal credit expiry state (planned:

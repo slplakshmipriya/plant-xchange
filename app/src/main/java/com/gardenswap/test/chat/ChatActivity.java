@@ -3,6 +3,7 @@ package com.gardenswap.test.chat;
 import android.app.AlertDialog;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -31,6 +32,9 @@ import com.gardenswap.test.util.ChatLogic;
 import com.gardenswap.test.util.CoordinateGuard;
 import com.google.firebase.analytics.FirebaseAnalytics;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 
 /**
@@ -284,15 +288,58 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     /**
-     * Sends a picked photo as a chat attachment (r2 chat). The app has no
-     * upload helper yet, so the picked content URI's string form is passed as
-     * {@code photoUrl}; the mock echoes it back and
-     * {@link ChatViews#bubbleRow} renders {@link ChatMessage.Kind#PHOTO}
-     * messages as "[photo] &lt;url&gt;". On error a toast is shown and nothing
-     * is appended; nothing here throws.
+     * Sends a picked photo as a chat attachment. The photo bytes are uploaded
+     * first via the /v1/uploads flow (sign → PUT → finalize) and the returned
+     * storage key is passed to {@code sendAttachment} — the backend rejects
+     * raw URLs. On success the message bubble is appended; on error a toast is
+     * shown and nothing is appended; nothing here throws.
      */
-    private void sendPhoto(String photoUrl) {
-        ApiProvider.get().sendAttachment(threadId, photoUrl,
+    private void sendPhoto(String contentUri) {
+        new Thread(() -> {
+            try {
+                byte[] bytes;
+                String contentType;
+                try (InputStream in = getContentResolver().openInputStream(Uri.parse(contentUri));
+                     ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                    if (in == null) {
+                        throw new IOException("Couldn't open the photo.");
+                    }
+                    contentType = getContentResolver().getType(Uri.parse(contentUri));
+                    if (contentType == null) {
+                        contentType = "image/jpeg";
+                    }
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        out.write(buf, 0, n);
+                    }
+                    bytes = out.toByteArray();
+                }
+                final String ct = contentType;
+                runOnUiThread(() -> ApiProvider.get().uploadFileKey(bytes, ct,
+                        new GardenSwapApi.Callback<String>() {
+                            @Override
+                            public void onSuccess(String uploadKey) {
+                                sendAttachmentWithKey(uploadKey);
+                            }
+
+                            @Override
+                            public void onError(ApiException e) {
+                                Toast.makeText(ChatActivity.this,
+                                        "Couldn't upload photo (" + e.getCode() + ").",
+                                        Toast.LENGTH_LONG).show();
+                            }
+                        }));
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(ChatActivity.this,
+                        "Couldn't read the photo.", Toast.LENGTH_LONG).show());
+            }
+        }).start();
+    }
+
+    /** Sends the attachment once the photo bytes are uploaded and keyed. */
+    private void sendAttachmentWithKey(String uploadKey) {
+        ApiProvider.get().sendAttachment(threadId, uploadKey,
                 new GardenSwapApi.Callback<ChatMessage>() {
                     @Override
                     public void onSuccess(ChatMessage message) {

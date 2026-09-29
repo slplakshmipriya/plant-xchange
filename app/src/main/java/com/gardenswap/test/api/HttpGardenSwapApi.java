@@ -78,9 +78,6 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         tokenTask.addOnSuccessListener(result -> net.execute(() -> {
             try {
                 String token = result.getToken();
-                // DEBUG ONLY: log token presence/length, never the value.
-                Log.d(TAG, "attaching auth token, length="
-                        + (token == null ? -1 : token.length()));
                 HttpURLConnection conn = (HttpURLConnection)
                         new URL(baseUrl + path).openConnection();
                 try {
@@ -247,6 +244,46 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void uploadFileKey(byte[] bytes, String contentType, Callback<String> callback) {
+        try {
+            JSONObject signBody = new JSONObject();
+            signBody.put("content_type", contentType);
+            signBody.put("size_bytes", bytes.length);
+            authed("POST", "/v1/uploads/sign", signBody, (s, signJson) -> {
+                final String key = signJson.optString("key", null);
+                String uploadUrl = signJson.optString("upload_url", null);
+                if (key == null || uploadUrl == null) {
+                    callback.onError(new ApiException("upload_error",
+                            "Couldn't start the photo upload."));
+                    return;
+                }
+                putRawBytes(uploadUrl, bytes, contentType, new Callback<Void>() {
+                    @Override
+                    public void onSuccess(Void v) {
+                        try {
+                            JSONObject finBody = new JSONObject();
+                            finBody.put("key", key);
+                            authed("POST", "/v1/uploads/finalize", finBody,
+                                    (s2, finJson) -> callback.onSuccess(key),
+                                    callback);
+                        } catch (Exception e) {
+                            fail(callback, new ApiException("encode_error",
+                                    "Couldn't encode the upload request."));
+                        }
+                    }
+
+                    @Override
+                    public void onError(ApiException error) {
+                        callback.onError(error);
+                    }
+                });
+            }, callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error", "Couldn't encode the upload request."));
+        }
+    }
+
+    @Override
     public void getSwaps(Callback<List<Swap>> callback) {
         authed("GET", "/v1/me/swaps", null,
                 (s, json) -> callback.onSuccess(JsonParsers.parseSwaps(json)),
@@ -314,6 +351,8 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         // Backend contract: pushes go to the per-user FCM topic
         // "user_{uid}" (see api/app/notify.py). Subscribing the device to
         // that topic IS the registration — no token upload endpoint exists.
+        // The fcmToken parameter is intentionally unused (kept for signature
+        // stability); delivery relies on backend topic fan-out.
         FirebaseMessaging.getInstance().subscribeToTopic("user_" + userId)
                 .addOnCompleteListener(task -> {
                     if (task.isSuccessful()) {
@@ -896,19 +935,15 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
-    public void sendAttachment(String threadId, String photoUrl,
+    public void sendAttachment(String threadId, String uploadKey,
             Callback<ChatMessage> callback) {
-        String trimmed = photoUrl == null ? "" : photoUrl.trim();
+        String trimmed = uploadKey == null ? "" : uploadKey.trim();
         if (trimmed.isEmpty()) {
             fail(callback, new ApiException("empty_attachment", "Pick a photo first."));
             return;
         }
         try {
             JSONObject body = new JSONObject();
-            // TODO: backend requires a /v1/uploads storage key
-            // (u/<uid>/<id>.<ext>), not a URL. The caller must upload the
-            // bytes via POST /v1/uploads/sign -> PUT -> POST /v1/uploads/finalize
-            // first and pass the returned key here instead of a URL.
             body.put("uploadKey", trimmed);
             final String uid = myUid();
             authed("POST", "/v1/threads/" + enc(threadId) + "/attachments", body,
@@ -944,11 +979,11 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         try {
             JSONObject body = new JSONObject();
             JSONObject categories = new JSONObject();
-            categories.put("harvest_alerts", prefs.isHarvestAlerts());
-            categories.put("want_matches", prefs.isWantMatches());
-            categories.put("expiry_nudges", prefs.isExpiryNudges());
-            categories.put("credit_warnings", prefs.isCreditWarnings());
-            categories.put("booking_reminders", prefs.isBookingReminders());
+            categories.put("harvestAlerts", prefs.isHarvestAlerts());
+            categories.put("wantMatches", prefs.isWantMatches());
+            categories.put("expiryNudges", prefs.isExpiryNudges());
+            categories.put("creditWarnings", prefs.isCreditWarnings());
+            categories.put("bookingReminders", prefs.isBookingReminders());
             body.put("categories", categories);
             if (prefs.getQuietHoursStart() != null || prefs.getQuietHoursEnd() != null) {
                 JSONObject quiet = new JSONObject();
@@ -958,7 +993,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                 if (prefs.getQuietHoursEnd() != null) {
                     quiet.put("end", prefs.getQuietHoursEnd());
                 }
-                body.put("quiet_hours", quiet);
+                body.put("quietHours", quiet);
             }
             authed("PUT", "/v1/users/me/notification-prefs", body,
                     (status, json) -> callback.onSuccess(
