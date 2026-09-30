@@ -34,6 +34,7 @@ import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.ui.VerifiedBadgeView;
 import com.gardenswap.test.util.SitterLogic;
 import com.google.firebase.analytics.FirebaseAnalytics;
+import com.google.firebase.auth.FirebaseAuth;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -255,6 +256,14 @@ public class SitterProfileActivity extends AppCompatActivity {
     // ---- Booking sheet (behavior unchanged from the pre-restyle screen) ----
 
     private void renderBookingSheet() {
+        // You can't book yourself: when this screen shows your own profile
+        // (reached via "Your sitter profile"), the booking section is
+        // omitted entirely.
+        if (sitter != null && FirebaseAuth.getInstance().getCurrentUser() != null
+                && sitter.getSitterId().equals(
+                        FirebaseAuth.getInstance().getCurrentUser().getUid())) {
+            return;
+        }
         // Reset per render: default start is 7 days out, all services selected.
         bookingStartMs = startOfDay(System.currentTimeMillis()
                 + 7 * 24L * 3_600_000L);

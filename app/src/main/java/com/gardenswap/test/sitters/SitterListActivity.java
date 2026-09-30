@@ -20,7 +20,9 @@ import com.gardenswap.test.ui.Nav;
 import com.gardenswap.test.ui.SitterCardAdapter;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.NavRouter;
+import com.google.firebase.auth.FirebaseAuth;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -35,6 +37,7 @@ public class SitterListActivity extends AppCompatActivity {
 
     private TextView statusText;
     private SitterCardAdapter adapter;
+    private Button sitterActionButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,8 +59,7 @@ public class SitterListActivity extends AppCompatActivity {
         title.setLayoutParams(new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         Button becomeSitter = Ui.rowButton(this, "+ Become a sitter", false);
-        becomeSitter.setOnClickListener(v ->
-                startActivity(new Intent(this, BecomeSitterActivity.class)));
+        sitterActionButton = becomeSitter;
         titleRow.addView(title);
         titleRow.addView(becomeSitter);
         titleBlock.addView(titleRow);
@@ -116,11 +118,45 @@ public class SitterListActivity extends AppCompatActivity {
     }
 
     private void render(List<SitterProfile> sitters) {
-        if (sitters == null || sitters.isEmpty()) {
-            statusText.setText("No sitters nearby yet — check back soon.");
+        String myUid = FirebaseAuth.getInstance().getCurrentUser() == null
+                ? null : FirebaseAuth.getInstance().getCurrentUser().getUid();
+
+        // Never show the signed-in user in their own sitter directory; if
+        // they have an active sitter profile it becomes their entry point
+        // for viewing/editing it instead.
+        boolean iAmSitter = false;
+        List<SitterProfile> others = new ArrayList<>();
+        if (sitters != null) {
+            for (SitterProfile s : sitters) {
+                if (myUid != null && myUid.equals(s.getSitterId())) {
+                    iAmSitter = true;
+                } else {
+                    others.add(s);
+                }
+            }
+        }
+
+        Button becomeSitter = sitterActionButton;
+        if (iAmSitter) {
+            becomeSitter.setText("Your sitter profile");
+            becomeSitter.setOnClickListener(v -> {
+                Intent intent = new Intent(this, SitterProfileActivity.class);
+                intent.putExtra(SitterProfileActivity.EXTRA_SITTER_ID, myUid);
+                startActivity(intent);
+            });
+        } else {
+            becomeSitter.setText("+ Become a sitter");
+            becomeSitter.setOnClickListener(v ->
+                    startActivity(new Intent(this, BecomeSitterActivity.class)));
+        }
+
+        if (others.isEmpty()) {
+            statusText.setText(iAmSitter
+                    ? "No other sitters nearby yet — check back soon."
+                    : "No sitters nearby yet — check back soon.");
         } else {
             statusText.setText("");
         }
-        adapter.setSitters(sitters);
+        adapter.setSitters(others);
     }
 }
