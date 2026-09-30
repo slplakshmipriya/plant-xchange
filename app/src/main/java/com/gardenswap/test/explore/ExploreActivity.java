@@ -13,8 +13,6 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.res.ResourcesCompat;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 
 import com.gardenswap.test.R;
 import com.gardenswap.test.api.ApiException;
@@ -29,7 +27,7 @@ import com.gardenswap.test.listings.CreateListingActivity;
 import com.gardenswap.test.listings.ListingDetailActivity;
 import com.gardenswap.test.sitters.SitterListActivity;
 import com.gardenswap.test.ui.FilterChipRow;
-import com.gardenswap.test.ui.ListingCardAdapter;
+import com.gardenswap.test.ui.ListingCardView;
 import com.gardenswap.test.ui.Nav;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.ExploreLogic;
@@ -50,7 +48,7 @@ import java.util.List;
 public class ExploreActivity extends AppCompatActivity {
 
     private final List<Listing> allListings = new ArrayList<>();
-    private ListingCardAdapter listingsAdapter;
+    private LinearLayout feedList;
     private FilterChipRow chipRow;
     private TextView emptyState;
     private TextView heroSubline;
@@ -107,14 +105,14 @@ public class ExploreActivity extends AppCompatActivity {
         chipRow.setOnFilterChanged(this::applyFilter);
         root.addView(chipRow);
         Ui.gap(root, this, 8);
-        RecyclerView list = new RecyclerView(this);
-        list.setLayoutManager(new LinearLayoutManager(this));
-        list.setNestedScrollingEnabled(false);
-        listingsAdapter = new ListingCardAdapter(new ArrayList<>());
-        listingsAdapter.setOnListingClickListener(
-                listing -> ListingDetailActivity.open(this, listing.getId()));
-        list.setAdapter(listingsAdapter);
-        root.addView(list, new LinearLayout.LayoutParams(
+        // The feed is a plain vertical view group inside the ScrollView, not a
+        // RecyclerView: a RecyclerView with wrap_content inside a ScrollView
+        // is a known-fragile pattern (measurement/touch fights between the
+        // two scrollers), and the feed page is capped at 50 items, so view
+        // recycling buys nothing here.
+        feedList = new LinearLayout(this);
+        feedList.setOrientation(LinearLayout.VERTICAL);
+        root.addView(feedList, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         emptyState = Ui.caption(this, "No listings nearby yet — try another filter.");
@@ -220,7 +218,19 @@ public class ExploreActivity extends AppCompatActivity {
 
     private void applyFilter(ListingType filter) {
         List<Listing> shown = ListingFilter.filter(allListings, filter);
-        listingsAdapter.setListings(shown);
+        feedList.removeAllViews();
+        int margin = Ui.dp(this, 12);
+        for (Listing listing : shown) {
+            ListingCardView card = new ListingCardView(this);
+            card.bind(listing);
+            card.setOnClickListener(
+                    v -> ListingDetailActivity.open(this, listing.getId()));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.bottomMargin = margin;
+            feedList.addView(card, params);
+        }
         if (shown.isEmpty()) {
             emptyState.setText("No listings nearby yet — try another filter.");
             emptyState.setVisibility(TextView.VISIBLE);
@@ -313,7 +323,7 @@ public class ExploreActivity extends AppCompatActivity {
                     @Override
                     public void onError(ApiException e) {
                         allListings.clear();
-                        listingsAdapter.setListings(new ArrayList<>());
+                        feedList.removeAllViews();
                         emptyState.setText(
                                 "Couldn't load listings — tap to retry.");
                         emptyState.setVisibility(TextView.VISIBLE);
