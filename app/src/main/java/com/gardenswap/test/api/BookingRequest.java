@@ -1,11 +1,22 @@
 package com.gardenswap.test.api;
 
-/** Booking request payload (proposed: API-070). */
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * Booking request payload (API-070).
+ *
+ * <p>The booker picks individual dates from the sitter's available days —
+ * there is no start/end range. The wire body is:
+ * {@code {"sitter_uid", "plant_count", "dates": ["YYYY-MM-DD", ...],
+ * "services": ["watering", ...], "notes"}}.
+ */
 public final class BookingRequest {
 
     private final String sitterId;
-    private final long startMs;
-    private final long endMs;
+    /** Sorted ISO dates (yyyy-MM-dd) the booker wants sitting. */
+    private final List<String> dates;
     private final String[] services;
     private final String careInstructions;
     /**
@@ -14,17 +25,25 @@ public final class BookingRequest {
      */
     private final int plantCount;
 
-    public BookingRequest(String sitterId, long startMs, long endMs,
+    public BookingRequest(String sitterId, List<String> dates,
                           String[] services, String careInstructions) {
-        this(sitterId, startMs, endMs, services, careInstructions, 1);
+        this(sitterId, dates, services, careInstructions, 1);
     }
 
-    public BookingRequest(String sitterId, long startMs, long endMs,
+    public BookingRequest(String sitterId, List<String> dates,
                           String[] services, String careInstructions, int plantCount) {
         this.sitterId = sitterId;
-        this.startMs = startMs;
-        this.endMs = endMs;
-        this.services = services.clone();
+        List<String> copy = new ArrayList<>();
+        if (dates != null) {
+            for (String d : dates) {
+                if (d != null && !d.trim().isEmpty()) {
+                    copy.add(d.trim());
+                }
+            }
+        }
+        Collections.sort(copy);
+        this.dates = Collections.unmodifiableList(copy);
+        this.services = services == null ? new String[0] : services.clone();
         this.careInstructions = careInstructions;
         this.plantCount = Math.max(1, plantCount);
     }
@@ -33,12 +52,9 @@ public final class BookingRequest {
         return sitterId;
     }
 
-    public long getStartMs() {
-        return startMs;
-    }
-
-    public long getEndMs() {
-        return endMs;
+    /** Unmodifiable sorted list of ISO dates (yyyy-MM-dd). */
+    public List<String> getDates() {
+        return dates;
     }
 
     public String[] getServices() {

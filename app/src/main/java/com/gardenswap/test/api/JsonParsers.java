@@ -391,18 +391,36 @@ public final class JsonParsers {
     }
 
     /**
-     * Parse a sitting request. The backend prices sits in credits and has no
-     * platform-fee concept yet; totalCents/feeCents are client-side estimates
-     * (flat mock-era numbers) until the fee decision lands server-side.
+     * Parse a sitting request. Reads the explicit {@code dates} list (sorted
+     * ISO) and {@code services} the booker picked; money follows the fee
+     * flip ({@code customer_total_cents == subtotal_cents},
+     * {@code sitter_payout_cents == subtotal_cents - fee_cents}).
+     * Defensive fallbacks derive the customer total / payout from the
+     * subtotal when the backend omits the redundant fields.
      */
     public static Booking parseBooking(JSONObject o) throws JSONException {
-        int total = 1500;
-        int fee = Math.round(total * 0.18f);
+        List<String> dates = new ArrayList<>();
+        JSONArray arr = o.optJSONArray("dates");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                String d = arr.optString(i, null);
+                if (d != null && !d.trim().isEmpty()) {
+                    dates.add(d.trim());
+                }
+            }
+        }
+        int subtotal = o.optInt("subtotal_cents", 0);
+        int fee = o.optInt("fee_cents", 0);
+        int customerTotal = o.has("customer_total_cents")
+                ? o.optInt("customer_total_cents", subtotal) : subtotal;
+        int payout = o.has("sitter_payout_cents")
+                ? o.optInt("sitter_payout_cents", subtotal - fee) : subtotal - fee;
         return new Booking(o.getString("id"), o.optString("sitter_uid", ""),
                 parseBookingStatus(o.optString("status", null)),
-                parseDateMs(o.optString("start_date", null)),
-                parseDateMs(o.optString("end_date", null)),
-                new String[0], total, fee, o.optString("notes", ""));
+                dates,
+                parseStringArray(o.optJSONArray("services")),
+                subtotal, fee, customerTotal, payout,
+                o.optString("notes", ""));
     }
 
     /** Parse a {@code YYYY-MM-DD} date to epoch millis (start of day, local). */

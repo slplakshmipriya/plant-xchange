@@ -102,12 +102,26 @@ public interface GardenSwapApi {
                                Callback<Void> callback);
 
     /**
+     * Replace the signed-in sitter's advertised services (PUT /v1/sitters/me
+     * with a services-only body). Keys are the fixed service taxonomy
+     * (see {@code util/SitterServices}); empty = "on request".
+     */
+    void updateSitterServices(String[] services, Callback<Void> callback);
+
+    /**
      * Public reviews written about a sitter (GET /v1/sitters/{id}/reviews).
      * Server returns newest first.
      */
     void getSitterReviews(String sitterId, Callback<List<Review>> callback);
 
-    /** Request a booking (proposed: API-070, POST /v1/bookings). */
+    /**
+     * Request a booking (API-070, POST /v1/sitting-requests).
+     *
+     * <p>Wire body:
+     * {@code {"sitter_uid", "plant_count", "dates": ["YYYY-MM-DD", ...],
+     * "services": ["watering", ...], "notes"}}. No start/end range: the
+     * booker picks individual dates from the sitter's available days.
+     */
     void requestBooking(BookingRequest request, Callback<Booking> callback);
 
     /**

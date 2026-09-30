@@ -787,13 +787,43 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void updateSitterServices(String[] services, Callback<Void> callback) {
+        // Backend PUT /v1/sitters/me accepts a services-only body.
+        try {
+            JSONObject body = new JSONObject();
+            org.json.JSONArray arr = new org.json.JSONArray();
+            if (services != null) {
+                for (String s : services) {
+                    if (s != null && !s.trim().isEmpty()) {
+                        arr.put(s.trim());
+                    }
+                }
+            }
+            body.put("services", arr);
+            authed("PUT", "/v1/sitters/me", body,
+                    (status, json) -> callback.onSuccess(null),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error", "Couldn't encode the services."));
+        }
+    }
+
+    @Override
     public void requestBooking(BookingRequest request, Callback<Booking> callback) {
         try {
             JSONObject body = new JSONObject();
             body.put("sitter_uid", request.getSitterId());
             body.put("plant_count", request.getPlantCount());
-            body.put("start_date", JsonParsers.formatDate(request.getStartMs()));
-            body.put("end_date", JsonParsers.formatDate(request.getEndMs()));
+            org.json.JSONArray dates = new org.json.JSONArray();
+            for (String d : request.getDates()) {
+                dates.put(d);
+            }
+            body.put("dates", dates);
+            org.json.JSONArray services = new org.json.JSONArray();
+            for (String s : request.getServices()) {
+                services.put(s);
+            }
+            body.put("services", services);
             String notes = request.getCareInstructions();
             body.put("notes", notes == null ? "" : notes);
             authed("POST", "/v1/sitting-requests", body,

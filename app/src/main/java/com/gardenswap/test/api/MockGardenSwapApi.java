@@ -271,12 +271,24 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void updateSitterServices(String[] services, Callback<Void> callback) {
+        // Mock: nothing persisted; the own-profile editor shows the edited
+        // selection locally until the screen reloads.
+        Log.d(TAG, "updateSitterServices " + java.util.Arrays.toString(services));
+        emit(callback, null);
+    }
+
+    @Override
     public void requestBooking(BookingRequest request, Callback<Booking> callback) {
-        int total = 1500; // mock: one visit at the sitter's rate
-        int fee = Math.round(total * 0.18f); // 18% platform fee, inside the 15-20% band
+        // Mock: subtotal scales with the number of picked dates at a flat
+        // mock rate; the fee flip puts the 18% on the sitter's payout.
+        int days = Math.max(1, request.getDates().size());
+        int subtotal = 1500 * days; // mock: one day at the sitter's rate
+        int fee = Math.round(subtotal * 0.18f); // 18% platform fee, inside the 15-20% band
         emit(callback, new Booking("b1", request.getSitterId(), BookingStatus.REQUESTED,
-                request.getStartMs(), request.getEndMs(), request.getServices(),
-                total, fee, request.getCareInstructions()));
+                request.getDates(), request.getServices(),
+                subtotal, fee, subtotal, subtotal - fee,
+                request.getCareInstructions()));
     }
 
     @Override
@@ -694,13 +706,15 @@ public class MockGardenSwapApi implements GardenSwapApi {
         long day = 24 * 3_600_000L;
         List<Booking> bookings = new ArrayList<>();
         Booking completed = new Booking("b-completed-1", "s1", BookingStatus.COMPLETED,
-                now - 30 * day, now - 23 * day,
-                new String[]{"watering", "harvesting"}, 2400, 432,
+                isoRange(now - 30 * day, 8),
+                new String[]{"watering", "harvesting"}, 2400 * 8, 432 * 8,
+                2400 * 8, 2400 * 8 - 432 * 8,
                 "Water the tomatoes every morning.");
         bookings.add(completed);
         Booking upcoming = new Booking("b-upcoming-1", "s2", BookingStatus.CONFIRMED,
-                now + 7 * day, now + 14 * day,
-                new String[]{"watering"}, 1500, 270, "Feed the cat too.");
+                isoRange(now + 7 * day, 8),
+                new String[]{"watering"}, 1500 * 8, 270 * 8,
+                1500 * 8, 1500 * 8 - 270 * 8, "Feed the cat too.");
         bookings.add(upcoming);
         if (completedOnly) {
             List<Booking> filtered = new ArrayList<>();
@@ -713,6 +727,15 @@ public class MockGardenSwapApi implements GardenSwapApi {
         }
         Log.d(TAG, "listBookings role=" + role + " completedOnly=" + completedOnly);
         emit(callback, bookings);
+    }
+
+    /** Consecutive ISO dates starting at {@code startMs}, for mock bookings. */
+    private static java.util.List<String> isoRange(long startMs, int count) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            out.add(JsonParsers.formatDate(startMs + i * 24 * 3_600_000L));
+        }
+        return out;
     }
 
     @Override
