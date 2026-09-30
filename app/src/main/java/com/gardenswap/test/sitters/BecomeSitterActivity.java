@@ -1,0 +1,149 @@
+package com.gardenswap.test.sitters;
+
+import android.os.Bundle;
+import android.text.InputType;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.Switch;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.gardenswap.test.api.ApiException;
+import com.gardenswap.test.api.ApiProvider;
+import com.gardenswap.test.api.GardenSwapApi;
+import com.gardenswap.test.api.SitterProfileIn;
+import com.gardenswap.test.ui.Nav;
+import com.gardenswap.test.ui.Ui;
+import com.gardenswap.test.util.NavRouter;
+
+/**
+ * Sitter registration form: registers the signed-in user as a plant sitter
+ * (or updates their existing sitter profile) via {@code PUT /v1/sitters/me}.
+ *
+ * <p>Reached from the "+ Become a sitter" button on {@link SitterListActivity}.
+ */
+public class BecomeSitterActivity extends AppCompatActivity {
+
+    private EditText bioInput;
+    private EditText experienceInput;
+    private EditText radiusInput;
+    private Switch activeSwitch;
+    private TextView statusText;
+    private Button submitButton;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        LinearLayout header = Ui.column(this, 24);
+        header.addView(Ui.appTitleRow(this));
+        int pad = Ui.dp(this, 24);
+        header.setPadding(pad, pad, pad, 0);
+
+        LinearLayout form = Ui.column(this, 24);
+        form.setPadding(pad, 0, pad, pad);
+        form.addView(Ui.headline(this, "Become a plant sitter"));
+        Ui.gap(form, this, 4);
+        form.addView(Ui.body(this,
+                "Offer watering, repotting, and vacation care to neighbors. You can update this anytime."));
+        Ui.gap(form, this, 16);
+
+        form.addView(Ui.label(this, "Bio"));
+        Ui.gap(form, this, 4);
+        bioInput = Ui.input(this, "A few lines about you and your plants",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        bioInput.setMinLines(3);
+        form.addView(bioInput);
+        Ui.gap(form, this, 12);
+
+        form.addView(Ui.label(this, "Years of experience"));
+        Ui.gap(form, this, 4);
+        experienceInput = Ui.input(this, "0",
+                InputType.TYPE_CLASS_NUMBER);
+        form.addView(experienceInput);
+        Ui.gap(form, this, 12);
+
+        form.addView(Ui.label(this, "Service radius (miles)"));
+        Ui.gap(form, this, 4);
+        radiusInput = Ui.input(this, "5",
+                InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        form.addView(radiusInput);
+        Ui.gap(form, this, 12);
+
+        activeSwitch = new Switch(this);
+        activeSwitch.setText("Available for bookings");
+        activeSwitch.setChecked(true);
+        form.addView(activeSwitch);
+        Ui.gap(form, this, 16);
+
+        statusText = Ui.status(this);
+        form.addView(statusText);
+        Ui.gap(form, this, 8);
+
+        submitButton = Ui.primaryButton(this, "Register as sitter");
+        submitButton.setOnClickListener(v -> submit());
+        form.addView(submitButton);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(form);
+        setContentView(Ui.stickyHeaderScreen(this, header, scroll));
+        Nav.attach(this, NavRouter.Tab.CARE);
+    }
+
+    private void submit() {
+        String bio = bioInput.getText().toString().trim();
+        int years;
+        double radius;
+        try {
+            years = Integer.parseInt(experienceInput.getText().toString().trim());
+        } catch (NumberFormatException e) {
+            statusText.setText("Years of experience must be a whole number (0-60).");
+            return;
+        }
+        try {
+            radius = Double.parseDouble(radiusInput.getText().toString().trim());
+        } catch (NumberFormatException e) {
+            statusText.setText("Service radius must be a number greater than 0.");
+            return;
+        }
+        if (years < 0 || years > 60) {
+            statusText.setText("Years of experience must be between 0 and 60.");
+            return;
+        }
+        if (radius <= 0 || radius > 100) {
+            statusText.setText("Service radius must be between 0 and 100 miles.");
+            return;
+        }
+        if (bio.length() > 2000) {
+            statusText.setText("Bio must be under 2000 characters.");
+            return;
+        }
+
+        submitButton.setEnabled(false);
+        statusText.setText("Registering…");
+        SitterProfileIn profile = new SitterProfileIn(
+                bio, years, radius, activeSwitch.isChecked());
+        ApiProvider.get().upsertSitterProfile(profile, new GardenSwapApi.Callback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                Toast.makeText(BecomeSitterActivity.this,
+                        "You're listed as a sitter", Toast.LENGTH_SHORT).show();
+                finish();
+            }
+
+            @Override
+            public void onError(ApiException e) {
+                submitButton.setEnabled(true);
+                if ("profile_required".equals(e.getCode())) {
+                    statusText.setText("Create your profile first, then register as a sitter.");
+                } else {
+                    statusText.setText("Couldn't register (" + e.getCode() + "). Try again.");
+                }
+            }
+        });
+    }
+}

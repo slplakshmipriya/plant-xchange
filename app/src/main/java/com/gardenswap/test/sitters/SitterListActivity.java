@@ -2,7 +2,9 @@ package com.gardenswap.test.sitters;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -47,7 +49,18 @@ public class SitterListActivity extends AppCompatActivity {
 
         LinearLayout titleBlock = Ui.column(this, 24);
         titleBlock.setPadding(pad, 0, pad, 0);
-        titleBlock.addView(Ui.headline(this, "Find a plant sitter"));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = Ui.headline(this, "Find a plant sitter");
+        title.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button becomeSitter = Ui.rowButton(this, "+ Become a sitter", false);
+        becomeSitter.setOnClickListener(v ->
+                startActivity(new Intent(this, BecomeSitterActivity.class)));
+        titleRow.addView(title);
+        titleRow.addView(becomeSitter);
+        titleBlock.addView(titleRow);
         Ui.gap(titleBlock, this, 4);
         titleBlock.addView(Ui.body(this, "Local sitters for watering, repotting, and vacation care."));
         Ui.gap(titleBlock, this, 12);
@@ -77,7 +90,13 @@ public class SitterListActivity extends AppCompatActivity {
 
         setContentView(Ui.stickyHeaderScreen(this, header, content));
         Nav.attach(this, NavRouter.Tab.CARE);
+    }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Reload here (not just onCreate) so a sitter profile created via
+        // BecomeSitterActivity shows up when returning to this screen.
         load("85281"); // mock zip; real flow reads the profile's homeZip
     }
 

@@ -750,6 +750,20 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void upsertSitterProfile(SitterProfileIn profile, Callback<Void> callback) {
+        // Backend PUT /v1/sitters/me: opt in (or update) as a plant sitter.
+        // The response is the serialized profile; the client only needs
+        // success/failure, same as reportContent.
+        try {
+            authed("PUT", "/v1/sitters/me", profile.toJson(),
+                    (status, json) -> callback.onSuccess(null),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error", "Couldn't encode the sitter profile."));
+        }
+    }
+
+    @Override
     public void requestBooking(BookingRequest request, Callback<Booking> callback) {
         try {
             JSONObject body = new JSONObject();

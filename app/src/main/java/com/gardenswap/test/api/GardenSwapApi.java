@@ -94,6 +94,9 @@ public interface GardenSwapApi {
     /** Sitter detail (proposed: API-070, GET /v1/sitters/{id}). */
     void getSitter(String sitterId, Callback<SitterProfile> callback);
 
+    /** Register/update the signed-in user's sitter profile (PUT /v1/sitters/me). */
+    void upsertSitterProfile(SitterProfileIn profile, Callback<Void> callback);
+
     /** Request a booking (proposed: API-070, POST /v1/bookings). */
     void requestBooking(BookingRequest request, Callback<Booking> callback);
 

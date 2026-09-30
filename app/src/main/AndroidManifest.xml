@@ -60,6 +60,9 @@
             android:name=".sitters.SitterListActivity"
             android:exported="false" />
         <activity
+            android:name=".sitters.BecomeSitterActivity"
+            android:exported="false" />
+        <activity
             android:name=".sitters.SitterProfileActivity"
             android:exported="false" />
         <activity

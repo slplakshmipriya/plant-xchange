@@ -224,6 +224,11 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void upsertSitterProfile(SitterProfileIn profile, Callback<Void> callback) {
+        emit(callback, null);
+    }
+
+    @Override
     public void getSitter(String sitterId, Callback<SitterProfile> callback) {
         getSitters("", new Callback<java.util.List<SitterProfile>>() {
             @Override
