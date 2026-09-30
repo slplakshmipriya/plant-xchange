@@ -86,13 +86,13 @@ public class UatRunnerActivity extends Activity {
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button runAll = Ui.primaryButton(this, "Run all");
+        Button runAll = Ui.rowButton(this, "Run all", true);
         runAll.setOnClickListener(v -> runJourneys(UatRegistry.all()));
         actions.addView(runAll);
-        Button runPhotos = Ui.secondaryButton(this, "Photo regression");
+        Button runPhotos = Ui.rowButton(this, "Photo regression", false);
         runPhotos.setOnClickListener(v -> runJourneys(UatRegistry.photoRegression()));
         actions.addView(runPhotos);
-        Button copyReport = Ui.secondaryButton(this, "Copy report");
+        Button copyReport = Ui.rowButton(this, "Copy report", false);
         copyReport.setOnClickListener(v -> {
             if (lastReport == null) {
                 return;
