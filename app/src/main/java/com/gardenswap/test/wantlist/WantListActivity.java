@@ -8,6 +8,7 @@ import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -94,7 +95,9 @@ public class WantListActivity extends AppCompatActivity {
         statusView = Ui.status(this);
         root.addView(statusView);
 
-        setContentView(root);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(root);
+        setContentView(scroll);
         refresh();
     }
 

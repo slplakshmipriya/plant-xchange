@@ -8,6 +8,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -106,7 +107,9 @@ public class HarvestLogActivity extends AppCompatActivity {
         statusView = Ui.status(this);
         root.addView(statusView);
 
-        setContentView(root);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(root);
+        setContentView(scroll);
         load(listingId);
     }
 

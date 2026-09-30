@@ -7,6 +7,7 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -62,7 +63,9 @@ public class TreeDetailActivity extends AppCompatActivity {
         Ui.gap(root, this, 12);
         slotsSection = Ui.column(this, 0);
         root.addView(slotsSection);
-        setContentView(root);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(root);
+        setContentView(scroll);
 
         treeId = getIntent().getStringExtra(EXTRA_TREE_ID);
         if (treeId == null) {
