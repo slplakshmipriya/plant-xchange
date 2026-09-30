@@ -244,7 +244,7 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
-    public void setSitterAvailability(java.util.List<String> unavailableIsoDates,
+    public void setSitterAvailability(java.util.List<String> availableIsoDates,
                                       Callback<Void> callback) {
         emit(callback, null);
     }

@@ -21,13 +21,13 @@ public final class SitterProfile {
     private final double rating;
     private final int reviewCount;
     private final int completedSits;
-    /** ISO dates (yyyy-MM-dd) the sitter marked unavailable. Empty = open. */
-    private final Set<String> unavailableDates;
+    /** ISO dates (yyyy-MM-dd) the sitter marked as available for sitting. Empty = none marked. */
+    private final Set<String> availableDates;
 
     public SitterProfile(String sitterId, String displayName, String[] services,
                          Double rateAmount, String rateUnit, int radiusMiles,
                          boolean idVerified, double rating, int reviewCount,
-                         int completedSits, Set<String> unavailableDates) {
+                         int completedSits, Set<String> availableDates) {
         this.sitterId = sitterId;
         this.displayName = displayName;
         this.services = services.clone();
@@ -38,9 +38,9 @@ public final class SitterProfile {
         this.rating = rating;
         this.reviewCount = reviewCount;
         this.completedSits = completedSits;
-        this.unavailableDates = unavailableDates == null
+        this.availableDates = availableDates == null
                 ? Collections.emptySet()
-                : Collections.unmodifiableSet(new HashSet<>(unavailableDates));
+                : Collections.unmodifiableSet(new HashSet<>(availableDates));
     }
 
     public String getSitterId() {
@@ -85,13 +85,13 @@ public final class SitterProfile {
         return completedSits;
     }
 
-    /** Unmodifiable set of ISO dates (yyyy-MM-dd) the sitter is unavailable. */
-    public Set<String> getUnavailableDates() {
-        return unavailableDates;
+    /** Unmodifiable set of ISO dates (yyyy-MM-dd) the sitter is available. */
+    public Set<String> getAvailableDates() {
+        return availableDates;
     }
 
-    /** True when the sitter marked the given ISO date unavailable. */
-    public boolean isUnavailableOn(String isoDate) {
-        return unavailableDates.contains(isoDate);
+    /** True when the sitter marked the given ISO date available. */
+    public boolean isAvailableOn(String isoDate) {
+        return availableDates.contains(isoDate);
     }
 }

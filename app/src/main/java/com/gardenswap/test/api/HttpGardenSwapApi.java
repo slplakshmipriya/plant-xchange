@@ -771,13 +771,13 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
-    public void setSitterAvailability(java.util.List<String> unavailableIsoDates,
+    public void setSitterAvailability(java.util.List<String> availableIsoDates,
                                       Callback<Void> callback) {
         // Backend PUT /v1/sitters/me/availability: replace semantics.
         try {
             JSONObject body = new JSONObject();
-            body.put("unavailable_dates",
-                    new org.json.JSONArray(unavailableIsoDates));
+            body.put("available_dates",
+                    new org.json.JSONArray(availableIsoDates));
             authed("PUT", "/v1/sitters/me/availability", body,
                     (status, json) -> callback.onSuccess(null),
                     callback);

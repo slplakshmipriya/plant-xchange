@@ -22,13 +22,14 @@ import com.gardenswap.test.R;
  *
  * <ul>
  * <li>VIEW ({@link #renderView}) — read-only day cells; a blue rectangle
- * outline marks days the sitter blocked out.</li>
+ * outline marks days the sitter is available for plant sitting.</li>
  * <li>EDIT ({@link #renderEditor}) — the whole day cell is the tap target;
- * tapping toggles the blue rectangle outline (blocked out). The returned
+ * tapping toggles the blue rectangle outline (available). The returned
  * {@link Editor} exposes the edited set.</li>
  * </ul>
  *
- * <p>Each cell shows the day name over the date number. No Open/Busy text:
+ * <p>Selection is opt-in: a day with no outline is not marked available.
+ * Each cell shows the day name over the date number. No Open/Busy text:
  * the blue outline is the only state signal.</p>
  */
 public final class AvailabilityStrip {
@@ -53,42 +54,42 @@ public final class AvailabilityStrip {
         return ISO_FORMAT.format(cal.getTime());
     }
 
-    /** Read-only grid; blue outline = blocked out. */
+    /** Read-only grid; blue outline = available for sitting. */
     public static void renderView(Context context, LinearLayout parent,
-                                  Set<String> unavailableDates) {
-        Set<String> unavailable = unavailableDates == null
-                ? new LinkedHashSet<String>() : unavailableDates;
+                                  Set<String> availableDates) {
+        Set<String> available = availableDates == null
+                ? new LinkedHashSet<String>() : availableDates;
         List<LinearLayout> rows = buildRows(context, parent);
         Calendar cal = Calendar.getInstance();
         for (int i = 0; i < DAYS; i++) {
-            boolean busy = unavailable.contains(ISO_FORMAT.format(cal.getTime()));
-            rows.get(i / 7).addView(dayCell(context, cal, busy, null));
+            boolean open = available.contains(ISO_FORMAT.format(cal.getTime()));
+            rows.get(i / 7).addView(dayCell(context, cal, open, null));
             cal.add(Calendar.DAY_OF_MONTH, 1);
         }
     }
 
-    /** Editable grid; tap a day to toggle it blocked out. */
+    /** Editable grid; tap a day to toggle it available. */
     public static Editor renderEditor(Context context, LinearLayout parent,
-                                      Set<String> unavailableDates) {
+                                      Set<String> availableDates) {
         final Set<String> edited = new LinkedHashSet<>();
-        if (unavailableDates != null) {
-            edited.addAll(unavailableDates);
+        if (availableDates != null) {
+            edited.addAll(availableDates);
         }
         List<LinearLayout> rows = buildRows(context, parent);
         Calendar cal = Calendar.getInstance();
         for (int i = 0; i < DAYS; i++) {
             final String iso = ISO_FORMAT.format(cal.getTime());
-            final boolean[] busy = {edited.contains(iso)};
+            final boolean[] open = {edited.contains(iso)};
             final LinearLayout[] cellHolder = new LinearLayout[1];
-            LinearLayout cell = dayCell(context, cal, busy[0], cellHolder);
+            LinearLayout cell = dayCell(context, cal, open[0], cellHolder);
             cell.setOnClickListener(v -> {
-                busy[0] = !busy[0];
-                if (busy[0]) {
+                open[0] = !open[0];
+                if (open[0]) {
                     edited.add(iso);
                 } else {
                     edited.remove(iso);
                 }
-                setSelected(cellHolder[0], busy[0]);
+                setSelected(cellHolder[0], open[0]);
             });
             rows.get(i / 7).addView(cell);
             cal.add(Calendar.DAY_OF_MONTH, 1);
@@ -117,7 +118,7 @@ public final class AvailabilityStrip {
      * mode ({@code cellOut} non-null, cell is clickable).
      */
     private static LinearLayout dayCell(Context context, Calendar day,
-                                        boolean busy, final LinearLayout[] cellOut) {
+                                        boolean open, final LinearLayout[] cellOut) {
         LinearLayout cell = new LinearLayout(context);
         cell.setOrientation(LinearLayout.VERTICAL);
         cell.setGravity(Gravity.CENTER);
@@ -135,7 +136,7 @@ public final class AvailabilityStrip {
         number.setSingleLine(true);
         cell.addView(number);
 
-        setSelected(cell, busy);
+        setSelected(cell, open);
         if (cellOut != null && cellOut.length > 0) {
             cellOut[0] = cell;
             cell.setClickable(true);
@@ -159,15 +160,15 @@ public final class AvailabilityStrip {
 
     /** Handle on an editable grid. */
     public static final class Editor {
-        private final Set<String> unavailable;
+        private final Set<String> available;
 
-        private Editor(Set<String> unavailable) {
-            this.unavailable = unavailable;
+        private Editor(Set<String> available) {
+            this.available = available;
         }
 
-        /** Copy of the currently-unavailable ISO dates. */
-        public Set<String> getUnavailable() {
-            return new LinkedHashSet<>(unavailable);
+        /** Copy of the currently-available ISO dates. */
+        public Set<String> getAvailable() {
+            return new LinkedHashSet<>(available);
         }
     }
 }

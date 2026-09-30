@@ -439,7 +439,7 @@ public class SitterProfileActivity extends AppCompatActivity {
     /**
      * Sitter availability for the next two weeks. Own profile gets an
      * editable strip with a save button; everyone else gets a read-only
-     * strip with an honest open-days count.
+     * strip with an honest available-days count.
      */
     private LinearLayout availabilitySection() {
         LinearLayout section = new LinearLayout(this);
@@ -450,41 +450,40 @@ public class SitterProfileActivity extends AppCompatActivity {
         section.addView(strip);
         if (isOwnProfile()) {
             final AvailabilityStrip.Editor editor =
-                    AvailabilityStrip.renderEditor(this, strip, sitter.getUnavailableDates());
+                    AvailabilityStrip.renderEditor(this, strip, sitter.getAvailableDates());
             Ui.gap(section, this, 8);
             section.addView(Ui.caption(this,
-                    "Tap days to block them out — a blue outline means you're "
-                            + "unavailable that day."));
+                    "Tap the days you're free for plant sitting — a blue outline "
+                            + "means you're available that day."));
             Ui.gap(section, this, 8);
             Button saveButton = Ui.secondaryButton(this, "Save availability");
             saveButton.setOnClickListener(v -> saveAvailability(editor, saveButton));
             section.addView(saveButton);
         } else {
-            AvailabilityStrip.renderView(this, strip, sitter.getUnavailableDates());
+            AvailabilityStrip.renderView(this, strip, sitter.getAvailableDates());
             Ui.gap(section, this, 8);
             section.addView(Ui.caption(this, availabilityCaption()));
         }
         return section;
     }
 
-    /** "Open all of the next 14 days." or "9 of the next 14 days open." */
+    /** "Available 9 of the next 14 days." / "No availability marked…". */
     private String availabilityCaption() {
-        int busy = 0;
+        int open = 0;
         for (int i = 0; i < AvailabilityStrip.DAYS; i++) {
-            if (sitter.isUnavailableOn(AvailabilityStrip.isoForOffset(i))) {
-                busy++;
+            if (sitter.isAvailableOn(AvailabilityStrip.isoForOffset(i))) {
+                open++;
             }
         }
-        int open = AvailabilityStrip.DAYS - busy;
-        return open == AvailabilityStrip.DAYS
-                ? "Open all of the next " + AvailabilityStrip.DAYS + " days."
-                : open + " of the next " + AvailabilityStrip.DAYS + " days open.";
+        return open == 0
+                ? "No availability marked for the next " + AvailabilityStrip.DAYS + " days."
+                : "Available " + open + " of the next " + AvailabilityStrip.DAYS + " days.";
     }
 
     private void saveAvailability(AvailabilityStrip.Editor editor, Button saveButton) {
         saveButton.setEnabled(false);
         java.util.List<String> days =
-                new java.util.ArrayList<>(editor.getUnavailable());
+                new java.util.ArrayList<>(editor.getAvailable());
         ApiProvider.get().setSitterAvailability(days, new GardenSwapApi.Callback<Void>() {
             @Override
             public void onSuccess(Void result) {

@@ -121,8 +121,8 @@ public class BecomeSitterActivity extends AppCompatActivity {
                 "Pick the services bookers can request. Leave all off for \"on request\"."));
         Ui.gap(form, this, 12);
 
-        // Availability: tap days you're unavailable. Saved right after the
-        // profile registers (PUT /v1/sitters/me/availability).
+        // Availability: tap the days you're free for plant sitting. Saved
+        // right after the profile registers (PUT /v1/sitters/me/availability).
         form.addView(Ui.label(this, "Availability"));
         Ui.gap(form, this, 4);
         LinearLayout strip = Ui.column(this, 0);
@@ -130,8 +130,8 @@ public class BecomeSitterActivity extends AppCompatActivity {
         availabilityEditor = AvailabilityStrip.renderEditor(this, strip, null);
         Ui.gap(form, this, 4);
         form.addView(Ui.caption(this,
-                "Tap days to block them out — a blue outline means you're "
-                        + "unavailable that day. Days you don't mark show as open."));
+                "Tap the days you're free for plant sitting — a blue outline "
+                        + "means you're available that day."));
         Ui.gap(form, this, 12);
 
         activeSwitch = new Switch(this);
@@ -217,8 +217,8 @@ public class BecomeSitterActivity extends AppCompatActivity {
         submitButton.setEnabled(false);
         statusText.setText("Registering…");
         String[] services = selectedServices.toArray(new String[0]);
-        final java.util.List<String> unavailable =
-                new java.util.ArrayList<>(availabilityEditor.getUnavailable());
+        final java.util.List<String> available =
+                new java.util.ArrayList<>(availabilityEditor.getAvailable());
         SitterProfileIn profile = new SitterProfileIn(
                 bio, years, radius, activeSwitch.isChecked(),
                 rateAmount, rateUnitValue, services);
@@ -226,7 +226,7 @@ public class BecomeSitterActivity extends AppCompatActivity {
             @Override
             public void onSuccess(Void result) {
                 // Profile registered — now save the picked availability.
-                ApiProvider.get().setSitterAvailability(unavailable,
+                ApiProvider.get().setSitterAvailability(available,
                         new GardenSwapApi.Callback<Void>() {
                             @Override
                             public void onSuccess(Void r) {

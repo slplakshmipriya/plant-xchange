@@ -307,19 +307,19 @@ public final class JsonParsers {
 
     /**
      * Parse a sitter profile. {@code services} comes from the fixed backend
-     * taxonomy (may be empty = "on request"); {@code unavailable_dates} is
-     * the sitter's blocked-out ISO dates.
+     * taxonomy (may be empty = "on request"); {@code available_dates} is
+     * the sitter's marked-available ISO dates (may be empty = none marked).
      */
     public static SitterProfile parseSitterProfile(JSONObject o) throws JSONException {
         double rating = o.isNull("rating_avg") ? 0.0 : o.optDouble("rating_avg", 0.0);
         Double rateAmount = o.isNull("rate_amount") ? null : o.optDouble("rate_amount");
         String rateUnit = o.isNull("rate_unit") ? null : o.optString("rate_unit", null);
         String[] services = parseStringArray(o.optJSONArray("services"));
-        Set<String> unavailable = new LinkedHashSet<>();
-        JSONArray unav = o.optJSONArray("unavailable_dates");
-        if (unav != null) {
-            for (int i = 0; i < unav.length(); i++) {
-                unavailable.add(unav.optString(i));
+        Set<String> available = new LinkedHashSet<>();
+        JSONArray avail = o.optJSONArray("available_dates");
+        if (avail != null) {
+            for (int i = 0; i < avail.length(); i++) {
+                available.add(avail.optString(i));
             }
         }
         return new SitterProfile(o.getString("uid"),
@@ -332,7 +332,7 @@ public final class JsonParsers {
                 rating,
                 o.optInt("rating_count", 0),
                 o.optInt("completed_sits", 0),
-                unavailable);
+                available);
     }
 
     /** Parse {@code GET /v1/sitters} ({@code {"sitters": [...]}}). */
