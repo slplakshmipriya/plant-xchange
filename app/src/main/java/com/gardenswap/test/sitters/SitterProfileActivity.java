@@ -1,7 +1,6 @@
 package com.gardenswap.test.sitters;
 
 import android.app.AlertDialog;
-import android.app.DatePickerDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.InputType;
@@ -30,6 +29,7 @@ import com.gardenswap.test.api.SitterProfile;
 import com.gardenswap.test.idv.IdvActivity;
 import com.gardenswap.test.ui.AvailabilityStrip;
 import com.gardenswap.test.ui.BadgeState;
+import com.gardenswap.test.ui.BookingDateGrid;
 import com.gardenswap.test.ui.SitterCardView;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.ui.VerifiedBadgeView;
@@ -41,7 +41,6 @@ import com.google.firebase.auth.FirebaseAuth;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -55,11 +54,13 @@ import java.util.Set;
  * prototype (UID-017).
  *
  * <p>Header card (avatar, name, verification badge), skills section,
- * reviews list, then the booking sheet. The booking sheet captures
- * dates, services, and per-plant care instructions, and shows price
- * math including the platform fee (display only — the server computes
- * the charge). Payment hold happens on confirm server-side (API-070);
- * this screen only requests the booking.
+ * reviews list, then the booking sheet. The booking sheet captures the
+ * sitter's available dates (picked individually from a 30-day grid with a
+ * green-tick highlight), services, and per-plant care instructions, and
+ * shows price math with no customer-facing fee (the sitter covers the 18%
+ * platform fee; display only — the server computes the charge). Payment
+ * hold happens on confirm server-side (API-070); this screen only requests
+ * the booking.
  */
 public class SitterProfileActivity extends AppCompatActivity {
 
@@ -69,14 +70,12 @@ public class SitterProfileActivity extends AppCompatActivity {
     private LinearLayout content;
     private SitterProfile sitter;
     private boolean requesting;
-    private long bookingStartMs;
-    private long bookingEndMs;
-    private TextView startDateLabel;
-    private TextView endDateLabel;
+    /** ISO dates (yyyy-MM-dd) the booker picked from the 30-day grid. */
+    private final Set<String> selectedDates = new LinkedHashSet<>();
+    private BookingDateGrid.Grid bookingGrid;
     private TextView pricePreview;
+    private Button requestButton;
     private final Set<String> selectedServices = new LinkedHashSet<>();
-    private final SimpleDateFormat dateFormat =
-            new SimpleDateFormat("EEE, MMM d", Locale.US);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -133,6 +132,13 @@ public class SitterProfileActivity extends AppCompatActivity {
         // save button on your own profile (PUT /v1/sitters/me/availability).
         content.addView(availabilitySection());
         Ui.gap(content, this, 16);
+
+        // Your own profile: edit the advertised services too
+        // (PUT /v1/sitters/me, services-only body).
+        if (isOwnProfile()) {
+            content.addView(servicesEditorSection());
+            Ui.gap(content, this, 16);
+        }
 
         content.addView(Ui.eyebrow(this, "Reviews"));
         Ui.gap(content, this, 8);
@@ -288,7 +294,7 @@ public class SitterProfileActivity extends AppCompatActivity {
         }
     }
 
-    // ---- Booking sheet (behavior unchanged from the pre-restyle screen) ----
+    // ---- Booking sheet: explicit date picks, no start/end range ----
 
     private void renderBookingSheet() {
         // You can't book yourself: when this screen shows your own profile
@@ -297,11 +303,8 @@ public class SitterProfileActivity extends AppCompatActivity {
         if (isOwnProfile()) {
             return;
         }
-        // Reset per render: default is a 7-day booking starting 7 days out,
-        // all services selected.
-        bookingStartMs = startOfDay(System.currentTimeMillis()
-                + 7 * 24L * 3_600_000L);
-        bookingEndMs = bookingStartMs + 6 * 24L * 3_600_000L;
+        // Reset per render: nothing picked, all advertised services selected.
+        selectedDates.clear();
         selectedServices.clear();
         String[] services = sitter.getServices();
         if (services != null) {
@@ -315,17 +318,28 @@ public class SitterProfileActivity extends AppCompatActivity {
         content.addView(Ui.headline(this, "Request a booking"));
         Ui.gap(content, this, 8);
 
-        // Start/end dates side by side with compact "Choose" buttons.
-        LinearLayout dateRow = new LinearLayout(this);
-        dateRow.setOrientation(LinearLayout.HORIZONTAL);
-        dateRow.addView(dateGroup(true));
-        dateRow.addView(dateGroup(false));
-        content.addView(dateRow);
+        // Date picker: 30-day grid bound to the sitter's available dates.
+        // Only available dates are tappable; a green tick marks selection
+        // (distinct from the blue outline of the availability strip above).
+        content.addView(Ui.eyebrow(this, "Dates"));
+        Ui.gap(content, this, 4);
+        LinearLayout gridHolder = Ui.column(this, 0);
+        content.addView(gridHolder);
+        bookingGrid = BookingDateGrid.render(this, gridHolder,
+                sitter.getAvailableDates(), null, this::updateBookingState);
+        Ui.gap(content, this, 4);
+        content.addView(Ui.caption(this,
+                "Only days the sitter marked available can be picked — a "
+                        + "green tick means selected."));
         Ui.gap(content, this, 8);
 
         content.addView(Ui.eyebrow(this, "Services"));
         Ui.gap(content, this, 4);
-        content.addView(serviceChipRows());
+        if (sitterOffersAny()) {
+            content.addView(serviceChipRows());
+        } else {
+            content.addView(Ui.body(this, "Services on request"));
+        }
         Ui.gap(content, this, 8);
 
         EditText careInput = Ui.input(this,
@@ -334,100 +348,61 @@ public class SitterProfileActivity extends AppCompatActivity {
         content.addView(careInput);
         Ui.gap(content, this, 8);
 
-        // Price preview for the chosen inclusive date range: days × daily
-        // rate, plus the 18% platform fee on usd rates (display only — the
-        // server computes the charge). Updates live as dates change.
+        // Price preview for the picked dates: days × daily rate. No
+        // platform-fee line — the customer pays the subtotal only; the
+        // sitter covers the 18% fee (display only — the server computes the
+        // charge). Updates live as dates/services change.
         pricePreview = Ui.label(this, "");
         content.addView(pricePreview);
+        if (sitter.getRateAmount() != null && sitter.getRateUnit() != null) {
+            Ui.gap(content, this, 2);
+            content.addView(Ui.caption(this,
+                    "Sitter covers the 18% platform fee."));
+        }
         Ui.gap(content, this, 8);
-        updatePricePreview();
+        updateBookingState();
 
-        Button requestButton = Ui.primaryButton(this, "Request booking");
+        requestButton = Ui.primaryButton(this, "Request booking");
         requestButton.setOnClickListener(v ->
                 request(careInput.getText().toString(), requestButton));
         content.addView(requestButton);
     }
 
-    /** Start/end date group: eyebrow, date label, compact "Choose" button. */
-    private LinearLayout dateGroup(boolean isStart) {
-        LinearLayout group = Ui.column(this, 0);
-        group.addView(Ui.eyebrow(this, isStart ? "Start date" : "End date"));
-        Ui.gap(group, this, 4);
-        TextView label = Ui.body(this,
-                dateFormat.format(isStart ? bookingStartMs : bookingEndMs));
-        group.addView(label);
-        if (isStart) {
-            startDateLabel = label;
-        } else {
-            endDateLabel = label;
+    /** True when the sitter advertises at least one service. */
+    private boolean sitterOffersAny() {
+        String[] offered = sitter.getServices();
+        if (offered == null) {
+            return false;
         }
-        Ui.gap(group, this, 4);
-        Button choose = Ui.rowButton(this, "Choose", false);
-        choose.setOnClickListener(v -> showDatePicker(isStart));
-        group.addView(choose);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        group.setLayoutParams(params);
-        return group;
+        for (String s : offered) {
+            if (s != null && !s.trim().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    /** Inclusive day count for the booking range. Always >= 1. */
-    private int bookingDays() {
-        long days = (bookingEndMs - bookingStartMs) / (24L * 3_600_000L) + 1;
-        return (int) Math.max(1, days);
-    }
-
-    private void updatePricePreview() {
+    /** Refresh the price preview and the request button's enabled state. */
+    private void updateBookingState() {
+        if (bookingGrid != null) {
+            selectedDates.clear();
+            selectedDates.addAll(bookingGrid.getSelected());
+        }
+        int days = selectedDates.size();
         if (pricePreview != null) {
             pricePreview.setText(SitterLogic.bookingPreview(
-                    sitter.getRateAmount(), sitter.getRateUnit(), bookingDays()));
+                    sitter.getRateAmount(), sitter.getRateUnit(), days));
         }
-    }
-
-    private void showDatePicker(boolean isStart) {
-        Calendar cal = Calendar.getInstance();
-        cal.setTimeInMillis(isStart ? bookingStartMs : bookingEndMs);
-        DatePickerDialog dialog = new DatePickerDialog(this,
-                (view, year, month, day) -> {
-                    Calendar chosen = Calendar.getInstance();
-                    chosen.set(year, month, day, 9, 0, 0);
-                    chosen.set(Calendar.MILLISECOND, 0);
-                    long picked = chosen.getTimeInMillis();
-                    // Keep the range valid: clamp the other end if needed.
-                    if (isStart) {
-                        bookingStartMs = picked;
-                        if (bookingEndMs < bookingStartMs) {
-                            bookingEndMs = bookingStartMs;
-                        }
-                    } else {
-                        bookingEndMs = picked;
-                        if (bookingEndMs < bookingStartMs) {
-                            bookingStartMs = bookingEndMs;
-                        }
-                    }
-                    startDateLabel.setText(dateFormat.format(bookingStartMs));
-                    endDateLabel.setText(dateFormat.format(bookingEndMs));
-                    updatePricePreview();
-                },
-                cal.get(Calendar.YEAR), cal.get(Calendar.MONTH),
-                cal.get(Calendar.DAY_OF_MONTH));
-        dialog.getDatePicker().setMinDate(startOfDay(System.currentTimeMillis()));
-        dialog.show();
-    }
-
-    private long startOfDay(long timeMs) {
-        Calendar cal = Calendar.getInstance();
-        cal.setTimeInMillis(timeMs);
-        cal.set(Calendar.HOUR_OF_DAY, 9);
-        cal.set(Calendar.MINUTE, 0);
-        cal.set(Calendar.SECOND, 0);
-        cal.set(Calendar.MILLISECOND, 0);
-        return cal.getTimeInMillis();
+        if (requestButton != null) {
+            boolean servicesOk = !sitterOffersAny() || !selectedServices.isEmpty();
+            requestButton.setEnabled(days >= 1 && servicesOk && !requesting);
+        }
     }
 
     /** Multi-select service chips for the booking sheet. */
     private LinearLayout serviceChipRows() {
-        return Ui.serviceChipGrid(this, sitter.getServices(), selectedServices, true);
+        return Ui.serviceChipGrid(this, sitter.getServices(), selectedServices,
+                true, this::updateBookingState);
     }
 
     /** Read-only wrapped service chips (taxonomy display names). */
@@ -502,6 +477,64 @@ public class SitterProfileActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * Own-profile services editor: multi-select chips over the fixed
+     * taxonomy (same pattern as BecomeSitter), wired to
+     * {@code PUT /v1/sitters/me}. Empty = "on request". Shown only on your
+     * own profile.
+     */
+    private LinearLayout servicesEditorSection() {
+        LinearLayout section = new LinearLayout(this);
+        section.setOrientation(LinearLayout.VERTICAL);
+        section.addView(Ui.eyebrow(this, "Services you offer"));
+        Ui.gap(section, this, 8);
+
+        final Set<String> editing = new LinkedHashSet<>();
+        final Set<String> original = new LinkedHashSet<>();
+        String[] current = sitter.getServices();
+        if (current != null) {
+            for (String s : current) {
+                if (s != null && !s.trim().isEmpty()) {
+                    editing.add(s.trim());
+                    original.add(s.trim());
+                }
+            }
+        }
+        final Button saveButton = Ui.secondaryButton(this, "Save services");
+        saveButton.setEnabled(false);
+        section.addView(Ui.serviceChipGrid(this, SitterServices.KEYS, editing,
+                true, () -> saveButton.setEnabled(!editing.equals(original))));
+        Ui.gap(section, this, 4);
+        section.addView(Ui.caption(this,
+                "Bookers can only request the services you pick here. "
+                        + "Leave all off for \"on request\"."));
+        Ui.gap(section, this, 8);
+        saveButton.setOnClickListener(v -> {
+            saveButton.setEnabled(false);
+            String[] services = editing.toArray(new String[0]);
+            ApiProvider.get().updateSitterServices(services,
+                    new GardenSwapApi.Callback<Void>() {
+                        @Override
+                        public void onSuccess(Void result) {
+                            original.clear();
+                            original.addAll(editing);
+                            Toast.makeText(SitterProfileActivity.this,
+                                    "Services saved", Toast.LENGTH_SHORT).show();
+                        }
+
+                        @Override
+                        public void onError(ApiException e) {
+                            saveButton.setEnabled(true);
+                            Toast.makeText(SitterProfileActivity.this,
+                                    "Couldn't save services (" + e.getCode() + ").",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+        });
+        section.addView(saveButton);
+        return section;
+    }
+
     /** True when the profile being viewed belongs to the signed-in user. */
     private boolean isOwnProfile() {
         return sitter != null
@@ -548,43 +581,29 @@ public class SitterProfileActivity extends AppCompatActivity {
     }
 
     private void submitBooking(String care, Button requestButton) {
-        String[] offered = sitter.getServices();
-        boolean offersAny = offered != null && offered.length > 0;
-        if (offersAny && selectedServices.isEmpty()) {
+        // The button is gated on these, but the IDV check is async — the
+        // sitter's availability or the selection could have changed since.
+        List<String> dates = new ArrayList<>(selectedDates);
+        Collections.sort(dates);
+        boolean servicesOk = !sitterOffersAny() || !selectedServices.isEmpty();
+        if (dates.isEmpty() || !servicesOk) {
             requesting = false;
             requestButton.setEnabled(true);
-            statusText.setText("Pick at least one service for this booking.");
+            statusText.setText(dates.isEmpty()
+                    ? "Pick at least one date for this booking."
+                    : "Pick at least one service for this booking.");
+            updateBookingState();
             return;
         }
         statusText.setText("Requesting booking…");
-        long start = bookingStartMs;
-        long end = bookingEndMs;
         String[] services = selectedServices.toArray(new String[0]);
-        // The booking endpoint has no services field; fold the selection
-        // into the notes so it reaches the sitter.
-        String careText = care == null ? "" : care.trim();
-        String notes = careText;
-        if (services.length > 0) {
-            StringBuilder names = new StringBuilder();
-            for (String s : services) {
-                if (names.length() > 0) {
-                    names.append(", ");
-                }
-                names.append(SitterServices.displayName(s));
-            }
-            String line = "Services requested: " + names;
-            notes = careText.isEmpty() ? line : careText + "\n" + line;
-            // Backend caps notes at 2000 chars: trim the care text, never
-            // the services line.
-            if (notes.length() > 2000) {
-                int keep = 2000 - line.length() - 1;
-                notes = keep > 0 && !careText.isEmpty()
-                        ? careText.substring(0, Math.min(keep, careText.length()))
-                        + "\n" + line
-                        : line;
-            }
+        // Services now ride as a first-class wire field; notes carry only
+        // the care instructions (backend caps notes at 2000 chars).
+        String notes = care == null ? "" : care.trim();
+        if (notes.length() > 2000) {
+            notes = notes.substring(0, 2000);
         }
-        BookingRequest req = new BookingRequest(sitter.getSitterId(), start, end,
+        BookingRequest req = new BookingRequest(sitter.getSitterId(), dates,
                 services, notes);
         ApiProvider.get().requestBooking(req, new GardenSwapApi.Callback<Booking>() {
             @Override

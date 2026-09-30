@@ -347,7 +347,7 @@ public class ReviewActivity extends AppCompatActivity {
         doSubmit(resolvedBookingId, pendingRating, pendingText, pendingButton);
     }
 
-    /** Simple single-choice dialog: booking id + status + date per row. */
+    /** Simple single-choice dialog: booking id + status + dates per row. */
     private void showBookingPicker() {
         final SimpleDateFormat dayFormat =
                 new SimpleDateFormat("MMM d", Locale.US);
@@ -356,7 +356,7 @@ public class ReviewActivity extends AppCompatActivity {
             Booking booking = completedBookings.get(i);
             labels[i] = booking.getBookingId() + " · "
                     + booking.getStatus().name() + " · "
-                    + dayFormat.format(booking.getStartMs());
+                    + datesSummary(booking, dayFormat);
         }
         new AlertDialog.Builder(this)
                 .setTitle("Which booking is this review for?")
@@ -370,6 +370,33 @@ public class ReviewActivity extends AppCompatActivity {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /**
+     * "3 days (Sep 1 – Sep 5)" / "1 day (Sep 1)" — the booking's explicit
+     * dates list, rendered as a count plus its span.
+     */
+    private static String datesSummary(Booking booking, SimpleDateFormat dayFormat) {
+        java.util.List<String> dates = booking.getDates();
+        if (dates.isEmpty()) {
+            return "no dates";
+        }
+        String first = formatIsoDate(dates.get(0), dayFormat);
+        String last = formatIsoDate(dates.get(dates.size() - 1), dayFormat);
+        String dayWord = dates.size() == 1 ? "day" : "days";
+        return dates.size() + " " + dayWord + " ("
+                + (dates.size() == 1 ? first : first + " – " + last) + ")";
+    }
+
+    /** "2026-09-20" -> "Sep 20" via the picker's day format; best effort. */
+    private static String formatIsoDate(String iso, SimpleDateFormat dayFormat) {
+        try {
+            java.util.Date d = new SimpleDateFormat("yyyy-MM-dd",
+                    java.util.Locale.US).parse(iso);
+            return d == null ? iso : dayFormat.format(d);
+        } catch (java.text.ParseException e) {
+            return iso;
+        }
     }
 
     private void doSubmit(String bookingId, int rating, String text, Button submitButton) {

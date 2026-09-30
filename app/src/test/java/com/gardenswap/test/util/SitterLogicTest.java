@@ -35,8 +35,14 @@ public class SitterLogicTest {
 
     @Test
     public void bookingPreviewUsd() {
-        assertEquals("$10/day × 7 days = $70 + $12.60 platform fee",
+        assertEquals("$10/day × 7 days = $70",
                 SitterLogic.bookingPreview(10.0, "usd", 7));
+    }
+
+    @Test
+    public void bookingPreviewUsdSingularDay() {
+        assertEquals("$10/day × 1 day = $10",
+                SitterLogic.bookingPreview(10.0, "usd", 1));
     }
 
     @Test
@@ -49,6 +55,12 @@ public class SitterLogicTest {
     public void bookingPreviewNoRate() {
         assertEquals("This sitter hasn't set a rate — agree on one in chat.",
                 SitterLogic.bookingPreview(null, null, 7));
+    }
+
+    @Test
+    public void bookingPreviewNoDatesPicked() {
+        assertEquals("Pick your dates to see the price.",
+                SitterLogic.bookingPreview(10.0, "usd", 0));
     }
 
     @Test

@@ -85,6 +85,16 @@ responses until the real HTTP client replaces it at the integration checkpoint.
 - `ListingStatus.fromString` maps unknown wire values → `null`
   (forward-compatible with new backend states)
 
+## Fee model (sitting)
+
+Fee flip: the customer is charged the subtotal only; the 18% platform fee is
+deducted from the sitter's payout. The booking endpoints return
+`{subtotal_cents, fee_cents, customer_total_cents (= subtotal),
+sitter_payout_cents (= subtotal − fee)}`. The client shows no platform-fee
+line to the customer — the booking sheet shows
+`$<rate>/day × <N> days = $<total>` with a "Sitter covers the 18% platform
+fee" caption.
+
 ## Wave 3 — PROPOSED (mock phase)
 
 The backend Wave 3 endpoints do not exist yet; the mock implements these
@@ -98,7 +108,12 @@ integration checkpoint, reconcile against `api/openapi.yaml`.
 | `getWallet` | `GET /v1/ledger` → balance + entries (API-060/061) |
 | `confirmExchange` | `POST /v1/exchanges/{id}/confirm` → both-sides state (API-060) |
 | `getSitters` / `getSitter` | `GET /v1/sitters?zip=` / `GET /v1/sitters/{id}` (API-070) |
-| `requestBooking` | `POST /v1/bookings` (API-070) |
+| `requestBooking` | `POST /v1/sitting-requests` → `Booking`. Body:
+  `{sitter_uid, plant_count, dates: ["YYYY-MM-DD", …], services: ["watering", …], notes}` —
+  no start/end range; the booker picks individual dates from the sitter's
+  `available_dates` (422 `no_dates` / `invalid_dates` / `date_not_available` /
+  `service_not_offered`). Reads return `dates[]` (sorted ISO) + `services[]`. |
+| `updateSitterServices` | `PUT /v1/sitters/me` with a services-only body `{services: […]}` |
 | `submitReview` | `POST /v1/bookings/{id}/reviews` (API-072) |
 | `getThreads` / `getMessages` / `sendMessage` | `GET/POST /v1/threads…` (API-080) |
 
