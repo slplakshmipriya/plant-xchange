@@ -348,6 +348,31 @@ public final class JsonParsers {
     }
 
     /**
+     * Parse one row of {@code GET /v1/sitters/{uid}/reviews}
+     * ({@code {"reviews": [{id, sitting_id, reviewer_uid, rating, comment,
+     * created_at}]}}). Reviews about a sitter are written by plant owners
+     * after a completed sitting, so they carry the OWNER role and the
+     * verified-booking badge.
+     */
+    public static Review parseReview(JSONObject o) throws JSONException {
+        String createdAt = o.isNull("created_at") ? null : o.optString("created_at", null);
+        return new Review(o.optInt("rating", 5), null,
+                o.optString("comment", ""), "OWNER", true, createdAt);
+    }
+
+    /** Parse {@code GET /v1/sitters/{uid}/reviews} ({@code {"reviews": [...]}}). */
+    public static List<Review> parseReviewList(JSONObject o) throws JSONException {
+        List<Review> out = new ArrayList<>();
+        JSONArray arr = o.optJSONArray("reviews");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                out.add(parseReview(arr.getJSONObject(i)));
+            }
+        }
+        return out;
+    }
+
+    /**
      * Backend request states ({@code requested/accepted/declined/...}) onto
      * the client enum: accepted → CONFIRMED, declined → CANCELLED.
      */

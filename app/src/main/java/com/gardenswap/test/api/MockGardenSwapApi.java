@@ -231,6 +231,19 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void getSitterReviews(String sitterId,
+                                 Callback<java.util.List<Review>> callback) {
+        java.util.List<Review> reviews = new java.util.ArrayList<>();
+        reviews.add(new Review(5, null,
+                "Great communication and my plants looked happy when I got back.",
+                "OWNER", true, "2026-09-20T14:05:00+00:00"));
+        reviews.add(new Review(4, null,
+                "Reliable watering while we were away. Would book again.",
+                "OWNER", true, "2026-08-11T09:30:00+00:00"));
+        emit(callback, reviews);
+    }
+
+    @Override
     public void setSitterAvailability(java.util.List<String> unavailableIsoDates,
                                       Callback<Void> callback) {
         emit(callback, null);

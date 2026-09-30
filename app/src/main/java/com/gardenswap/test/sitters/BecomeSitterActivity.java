@@ -130,8 +130,8 @@ public class BecomeSitterActivity extends AppCompatActivity {
         availabilityEditor = AvailabilityStrip.renderEditor(this, strip, null);
         Ui.gap(form, this, 4);
         form.addView(Ui.caption(this,
-                "Tap days you're unavailable — filled days are blocked out. "
-                        + "Days you don't mark are shown as open."));
+                "Tap days to block them out — a blue outline means you're "
+                        + "unavailable that day. Days you don't mark show as open."));
         Ui.gap(form, this, 12);
 
         activeSwitch = new Switch(this);

@@ -101,6 +101,12 @@ public interface GardenSwapApi {
     void setSitterAvailability(java.util.List<String> unavailableIsoDates,
                                Callback<Void> callback);
 
+    /**
+     * Public reviews written about a sitter (GET /v1/sitters/{id}/reviews).
+     * Server returns newest first.
+     */
+    void getSitterReviews(String sitterId, Callback<List<Review>> callback);
+
     /** Request a booking (proposed: API-070, POST /v1/bookings). */
     void requestBooking(BookingRequest request, Callback<Booking> callback);
 

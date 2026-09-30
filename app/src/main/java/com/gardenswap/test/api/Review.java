@@ -15,18 +15,29 @@ public final class Review {
     private final String reviewerRole;
     /** True when the booking is verified complete server-side. */
     private final boolean verifiedBooking;
+    /**
+     * ISO-8601 creation timestamp from {@code GET /v1/sitters/{uid}/reviews};
+     * null for locally-composed reviews that were never fetched.
+     */
+    private final String createdAt;
 
     public Review(int rating, String[] tags, String text) {
-        this(rating, tags, text, "OWNER", false);
+        this(rating, tags, text, "OWNER", false, null);
     }
 
     public Review(int rating, String[] tags, String text,
             String reviewerRole, boolean verifiedBooking) {
+        this(rating, tags, text, reviewerRole, verifiedBooking, null);
+    }
+
+    public Review(int rating, String[] tags, String text,
+            String reviewerRole, boolean verifiedBooking, String createdAt) {
         this.rating = rating;
         this.tags = tags == null ? new String[0] : tags.clone();
         this.text = text;
         this.reviewerRole = reviewerRole == null ? "OWNER" : reviewerRole;
         this.verifiedBooking = verifiedBooking;
+        this.createdAt = createdAt;
     }
 
     /** 1–5, validated client-side by {@code ReviewGuard}, enforced server-side. */
@@ -50,6 +61,11 @@ public final class Review {
         return verifiedBooking;
     }
 
+    /** ISO-8601 creation timestamp, or null when not fetched from the server. */
+    public String getCreatedAt() {
+        return createdAt;
+    }
+
     public static Builder builder(int rating) {
         return new Builder(rating);
     }
@@ -60,6 +76,7 @@ public final class Review {
         private String text;
         private String reviewerRole = "OWNER";
         private boolean verifiedBooking = false;
+        private String createdAt;
 
         private Builder(int rating) {
             this.rating = rating;
@@ -85,8 +102,14 @@ public final class Review {
             return this;
         }
 
+        public Builder createdAt(String createdAt) {
+            this.createdAt = createdAt;
+            return this;
+        }
+
         public Review build() {
-            return new Review(rating, tags, text, reviewerRole, verifiedBooking);
+            return new Review(rating, tags, text, reviewerRole, verifiedBooking,
+                    createdAt);
         }
     }
 }

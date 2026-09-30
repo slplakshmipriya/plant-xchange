@@ -38,9 +38,13 @@ import com.gardenswap.test.util.SitterServices;
 import com.google.firebase.analytics.FirebaseAnalytics;
 import com.google.firebase.auth.FirebaseAuth;
 
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -132,25 +136,27 @@ public class SitterProfileActivity extends AppCompatActivity {
 
         content.addView(Ui.eyebrow(this, "Reviews"));
         Ui.gap(content, this, 8);
-        for (Review review : mockReviews(sitter)) {
-            content.addView(reviewCard(review));
-            Ui.gap(content, this, 8);
-        }
+        LinearLayout reviewsSection = Ui.column(this, 0);
+        content.addView(reviewsSection);
+        loadReviews(reviewsSection);
         Ui.gap(content, this, 8);
 
-        // ReviewActivity resolves the real completed booking via
+        // You can't review yourself: the button is hidden on your own
+        // profile. ReviewActivity resolves the real completed booking via
         // GET /v1/bookings (role + completed filter); the id passed here is
         // only the fallback if that endpoint is not available yet.
-        Button writeReview = Ui.secondaryButton(this, "Write a review");
-        writeReview.setOnClickListener(v -> {
-            Intent intent = new Intent(this, ReviewActivity.class);
-            intent.putExtra(ReviewActivity.EXTRA_BOOKING_ID, "mock-booking-1");
-            intent.putExtra(ReviewActivity.EXTRA_BOOKING_STATUS,
-                    BookingStatus.COMPLETED.name());
-            startActivity(intent);
-        });
-        content.addView(writeReview);
-        Ui.gap(content, this, 16);
+        if (!isOwnProfile()) {
+            Button writeReview = Ui.secondaryButton(this, "Write a review");
+            writeReview.setOnClickListener(v -> {
+                Intent intent = new Intent(this, ReviewActivity.class);
+                intent.putExtra(ReviewActivity.EXTRA_BOOKING_ID, "mock-booking-1");
+                intent.putExtra(ReviewActivity.EXTRA_BOOKING_STATUS,
+                        BookingStatus.COMPLETED.name());
+                startActivity(intent);
+            });
+            content.addView(writeReview);
+            Ui.gap(content, this, 16);
+        }
 
         renderBookingSheet();
     }
@@ -196,6 +202,11 @@ public class SitterProfileActivity extends AppCompatActivity {
     private LinearLayout reviewCard(Review review) {
         LinearLayout card = Ui.card(this);
         card.addView(Ui.body(this, SitterLogic.starsText(review.getRating(), 1)));
+        String dateLine = reviewDateLine(review.getCreatedAt());
+        if (dateLine != null) {
+            Ui.gap(card, this, 2);
+            card.addView(Ui.caption(this, dateLine));
+        }
         Ui.gap(card, this, 4);
         card.addView(Ui.caption(this,
                 review.getText() != null ? review.getText() : ""));
@@ -210,21 +221,71 @@ public class SitterProfileActivity extends AppCompatActivity {
     }
 
     /**
-     * Mock-phase review rows: no per-review endpoint exists yet
-     * (API-072 is proposed), so the profile synthesizes representative
-     * rows from the sitter's aggregate rating.
+     * Real reviews from GET /v1/sitters/{uid}/reviews, rendered newest
+     * first. The backend already orders latest-first; the client re-sorts
+     * defensively so mock and real sources behave identically.
      */
-    private List<Review> mockReviews(SitterProfile profile) {
-        List<Review> reviews = new ArrayList<>();
-        if (profile == null || profile.getReviewCount() <= 0) {
-            return reviews;
+    private void loadReviews(final LinearLayout section) {
+        ApiProvider.get().getSitterReviews(sitter.getSitterId(),
+                new GardenSwapApi.Callback<List<Review>>() {
+                    @Override
+                    public void onSuccess(List<Review> reviews) {
+                        List<Review> sorted = new ArrayList<>(reviews);
+                        Collections.sort(sorted, new Comparator<Review>() {
+                            @Override
+                            public int compare(Review a, Review b) {
+                                return compareNewestFirst(a, b);
+                            }
+                        });
+                        section.removeAllViews();
+                        if (sorted.isEmpty()) {
+                            section.addView(Ui.caption(SitterProfileActivity.this,
+                                    "No reviews yet."));
+                            return;
+                        }
+                        for (Review review : sorted) {
+                            section.addView(reviewCard(review));
+                            Ui.gap(section, SitterProfileActivity.this, 8);
+                        }
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        section.removeAllViews();
+                        section.addView(Ui.caption(SitterProfileActivity.this,
+                                "Couldn't load reviews."));
+                    }
+                });
+    }
+
+    /** Newest first by ISO-8601 created_at; undated reviews sink to the end. */
+    private static int compareNewestFirst(Review a, Review b) {
+        String ca = a.getCreatedAt();
+        String cb = b.getCreatedAt();
+        if (ca == null && cb == null) {
+            return 0;
         }
-        int top = (int) Math.round(profile.getRating());
-        reviews.add(new Review(Math.max(1, Math.min(5, top)), null,
-                "Great communication and my plants looked happy when I got back."));
-        reviews.add(new Review(Math.max(1, Math.min(5, top - 1)), null,
-                "Reliable watering while we were away. Would book again."));
-        return reviews;
+        if (ca == null) {
+            return 1;
+        }
+        if (cb == null) {
+            return -1;
+        }
+        return cb.compareTo(ca);
+    }
+
+    /** "2026-09-20T14:05:00+00:00" -> "Sep 20, 2026"; null when unparseable. */
+    private static String reviewDateLine(String iso) {
+        if (iso == null || iso.length() < 10) {
+            return null;
+        }
+        try {
+            Date date = new SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                    .parse(iso.substring(0, 10));
+            return new SimpleDateFormat("MMM d, yyyy", Locale.US).format(date);
+        } catch (ParseException e) {
+            return null;
+        }
     }
 
     // ---- Booking sheet (behavior unchanged from the pre-restyle screen) ----
@@ -392,7 +453,8 @@ public class SitterProfileActivity extends AppCompatActivity {
                     AvailabilityStrip.renderEditor(this, strip, sitter.getUnavailableDates());
             Ui.gap(section, this, 8);
             section.addView(Ui.caption(this,
-                    "Tap days you're unavailable — filled days are blocked out."));
+                    "Tap days to block them out — a blue outline means you're "
+                            + "unavailable that day."));
             Ui.gap(section, this, 8);
             Button saveButton = Ui.secondaryButton(this, "Save availability");
             saveButton.setOnClickListener(v -> saveAvailability(editor, saveButton));

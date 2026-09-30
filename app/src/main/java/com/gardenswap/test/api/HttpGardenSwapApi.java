@@ -750,6 +750,13 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void getSitterReviews(String sitterId, Callback<java.util.List<Review>> callback) {
+        authed("GET", "/v1/sitters/" + enc(sitterId) + "/reviews", null,
+                (status, json) -> callback.onSuccess(JsonParsers.parseReviewList(json)),
+                callback);
+    }
+
+    @Override
     public void upsertSitterProfile(SitterProfileIn profile, Callback<Void> callback) {
         // Backend PUT /v1/sitters/me: opt in (or update) as a plant sitter.
         // The response is the serialized profile; the client only needs
