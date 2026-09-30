@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Booking date cell, selected: green outline + light green tint, with a
+     "✓" tick drawn as text on the cell. Deliberately distinct from the blue
+     outline the sitter's own availability strip uses. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="8dp" />
+    <solid android:color="#1A175F3A" />
+    <stroke android:width="2dp" android:color="@color/garden_leaf" />
+</shape>

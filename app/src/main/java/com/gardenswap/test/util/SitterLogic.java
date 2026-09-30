@@ -28,21 +28,22 @@ public final class SitterLogic {
     }
 
     /**
-     * Booking-sheet price preview for a multi-day booking. The 18% platform
-     * fee applies to usd rates (Stripe sitting-intent flow); credit totals
-     * carry no fee claim. Display only — the server computes the charge.
+     * Booking-sheet price preview for explicitly picked dates. The customer
+     * pays the subtotal only — no platform-fee line (the sitter covers the
+     * 18% fee, taken from their payout). Display only — the server computes
+     * the charge.
      */
     public static String bookingPreview(Double amount, String unit, int days) {
         if (amount == null || unit == null) {
             return "This sitter hasn't set a rate — agree on one in chat.";
         }
+        if (days <= 0) {
+            return "Pick your dates to see the price.";
+        }
         String dayWord = days == 1 ? "day" : "days";
         if ("usd".equals(unit)) {
-            double subtotal = days * amount;
-            double fee = subtotal * 0.18;
             return "$" + fmtAmount(amount) + "/day × " + days + " " + dayWord
-                    + " = $" + fmtAmount(subtotal)
-                    + " + $" + fmtAmount(fee) + " platform fee";
+                    + " = $" + fmtAmount(days * amount);
         }
         return fmtAmount(amount) + " credits/day × " + days + " " + dayWord
                 + " = " + fmtAmount(days * amount) + " credits";

@@ -252,6 +252,18 @@ public final class Ui {
     public static LinearLayout serviceChipGrid(Context context, String[] keys,
                                                final Set<String> selectedKeys,
                                                boolean clickable) {
+        return serviceChipGrid(context, keys, selectedKeys, clickable, null);
+    }
+
+    /**
+     * Same as {@link #serviceChipGrid(Context, String[], Set, boolean)}, plus
+     * {@code onChanged} (may be null) which runs on the UI thread after every
+     * toggle — lets the caller refresh dependent state (price, button).
+     */
+    public static LinearLayout serviceChipGrid(Context context, String[] keys,
+                                               final Set<String> selectedKeys,
+                                               boolean clickable,
+                                               final Runnable onChanged) {
         LinearLayout column = new LinearLayout(context);
         column.setOrientation(LinearLayout.VERTICAL);
         float density = context.getResources().getDisplayMetrics().density;
@@ -288,6 +300,9 @@ public final class Ui {
                             selectedKeys.remove(key);
                         }
                         setChipSelected(context, chip, now);
+                        if (onChanged != null) {
+                            onChanged.run();
+                        }
                     });
                 } else {
                     chip.setClickable(false);
