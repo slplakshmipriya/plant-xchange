@@ -103,6 +103,8 @@ public class ExploreActivity extends AppCompatActivity {
         Ui.gap(root, this, 8);
         chipRow = new FilterChipRow(this);
         chipRow.setOnFilterChanged(this::applyFilter);
+        chipRow.setOnCareSelected(() ->
+                startActivity(new Intent(this, SitterListActivity.class)));
         root.addView(chipRow);
         Ui.gap(root, this, 8);
         // The feed is a plain vertical view group inside the ScrollView, not a

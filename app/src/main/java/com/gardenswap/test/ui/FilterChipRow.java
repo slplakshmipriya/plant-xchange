@@ -17,7 +17,8 @@ import java.util.List;
  * <p>Label mapping: Seedlings &rarr; {@link ListingType#SEEDLING},
  * Harvest &rarr; {@link ListingType#HARVEST}, Pick (pick-your-own) &rarr;
  * {@link ListingType#TREE}. "Care" has no {@link ListingType} in the current
- * data model, so it reports null (same as All) until the model gains one.
+ * data model (listings are seedling|harvest|tree; care is sitters), so tapping
+ * it fires {@link OnCareSelectedListener} instead of changing the filter.
  *
  * <p>Uses a custom listener interface instead of
  * {@code java.util.function.Consumer} because minSdk is 23 and core-library
@@ -28,6 +29,11 @@ public class FilterChipRow extends HorizontalScrollView {
     /** Receives the newly selected filter; null means "All". */
     public interface OnFilterChangedListener {
         void onFilterChanged(ListingType filterOrNullAll);
+    }
+
+    /** Fired when the "Care" chip is tapped (care = sitters, not listings). */
+    public interface OnCareSelectedListener {
+        void onCareSelected();
     }
 
     private static final class ChipDef {
@@ -48,9 +54,13 @@ public class FilterChipRow extends HorizontalScrollView {
             new ChipDef("Care", null),
     };
 
+    /** Index of the "Care" chip: a sitter shortcut, not a listing filter. */
+    private static final int CARE_INDEX = 4;
+
     private final List<TextView> chipViews = new ArrayList<>();
     private int selected = 0;
     private OnFilterChangedListener listener;
+    private OnCareSelectedListener careListener;
 
     public FilterChipRow(Context context) {
         super(context);
@@ -70,7 +80,18 @@ public class FilterChipRow extends HorizontalScrollView {
                 params.leftMargin = Ui.dp(context, 8);
             }
             chip.setLayoutParams(params);
-            chip.setOnClickListener(v -> select(index));
+            chip.setOnClickListener(v -> {
+                if (index == CARE_INDEX) {
+                    // Care is sitters, not a listing filter: navigate instead
+                    // of changing the selection, so the feed keeps the
+                    // previously selected filter when the user comes back.
+                    if (careListener != null) {
+                        careListener.onCareSelected();
+                    }
+                    return;
+                }
+                select(index);
+            });
             row.addView(chip);
             chipViews.add(chip);
         }
@@ -80,6 +101,10 @@ public class FilterChipRow extends HorizontalScrollView {
 
     public void setOnFilterChanged(OnFilterChangedListener listener) {
         this.listener = listener;
+    }
+
+    public void setOnCareSelected(OnCareSelectedListener listener) {
+        this.careListener = listener;
     }
 
     /** Currently selected filter; null means "All". */
