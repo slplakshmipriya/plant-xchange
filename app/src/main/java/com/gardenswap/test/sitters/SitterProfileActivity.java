@@ -360,12 +360,14 @@ public class SitterProfileActivity extends AppCompatActivity {
                     "Sitter covers the 18% platform fee."));
         }
         Ui.gap(content, this, 8);
-        updateBookingState();
 
         requestButton = Ui.primaryButton(this, "Request booking");
         requestButton.setOnClickListener(v ->
                 request(careInput.getText().toString(), requestButton));
         content.addView(requestButton);
+        // Gate the button on the initial (empty) selection: it must start
+        // disabled until at least one date is picked.
+        updateBookingState();
     }
 
     /** True when the sitter advertises at least one service. */
