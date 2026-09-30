@@ -98,7 +98,7 @@ write data, so the account is untouched.
 | `listing-neg-spray-too-long` | `http_422` — 2500-char disclosure (max 2000) |
 | `want-neg-blank` | `invalid_variety` — spaces-only want, client fail-fast |
 | `chat-neg-blank-text` | `empty_message` — spaces-only message, client fail-fast |
-| `claim-neg-ghost-listing` | `listing_not_found` — bogus id, backend 404 |
+| `claim-neg-ghost-listing` | `not_found` for a non-UUID id, `listing_not_found` for a ghost UUID, backend 404 |
 
 ## Known gaps (documented in code)
 

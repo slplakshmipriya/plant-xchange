@@ -205,9 +205,14 @@ final class JourneysValidation {
         return UatJourney.builder("claim-neg-ghost-listing",
                         "Claiming a listing that doesn't exist is a clean 404")
                 .persona("Ruth the fuzzer")
-                .step("Claim a bogus listing id", ctx -> {
-                    ctx.<Listing>expectError("claim ghost listing", "listing_not_found",
+                .step("Claim a non-UUID id (never reaches the claim logic)", ctx -> {
+                    ctx.<Listing>expectError("claim non-uuid id", "not_found",
                             cb -> ctx.api().claimListing("listing-that-does-not-exist", cb));
+                })
+                .step("Claim a well-formed but nonexistent UUID", ctx -> {
+                    ctx.<Listing>expectError("claim ghost uuid", "listing_not_found",
+                            cb -> ctx.api().claimListing(
+                                    "00000000-0000-0000-0000-000000000000", cb));
                 })
                 .build();
     }
