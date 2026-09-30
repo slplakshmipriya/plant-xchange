@@ -1,6 +1,7 @@
 package com.gardenswap.test.uat;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -10,7 +11,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.gardenswap.test.MainActivity;
 import com.gardenswap.test.ui.Ui;
+import com.google.firebase.auth.FirebaseAuth;
 
 import java.util.List;
 
@@ -27,6 +30,31 @@ public class UatRunnerActivity extends Activity {
     private LinearLayout resultsBox;
     private final Handler main = new Handler(Looper.getMainLooper());
     private String lastReport = null;
+    private TextView authBanner;
+    private Button loginButton;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        checkAuth();
+    }
+
+    private void checkAuth() {
+        com.google.firebase.auth.FirebaseUser user =
+                FirebaseAuth.getInstance().getCurrentUser();
+        boolean signedIn = user != null;
+        authBanner.setVisibility(android.view.View.VISIBLE);
+        loginButton.setVisibility(signedIn ? android.view.View.GONE : android.view.View.VISIBLE);
+        if (signedIn) {
+            String who = user.getEmail() != null ? user.getEmail()
+                    : (user.getPhoneNumber() != null ? user.getPhoneNumber() : user.getUid());
+            authBanner.setText("Signed in as " + who
+                    + " — journeys run against this account.");
+        } else {
+            authBanner.setText("Not signed in — journeys will fail. "
+                    + "Tap Log in, sign in with the main app, then return here.");
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,6 +72,17 @@ public class UatRunnerActivity extends Activity {
         page.addView(Ui.caption(this,
                 UatRegistry.all().size() + " journeys. Each drives the real API "
                         + "with your current session."));
+
+        authBanner = Ui.caption(this, "");
+        authBanner.setVisibility(android.view.View.GONE);
+        Button loginButton = Ui.primaryButton(this, "Log in");
+        loginButton.setVisibility(android.view.View.GONE);
+        loginButton.setOnClickListener(v -> startActivity(
+                new Intent(this, MainActivity.class)));
+        page.addView(authBanner);
+        page.addView(loginButton);
+        Ui.gap(page, this, 8);
+        this.loginButton = loginButton;
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
