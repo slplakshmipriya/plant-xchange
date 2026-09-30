@@ -97,6 +97,10 @@ public interface GardenSwapApi {
     /** Register/update the signed-in user's sitter profile (PUT /v1/sitters/me). */
     void upsertSitterProfile(SitterProfileIn profile, Callback<Void> callback);
 
+    /** Replace the signed-in sitter's unavailable dates (PUT /v1/sitters/me/availability). */
+    void setSitterAvailability(java.util.List<String> unavailableIsoDates,
+                               Callback<Void> callback);
+
     /** Request a booking (proposed: API-070, POST /v1/bookings). */
     void requestBooking(BookingRequest request, Callback<Booking> callback);
 

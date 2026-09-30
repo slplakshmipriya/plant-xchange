@@ -16,9 +16,11 @@ import com.gardenswap.test.api.ApiException;
 import com.gardenswap.test.api.ApiProvider;
 import com.gardenswap.test.api.GardenSwapApi;
 import com.gardenswap.test.api.SitterProfileIn;
+import com.gardenswap.test.ui.AvailabilityStrip;
 import com.gardenswap.test.ui.Nav;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.NavRouter;
+import com.gardenswap.test.util.SitterServices;
 
 /**
  * Sitter registration form: registers the signed-in user as a plant sitter
@@ -38,6 +40,8 @@ public class BecomeSitterActivity extends AppCompatActivity {
     private Switch activeSwitch;
     private TextView statusText;
     private Button submitButton;
+    private final java.util.Set<String> selectedServices = new java.util.LinkedHashSet<>();
+    private AvailabilityStrip.Editor availabilityEditor;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -105,6 +109,29 @@ public class BecomeSitterActivity extends AppCompatActivity {
         Ui.gap(form, this, 4);
         form.addView(Ui.caption(this,
                 "Leave the rate empty to show \"Rate on request\"."));
+        Ui.gap(form, this, 12);
+
+        // Services offered: multi-select chips from the fixed taxonomy,
+        // wrapped into rows so they stay on-screen.
+        form.addView(Ui.label(this, "Services you offer"));
+        Ui.gap(form, this, 4);
+        form.addView(Ui.serviceChipGrid(this, SitterServices.KEYS, selectedServices, true));
+        Ui.gap(form, this, 4);
+        form.addView(Ui.caption(this,
+                "Pick the services bookers can request. Leave all off for \"on request\"."));
+        Ui.gap(form, this, 12);
+
+        // Availability: tap days you're unavailable. Saved right after the
+        // profile registers (PUT /v1/sitters/me/availability).
+        form.addView(Ui.label(this, "Availability"));
+        Ui.gap(form, this, 4);
+        LinearLayout strip = Ui.column(this, 0);
+        form.addView(strip);
+        availabilityEditor = AvailabilityStrip.renderEditor(this, strip, null);
+        Ui.gap(form, this, 4);
+        form.addView(Ui.caption(this,
+                "Tap days you're unavailable — filled days are blocked out. "
+                        + "Days you don't mark are shown as open."));
         Ui.gap(form, this, 12);
 
         activeSwitch = new Switch(this);
@@ -189,14 +216,35 @@ public class BecomeSitterActivity extends AppCompatActivity {
 
         submitButton.setEnabled(false);
         statusText.setText("Registering…");
+        String[] services = selectedServices.toArray(new String[0]);
+        final java.util.List<String> unavailable =
+                new java.util.ArrayList<>(availabilityEditor.getUnavailable());
         SitterProfileIn profile = new SitterProfileIn(
-                bio, years, radius, activeSwitch.isChecked(), rateAmount, rateUnitValue);
+                bio, years, radius, activeSwitch.isChecked(),
+                rateAmount, rateUnitValue, services);
         ApiProvider.get().upsertSitterProfile(profile, new GardenSwapApi.Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
-                Toast.makeText(BecomeSitterActivity.this,
-                        "You're listed as a sitter", Toast.LENGTH_SHORT).show();
-                finish();
+                // Profile registered — now save the picked availability.
+                ApiProvider.get().setSitterAvailability(unavailable,
+                        new GardenSwapApi.Callback<Void>() {
+                            @Override
+                            public void onSuccess(Void r) {
+                                finishRegistered();
+                            }
+
+                            @Override
+                            public void onError(ApiException e) {
+                                // Profile is live; availability can be set
+                                // from "Your sitter profile".
+                                Toast.makeText(BecomeSitterActivity.this,
+                                        "Registered — but availability didn't save ("
+                                                + e.getCode()
+                                                + "). Set it from your sitter profile.",
+                                        Toast.LENGTH_LONG).show();
+                                finish();
+                            }
+                        });
             }
 
             @Override
@@ -209,5 +257,11 @@ public class BecomeSitterActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    private void finishRegistered() {
+        Toast.makeText(BecomeSitterActivity.this,
+                "You're listed as a sitter", Toast.LENGTH_SHORT).show();
+        finish();
     }
 }

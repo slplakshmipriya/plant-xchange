@@ -1,5 +1,9 @@
 package com.gardenswap.test.api;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
 /** A plant sitter's public profile (API-070). Immutable. */
 public final class SitterProfile {
 
@@ -17,11 +21,13 @@ public final class SitterProfile {
     private final double rating;
     private final int reviewCount;
     private final int completedSits;
+    /** ISO dates (yyyy-MM-dd) the sitter marked unavailable. Empty = open. */
+    private final Set<String> unavailableDates;
 
     public SitterProfile(String sitterId, String displayName, String[] services,
                          Double rateAmount, String rateUnit, int radiusMiles,
                          boolean idVerified, double rating, int reviewCount,
-                         int completedSits) {
+                         int completedSits, Set<String> unavailableDates) {
         this.sitterId = sitterId;
         this.displayName = displayName;
         this.services = services.clone();
@@ -32,6 +38,9 @@ public final class SitterProfile {
         this.rating = rating;
         this.reviewCount = reviewCount;
         this.completedSits = completedSits;
+        this.unavailableDates = unavailableDates == null
+                ? Collections.emptySet()
+                : Collections.unmodifiableSet(new HashSet<>(unavailableDates));
     }
 
     public String getSitterId() {
@@ -74,5 +83,15 @@ public final class SitterProfile {
 
     public int getCompletedSits() {
         return completedSits;
+    }
+
+    /** Unmodifiable set of ISO dates (yyyy-MM-dd) the sitter is unavailable. */
+    public Set<String> getUnavailableDates() {
+        return unavailableDates;
+    }
+
+    /** True when the sitter marked the given ISO date unavailable. */
+    public boolean isUnavailableOn(String isoDate) {
+        return unavailableDates.contains(isoDate);
     }
 }

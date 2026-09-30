@@ -8,8 +8,10 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TimeZone;
 
 /**
@@ -291,26 +293,46 @@ public final class JsonParsers {
         return new Wallet(o.optInt("balance", 0), null, 0, entries);
     }
 
+    /** JSONArray of strings -> String[], tolerating a missing array. */
+    private static String[] parseStringArray(JSONArray arr) {
+        if (arr == null) {
+            return new String[0];
+        }
+        String[] out = new String[arr.length()];
+        for (int i = 0; i < arr.length(); i++) {
+            out[i] = arr.optString(i);
+        }
+        return out;
+    }
+
     /**
-     * Parse a sitter profile. {@code rate_credits} (credits/visit) maps 1:1
-     * onto {@code ratePerVisitCents} until fiat pricing lands — the value is
-     * denominated in credits, not cents (docs/api-contract.md). The backend
-     * has no services taxonomy: services is always empty.
+     * Parse a sitter profile. {@code services} comes from the fixed backend
+     * taxonomy (may be empty = "on request"); {@code unavailable_dates} is
+     * the sitter's blocked-out ISO dates.
      */
     public static SitterProfile parseSitterProfile(JSONObject o) throws JSONException {
         double rating = o.isNull("rating_avg") ? 0.0 : o.optDouble("rating_avg", 0.0);
         Double rateAmount = o.isNull("rate_amount") ? null : o.optDouble("rate_amount");
         String rateUnit = o.isNull("rate_unit") ? null : o.optString("rate_unit", null);
+        String[] services = parseStringArray(o.optJSONArray("services"));
+        Set<String> unavailable = new LinkedHashSet<>();
+        JSONArray unav = o.optJSONArray("unavailable_dates");
+        if (unav != null) {
+            for (int i = 0; i < unav.length(); i++) {
+                unavailable.add(unav.optString(i));
+            }
+        }
         return new SitterProfile(o.getString("uid"),
                 o.optString("display_name", "Sitter"),
-                new String[0],
+                services,
                 rateAmount,
                 rateUnit,
                 (int) Math.round(o.optDouble("service_radius_miles", 5)),
                 o.optBoolean("idv_verified", false),
                 rating,
                 o.optInt("rating_count", 0),
-                o.optInt("completed_sits", 0));
+                o.optInt("completed_sits", 0),
+                unavailable);
     }
 
     /** Parse {@code GET /v1/sitters} ({@code {"sitters": [...]}}). */

@@ -18,16 +18,19 @@ public final class SitterProfileIn {
     private final Double rateAmount;
     /** "credits" or "usd" when a rate is set, null otherwise. */
     private final String rateUnit;
+    /** Services offered, from the backend taxonomy (snake_case keys). */
+    private final String[] services;
 
     public SitterProfileIn(String bio, int experienceYears,
                            double serviceRadiusMiles, boolean active,
-                           Double rateAmount, String rateUnit) {
+                           Double rateAmount, String rateUnit, String[] services) {
         this.bio = bio == null ? "" : bio;
         this.experienceYears = experienceYears;
         this.serviceRadiusMiles = serviceRadiusMiles;
         this.active = active;
         this.rateAmount = rateAmount;
         this.rateUnit = rateUnit;
+        this.services = services == null ? new String[0] : services.clone();
     }
 
     public JSONObject toJson() throws JSONException {
@@ -40,6 +43,11 @@ public final class SitterProfileIn {
             o.put("rate_amount", rateAmount);
             o.put("rate_unit", rateUnit);
         }
+        org.json.JSONArray arr = new org.json.JSONArray();
+        for (String s : services) {
+            arr.put(s);
+        }
+        o.put("services", arr);
         return o;
     }
 }

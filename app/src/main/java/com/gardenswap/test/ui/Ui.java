@@ -15,6 +15,10 @@ import android.widget.TextView;
 import androidx.core.content.res.ResourcesCompat;
 
 import com.gardenswap.test.R;
+import com.gardenswap.test.util.SitterServices;
+
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * Tiny programmatic-UI helpers (AND-010). Wave 1 uses no XML layouts; these
@@ -234,6 +238,82 @@ public final class Ui {
         chip.setTextColor(ResourcesCompat.getColor(context.getResources(),
                 selected ? R.color.garden_nav_ink : R.color.garden_ink,
                 context.getTheme()));
+    }
+
+    /**
+     * Wrapped grid of service chips, laid out in rows by estimated width so
+     * chips stay on-screen. {@code keys} are taxonomy keys (or any service
+     * keys); labels come from {@link SitterServices#displayName(String)}.
+     *
+     * <p>When {@code clickable}, tapping a chip toggles its key in
+     * {@code selectedKeys} and flips the selected visual state. Otherwise
+     * the chips are read-only display.
+     */
+    public static LinearLayout serviceChipGrid(Context context, String[] keys,
+                                               final Set<String> selectedKeys,
+                                               boolean clickable) {
+        LinearLayout column = new LinearLayout(context);
+        column.setOrientation(LinearLayout.VERTICAL);
+        float density = context.getResources().getDisplayMetrics().density;
+        int maxWidth = (int) (context.getResources().getDisplayMetrics().widthPixels
+                / density) - 48;
+        LinearLayout row = chipRow(context);
+        column.addView(row);
+        int used = 0;
+        boolean any = false;
+        Set<String> seen = new LinkedHashSet<>();
+        if (keys != null) {
+            for (String raw : keys) {
+                if (raw == null || raw.trim().isEmpty() || !seen.add(raw.trim())) {
+                    continue;
+                }
+                final String key = raw.trim();
+                String label = SitterServices.displayName(key);
+                int estimate = label.length() * 8 + 48;
+                if (used > 0 && used + estimate > maxWidth) {
+                    gap(column, context, 8);
+                    row = chipRow(context);
+                    column.addView(row);
+                    used = 0;
+                }
+                TextView chip = chip(context, label);
+                chip.setSingleLine(true);
+                if (clickable) {
+                    setChipSelected(context, chip, selectedKeys.contains(key));
+                    chip.setOnClickListener(v -> {
+                        boolean now = !selectedKeys.contains(key);
+                        if (now) {
+                            selectedKeys.add(key);
+                        } else {
+                            selectedKeys.remove(key);
+                        }
+                        setChipSelected(context, chip, now);
+                    });
+                } else {
+                    chip.setClickable(false);
+                    chip.setFocusable(false);
+                }
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+                params.setMarginEnd(dp(context, 8));
+                chip.setLayoutParams(params);
+                row.addView(chip);
+                used += estimate;
+                any = true;
+            }
+        }
+        if (!any) {
+            column.removeAllViews();
+            column.addView(body(context, "Services on request"));
+        }
+        return column;
+    }
+
+    private static LinearLayout chipRow(Context context) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        return row;
     }
 
     /** Fixed-height vertical spacer. */
