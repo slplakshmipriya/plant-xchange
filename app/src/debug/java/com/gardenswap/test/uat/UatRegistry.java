@@ -14,6 +14,10 @@ import java.util.List;
  * <p>Pillar 4 — Harvest swap: free listings, harvest log.
  * <p>Cross-cutting: credits/wallet + expiry, want-list + matches, chat
  * (text + photo), profile + avatar, IDV, notification prefs.
+ * <p>Validation: 12 negative journeys (missing fields, whitespace-only input,
+ * inverted date ranges, past expiry, garbage URLs, out-of-range numbers,
+ * overlong text, ghost claims) — each asserts a clean rejection, never a
+ * crash or a half-written record.
  *
  * <p>Two-party flows (giver accepts a claimer's claim, both confirm a swap)
  * need a second account and are marked in their journey notes; the runner
@@ -30,6 +34,7 @@ public final class UatRegistry {
         journeys.addAll(JourneysClaims.all());
         journeys.addAll(JourneysSocial.all());
         journeys.addAll(JourneysMoney.all());
+        journeys.addAll(JourneysValidation.all());
         return Collections.unmodifiableList(journeys);
     }
 

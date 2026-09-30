@@ -33,7 +33,7 @@ business rules (claim guards, credit floor), and data the UI renders.
 What it does NOT verify: pixels, layout, tap targets — that still needs eyes
 on the device (the screenshots you've been sending).
 
-## Journey catalog (24 journeys, by PRD pillar)
+## Journey catalog (36 journeys, by PRD pillar)
 
 ### Pillar 1 — Seedling swap
 | id | journey |
@@ -78,6 +78,27 @@ on the device (the screenshots you've been sending).
 | `avatar-upload` | Avatar upload returns absolute https URL |
 | `idv-status` | IDV status loads |
 | `notif-prefs` | Notification prefs round-trip |
+
+### Validation (negative journeys — "Ruth the fuzzer")
+
+Each asserts a *clean rejection* with the expected code: client-side
+fail-fast where the app pre-validates, a backend 4xx otherwise. None of them
+write data, so the account is untouched.
+
+| id | expects |
+|---|---|
+| `listing-neg-no-photos` | `photo_required` — empty photo list, client fail-fast |
+| `listing-neg-blank-spray` | `spray_disclosure_required` — whitespace-only disclosure (trimmed) |
+| `listing-neg-inverted-window` | `invalid_window` — pickup end before start, backend 400 |
+| `listing-neg-past-expiry` | `invalid_expiry` — expires_at in the past, backend 400 |
+| `listing-neg-bad-photo-url` | `invalid_photo_url` — "not-a-url", backend 400 |
+| `listing-neg-zero-quantity` | `http_422` — quantity 0 (must be > 0) |
+| `listing-neg-credit-too-high` | `http_422` — 9 credits (max 3) |
+| `listing-neg-variety-too-long` | `http_422` — 200-char variety (max 120) |
+| `listing-neg-spray-too-long` | `http_422` — 2500-char disclosure (max 2000) |
+| `want-neg-blank` | `invalid_variety` — spaces-only want, client fail-fast |
+| `chat-neg-blank-text` | `empty_message` — spaces-only message, client fail-fast |
+| `claim-neg-ghost-listing` | `listing_not_found` — bogus id, backend 404 |
 
 ## Known gaps (documented in code)
 
