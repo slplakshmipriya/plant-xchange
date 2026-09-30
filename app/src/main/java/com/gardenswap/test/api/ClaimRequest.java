@@ -9,7 +9,9 @@ package com.gardenswap.test.api;
  */
 public final class ClaimRequest {
 
-    /** Kilos/units claimed; default 1 (whole listing when untracked). */
+    /** Kilos/units claimed. Quantity is required on listings because the claim
+     * flow (stepper, partial claims, remaining_qty) is measured against it;
+     * listings without one predate that requirement and can't be claimed. */
     public final int quantity;
     /** Nullable pickup window start, epoch ms. */
     public final Long pickupStartMs;

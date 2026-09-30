@@ -193,6 +193,14 @@ public final class ClaimBottomSheet {
         claim.setBackgroundResource(R.drawable.btn_sheet_primary);
         claim.setTextColor(activity.getResources().getColor(
                 android.R.color.white, activity.getTheme()));
+        if (available == null) {
+            // Legacy listings created before quantity became required carry
+            // no quantity; the backend rejects claims on them
+            // (quantity_not_tracked), so fail fast instead of letting the
+            // user step through and hit the server error.
+            error.setText("This listing has no quantity set, so it can't be claimed.");
+            claim.setEnabled(false);
+        }
         claim.setOnClickListener(v -> {
             String noteText = notes.getText() == null ? "" : notes.getText().toString().trim();
             if (!ClaimSheetLogic.validQuantity(qty[0], available)) {

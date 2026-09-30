@@ -56,7 +56,12 @@ public final class CreateListingValidator {
         if (isBlank(draft.variety)) {
             errors.add("Enter the variety.");
         }
-        if (!isBlank(draft.quantityText)) {
+        if (isBlank(draft.quantityText)) {
+            // Quantity is required: the whole claim flow (stepper, partial
+            // claims, remaining_qty) is measured against it, and the backend
+            // rejects claims on quantity-less listings (quantity_not_tracked).
+            errors.add("Enter the quantity — claims are measured against it.");
+        } else {
             try {
                 double quantity = Double.parseDouble(draft.quantityText.trim());
                 if (quantity <= 0) {

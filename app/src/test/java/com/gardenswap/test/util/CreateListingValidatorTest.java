@@ -82,9 +82,12 @@ public class CreateListingValidatorTest {
         assertTrue(hasError(draft, "quantity"));
         draft.quantityText = "abc";
         assertTrue(hasError(draft, "quantity"));
-        // Blank quantity is allowed (e.g. "a few seedlings").
+        // Blank quantity is rejected: a quantity-less listing can never be
+        // claimed (backend quantity_not_tracked), so it must not be created.
         draft.quantityText = "";
-        assertTrue(CreateListingValidator.validate(draft, NOW).isEmpty());
+        assertTrue(hasError(draft, "quantity"));
+        draft.quantityText = "   ";
+        assertTrue(hasError(draft, "quantity"));
     }
 
     @Test

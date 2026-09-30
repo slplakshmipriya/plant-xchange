@@ -167,7 +167,7 @@ public class CreateListingActivity extends AppCompatActivity {
         root.addView(varietyInput);
         Ui.gap(root, this, 8);
 
-        root.addView(Ui.eyebrow(this, "Quantity · optional"));
+        root.addView(Ui.eyebrow(this, "Quantity"));
         Ui.gap(root, this, 4);
         quantityInput = Ui.input(this, "e.g. 6",
                 InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
