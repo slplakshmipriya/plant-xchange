@@ -106,7 +106,7 @@ public class SitterCardView extends LinearLayout {
         avatarView.setText(SitterLogic.initial(sitter.getDisplayName()));
         nameView.setText(sitter.getDisplayName() != null ? sitter.getDisplayName() : "");
         badgeView.setState(sitter.isIdVerified() ? BadgeState.ID_VERIFIED : BadgeState.UNVERIFIED);
-        rateView.setText(SitterLogic.rateText(creditsPerDay(sitter)));
+        rateView.setText(SitterLogic.rateLine(sitter.getRateAmount(), sitter.getRateUnit()));
         ratingView.setText(SitterLogic.starsText(sitter.getRating(), sitter.getReviewCount()));
 
         chipsRow.removeAllViews();
@@ -139,12 +139,4 @@ public class SitterCardView extends LinearLayout {
         }
     }
 
-    /**
-     * Mock-phase conversion: the model prices per-visit in cents; the
-     * design shows credits/day (pricing is credits-not-cents per the
-     * contract decision). 100 cents = 1 credit, minimum 1.
-     */
-    private static int creditsPerDay(SitterProfile sitter) {
-        return Math.max(1, sitter.getRatePerVisitCents() / 100);
-    }
 }

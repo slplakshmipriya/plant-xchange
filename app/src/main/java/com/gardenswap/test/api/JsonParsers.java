@@ -299,10 +299,13 @@ public final class JsonParsers {
      */
     public static SitterProfile parseSitterProfile(JSONObject o) throws JSONException {
         double rating = o.isNull("rating_avg") ? 0.0 : o.optDouble("rating_avg", 0.0);
+        Double rateAmount = o.isNull("rate_amount") ? null : o.optDouble("rate_amount");
+        String rateUnit = o.isNull("rate_unit") ? null : o.optString("rate_unit", null);
         return new SitterProfile(o.getString("uid"),
                 o.optString("display_name", "Sitter"),
                 new String[0],
-                o.optInt("rate_credits", 1),
+                rateAmount,
+                rateUnit,
                 (int) Math.round(o.optDouble("service_radius_miles", 5)),
                 o.optBoolean("idv_verified", false),
                 rating,

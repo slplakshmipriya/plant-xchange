@@ -13,14 +13,47 @@ public final class SitterLogic {
     }
 
     /**
-     * Formats a sitter's daily rate: "1 credit/day", "3 credits/day".
-     * Non-positive rates render as "Free".
+     * Formats a sitter's daily rate: "5 credits/day", "$10/day".
+     * A null amount or unit means the sitter hasn't set a rate.
      */
-    public static String rateText(int creditsPerDay) {
-        if (creditsPerDay <= 0) {
-            return "Free";
+    public static String rateLine(Double amount, String unit) {
+        if (amount == null || unit == null) {
+            return "Rate on request";
         }
-        return creditsPerDay + (creditsPerDay == 1 ? " credit/day" : " credits/day");
+        String n = fmtAmount(amount);
+        if ("usd".equals(unit)) {
+            return "$" + n + "/day";
+        }
+        return n + (amount == 1.0 ? " credit/day" : " credits/day");
+    }
+
+    /**
+     * Booking-sheet price preview for a multi-day booking. The 18% platform
+     * fee applies to usd rates (Stripe sitting-intent flow); credit totals
+     * carry no fee claim. Display only — the server computes the charge.
+     */
+    public static String bookingPreview(Double amount, String unit, int days) {
+        if (amount == null || unit == null) {
+            return "This sitter hasn't set a rate — agree on one in chat.";
+        }
+        String dayWord = days == 1 ? "day" : "days";
+        if ("usd".equals(unit)) {
+            double subtotal = days * amount;
+            double fee = subtotal * 0.18;
+            return "$" + fmtAmount(amount) + "/day × " + days + " " + dayWord
+                    + " = $" + fmtAmount(subtotal)
+                    + " + $" + fmtAmount(fee) + " platform fee";
+        }
+        return fmtAmount(amount) + " credits/day × " + days + " " + dayWord
+                + " = " + fmtAmount(days * amount) + " credits";
+    }
+
+    /** Whole numbers render without decimals ("5"); otherwise up to 2 ("7.5"). */
+    private static String fmtAmount(double v) {
+        if (v == Math.rint(v)) {
+            return String.valueOf((long) v);
+        }
+        return String.format(Locale.US, "%.2f", v);
     }
 
     /**

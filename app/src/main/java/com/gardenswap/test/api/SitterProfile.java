@@ -1,12 +1,17 @@
 package com.gardenswap.test.api;
 
-/** A plant sitter's public profile (proposed: API-070). Immutable. */
+/** A plant sitter's public profile (API-070). Immutable. */
 public final class SitterProfile {
 
     private final String sitterId;
     private final String displayName;
     private final String[] services;
-    private final int ratePerVisitCents;
+    /**
+     * Daily rate, or null when the sitter hasn't set one ("rate on
+     * request"). {@code rateUnit} is "credits" or "usd" when set.
+     */
+    private final Double rateAmount;
+    private final String rateUnit;
     private final int radiusMiles;
     private final boolean idVerified;
     private final double rating;
@@ -14,12 +19,14 @@ public final class SitterProfile {
     private final int completedSits;
 
     public SitterProfile(String sitterId, String displayName, String[] services,
-                         int ratePerVisitCents, int radiusMiles, boolean idVerified,
-                         double rating, int reviewCount, int completedSits) {
+                         Double rateAmount, String rateUnit, int radiusMiles,
+                         boolean idVerified, double rating, int reviewCount,
+                         int completedSits) {
         this.sitterId = sitterId;
         this.displayName = displayName;
         this.services = services.clone();
-        this.ratePerVisitCents = ratePerVisitCents;
+        this.rateAmount = rateAmount;
+        this.rateUnit = rateUnit;
         this.radiusMiles = radiusMiles;
         this.idVerified = idVerified;
         this.rating = rating;
@@ -39,8 +46,13 @@ public final class SitterProfile {
         return services.clone();
     }
 
-    public int getRatePerVisitCents() {
-        return ratePerVisitCents;
+    public Double getRateAmount() {
+        return rateAmount;
+    }
+
+    /** "credits", "usd", or null when no rate is set. */
+    public String getRateUnit() {
+        return rateUnit;
     }
 
     public int getRadiusMiles() {

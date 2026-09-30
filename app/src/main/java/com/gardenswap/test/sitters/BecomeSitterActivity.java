@@ -31,6 +31,10 @@ public class BecomeSitterActivity extends AppCompatActivity {
     private EditText bioInput;
     private EditText experienceInput;
     private EditText radiusInput;
+    private EditText rateInput;
+    private TextView creditsChip;
+    private TextView usdChip;
+    private String rateUnit = "credits";
     private Switch activeSwitch;
     private TextView statusText;
     private Button submitButton;
@@ -74,6 +78,35 @@ public class BecomeSitterActivity extends AppCompatActivity {
         form.addView(radiusInput);
         Ui.gap(form, this, 12);
 
+        // Optional daily rate: amount + unit (credits/day or $/day).
+        // Empty amount = "rate on request".
+        form.addView(Ui.label(this, "Daily rate (optional)"));
+        Ui.gap(form, this, 4);
+        rateInput = Ui.input(this, "e.g. 5",
+                InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        form.addView(rateInput);
+        Ui.gap(form, this, 8);
+        LinearLayout unitRow = new LinearLayout(this);
+        unitRow.setOrientation(LinearLayout.HORIZONTAL);
+        creditsChip = Ui.chip(this, "Credits/day");
+        usdChip = Ui.chip(this, "$/day");
+        creditsChip.setOnClickListener(v -> selectRateUnit("credits"));
+        usdChip.setOnClickListener(v -> selectRateUnit("usd"));
+        LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        chipParams.setMarginEnd(Ui.dp(this, 8));
+        creditsChip.setLayoutParams(chipParams);
+        usdChip.setLayoutParams(chipParams);
+        unitRow.addView(creditsChip);
+        unitRow.addView(usdChip);
+        form.addView(unitRow);
+        selectRateUnit("credits");
+        Ui.gap(form, this, 4);
+        form.addView(Ui.caption(this,
+                "Leave the rate empty to show \"Rate on request\"."));
+        Ui.gap(form, this, 12);
+
         activeSwitch = new Switch(this);
         activeSwitch.setText("Available for bookings");
         activeSwitch.setChecked(true);
@@ -92,6 +125,12 @@ public class BecomeSitterActivity extends AppCompatActivity {
         scroll.addView(form);
         setContentView(Ui.stickyHeaderScreen(this, header, scroll));
         Nav.attach(this, NavRouter.Tab.CARE);
+    }
+
+    private void selectRateUnit(String unit) {
+        rateUnit = unit;
+        Ui.setChipSelected(this, creditsChip, "credits".equals(unit));
+        Ui.setChipSelected(this, usdChip, "usd".equals(unit));
     }
 
     private void submit() {
@@ -123,10 +162,35 @@ public class BecomeSitterActivity extends AppCompatActivity {
             return;
         }
 
+        // Optional rate: empty = "rate on request". Credits must be whole;
+        // usd allows cents.
+        Double rateAmount = null;
+        String rateUnitValue = null;
+        String rateRaw = rateInput.getText().toString().trim();
+        if (!rateRaw.isEmpty()) {
+            double parsed;
+            try {
+                parsed = Double.parseDouble(rateRaw);
+            } catch (NumberFormatException e) {
+                statusText.setText("Daily rate must be a number, or leave it empty.");
+                return;
+            }
+            if (parsed < 0) {
+                statusText.setText("Daily rate can't be negative.");
+                return;
+            }
+            if ("credits".equals(rateUnit) && parsed != Math.rint(parsed)) {
+                statusText.setText("Credit rates must be whole credits.");
+                return;
+            }
+            rateAmount = parsed;
+            rateUnitValue = rateUnit;
+        }
+
         submitButton.setEnabled(false);
         statusText.setText("Registering…");
         SitterProfileIn profile = new SitterProfileIn(
-                bio, years, radius, activeSwitch.isChecked());
+                bio, years, radius, activeSwitch.isChecked(), rateAmount, rateUnitValue);
         ApiProvider.get().upsertSitterProfile(profile, new GardenSwapApi.Callback<Void>() {
             @Override
             public void onSuccess(Void result) {

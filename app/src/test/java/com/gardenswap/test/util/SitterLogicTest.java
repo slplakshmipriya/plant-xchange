@@ -8,23 +8,47 @@ import org.junit.Test;
 public class SitterLogicTest {
 
     @Test
-    public void rateTextSingular() {
-        assertEquals("1 credit/day", SitterLogic.rateText(1));
+    public void rateLineCreditsSingular() {
+        assertEquals("1 credit/day", SitterLogic.rateLine(1.0, "credits"));
     }
 
     @Test
-    public void rateTextPlural() {
-        assertEquals("3 credits/day", SitterLogic.rateText(3));
+    public void rateLineCreditsPlural() {
+        assertEquals("3 credits/day", SitterLogic.rateLine(3.0, "credits"));
     }
 
     @Test
-    public void rateTextZeroIsFree() {
-        assertEquals("Free", SitterLogic.rateText(0));
+    public void rateLineUsd() {
+        assertEquals("$10/day", SitterLogic.rateLine(10.0, "usd"));
     }
 
     @Test
-    public void rateTextNegativeIsFree() {
-        assertEquals("Free", SitterLogic.rateText(-2));
+    public void rateLineUsdCents() {
+        assertEquals("$12.50/day", SitterLogic.rateLine(12.5, "usd"));
+    }
+
+    @Test
+    public void rateLineNullIsOnRequest() {
+        assertEquals("Rate on request", SitterLogic.rateLine(null, "credits"));
+        assertEquals("Rate on request", SitterLogic.rateLine(5.0, null));
+    }
+
+    @Test
+    public void bookingPreviewUsd() {
+        assertEquals("$10/day × 7 days = $70 + $12.60 platform fee",
+                SitterLogic.bookingPreview(10.0, "usd", 7));
+    }
+
+    @Test
+    public void bookingPreviewCredits() {
+        assertEquals("5 credits/day × 7 days = 35 credits",
+                SitterLogic.bookingPreview(5.0, "credits", 7));
+    }
+
+    @Test
+    public void bookingPreviewNoRate() {
+        assertEquals("This sitter hasn't set a rate — agree on one in chat.",
+                SitterLogic.bookingPreview(null, null, 7));
     }
 
     @Test

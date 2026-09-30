@@ -32,7 +32,6 @@ import com.gardenswap.test.ui.BadgeState;
 import com.gardenswap.test.ui.SitterCardView;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.ui.VerifiedBadgeView;
-import com.gardenswap.test.util.ReviewGuard;
 import com.gardenswap.test.util.SitterLogic;
 import com.google.firebase.analytics.FirebaseAnalytics;
 
@@ -58,6 +57,9 @@ import java.util.Set;
 public class SitterProfileActivity extends AppCompatActivity {
 
     public static final String EXTRA_SITTER_ID = "sitter_id";
+
+    /** Booking length in days: the sheet picks a start date; end = start + this. */
+    private static final int BOOKING_DAYS = 7;
 
     private TextView statusText;
     private LinearLayout content;
@@ -183,8 +185,8 @@ public class SitterProfileActivity extends AppCompatActivity {
                 SitterLogic.starsText(sitter.getRating(), sitter.getReviewCount())
                         + " · " + sitter.getCompletedSits() + " sits completed"));
         card.addView(Ui.body(this,
-                ReviewGuard.formatPrice(sitter.getRatePerVisitCents())
-                        + " per visit · covers " + sitter.getRadiusMiles() + " mi"));
+                SitterLogic.rateLine(sitter.getRateAmount(), sitter.getRateUnit())
+                        + " · covers " + sitter.getRadiusMiles() + " mi"));
         return card;
     }
 
@@ -285,26 +287,22 @@ public class SitterProfileActivity extends AppCompatActivity {
         content.addView(serviceChipRows());
         Ui.gap(content, this, 8);
 
-        EditText visitsInput = Ui.input(this, "Number of visits", InputType.TYPE_CLASS_NUMBER);
-        content.addView(visitsInput);
-        Ui.gap(content, this, 8);
         EditText careInput = Ui.input(this,
                 "Care instructions (per-plant notes)", InputType.TYPE_CLASS_TEXT
                         | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         content.addView(careInput);
         Ui.gap(content, this, 8);
 
-        // Price math preview, incl. the 18% platform fee (display only).
+        // Price preview for the 7-day booking: days × daily rate, plus the
+        // 18% platform fee on usd rates (display only — the server computes
+        // the charge).
         TextView pricePreview = Ui.label(this, "");
         content.addView(pricePreview);
         Ui.gap(content, this, 8);
         Button previewButton = Ui.secondaryButton(this, "Preview price");
-        previewButton.setOnClickListener(v -> {
-            int visits = parsePositive(visitsInput.getText().toString(), 1);
-            int fee = Math.round(visits * sitter.getRatePerVisitCents() * 0.18f);
-            pricePreview.setText(ReviewGuard.priceLine(
-                    visits, sitter.getRatePerVisitCents(), fee));
-        });
+        previewButton.setOnClickListener(v -> pricePreview.setText(
+                SitterLogic.bookingPreview(sitter.getRateAmount(),
+                        sitter.getRateUnit(), BOOKING_DAYS)));
         content.addView(previewButton);
         Ui.gap(content, this, 12);
 
@@ -452,15 +450,6 @@ public class SitterProfileActivity extends AppCompatActivity {
         Ui.setChipSelected(this, chip, now);
     }
 
-    private int parsePositive(String raw, int fallback) {
-        try {
-            int value = Integer.parseInt(raw.trim());
-            return value > 0 ? value : fallback;
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
     /**
      * IDV gate (AND-146): the booker must be ID-verified before the booking
      * request is sent. Unverified users get a toast and are routed to
@@ -501,7 +490,7 @@ public class SitterProfileActivity extends AppCompatActivity {
     private void submitBooking(String care, Button requestButton) {
         statusText.setText("Requesting booking…");
         long start = bookingStartMs;
-        long end = start + 7 * 24L * 3_600_000L;
+        long end = start + BOOKING_DAYS * 24L * 3_600_000L;
         String[] services = selectedServices.toArray(new String[0]);
         BookingRequest req = new BookingRequest(sitter.getSitterId(), start, end,
                 services, care);

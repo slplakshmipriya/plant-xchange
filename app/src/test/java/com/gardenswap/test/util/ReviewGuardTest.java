@@ -42,21 +42,6 @@ public class ReviewGuardTest {
     }
 
     @Test
-    public void formatPrice() {
-        assertEquals("$15.00", ReviewGuard.formatPrice(1500));
-        assertEquals("$8.10", ReviewGuard.formatPrice(810));
-        assertEquals("$0.99", ReviewGuard.formatPrice(99));
-    }
-
-    @Test
-    public void priceLine() {
-        assertEquals("3 visits × $15.00 = $45.00 + $8.10 fee",
-                ReviewGuard.priceLine(3, 1500, 810));
-        assertEquals("1 visit × $12.00 = $12.00 + $2.16 fee",
-                ReviewGuard.priceLine(1, 1200, 216));
-    }
-
-    @Test
     public void ratingLine() {
         assertEquals("4.8 ★ (23 reviews)", ReviewGuard.ratingLine(4.8, 23));
         assertEquals("5.0 ★ (1 review)", ReviewGuard.ratingLine(5.0, 1));

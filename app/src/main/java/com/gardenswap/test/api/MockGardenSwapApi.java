@@ -217,9 +217,9 @@ public class MockGardenSwapApi implements GardenSwapApi {
     public void getSitters(String zip, Callback<java.util.List<SitterProfile>> callback) {
         java.util.List<SitterProfile> sitters = new java.util.ArrayList<>();
         sitters.add(new SitterProfile("s1", "Maya", new String[]{"watering", "repotting"},
-                1500, 5, true, 4.8, 23, 31));
+                5.0, "credits", 5, true, 4.8, 23, 31));
         sitters.add(new SitterProfile("s2", "Dev", new String[]{"watering"},
-                1200, 3, false, 4.5, 6, 8));
+                10.0, "usd", 3, false, 4.5, 6, 8));
         emit(callback, sitters);
     }
 

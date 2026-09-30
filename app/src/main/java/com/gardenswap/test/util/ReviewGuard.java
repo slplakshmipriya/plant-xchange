@@ -30,23 +30,8 @@ public final class ReviewGuard {
         return text != null && !text.trim().isEmpty() && text.length() <= 2000;
     }
 
-    /** "$15.00" from cents. */
-    public static String formatPrice(int cents) {
-        return "$" + (cents / 100) + "." + String.format("%02d", Math.abs(cents % 100));
-    }
-
     /**
-     * Booking sheet price line: "3 visits × $15.00 = $45.00 + $8.10 fee".
-     * The fee math is display-only — the server computes the charge.
-     */
-    public static String priceLine(int visits, int ratePerVisitCents, int feeCents) {
-        int subtotal = visits * ratePerVisitCents;
-        return visits + " visit" + (visits == 1 ? "" : "s") + " × "
-                + formatPrice(ratePerVisitCents) + " = " + formatPrice(subtotal)
-                + " + " + formatPrice(feeCents) + " fee";
-    }
-
-    /** "4.8 ★ (23 reviews)" — Bayesian-smoothed score, never bare 5.0 from 1 review. */
+     * "4.8 ★ (23 reviews)" — Bayesian-smoothed score, never bare 5.0 from 1 review. */
     public static String ratingLine(double rating, int reviewCount) {
         return String.format("%.1f ★ (%d review%s)", rating, reviewCount,
                 reviewCount == 1 ? "" : "s");
