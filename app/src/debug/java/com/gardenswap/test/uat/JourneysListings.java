@@ -51,6 +51,7 @@ final class JourneysListings {
                 .creditCost(2)
                 .pickupWindow(now, now + 4L * 24 * 3600 * 1000)
                 .pickupWindowDays(4)
+                .sprayDisclosure("UAT: no sprays used")
                 .expiresAtMs(now + 7L * 24 * 3600 * 1000);
     }
 
@@ -143,6 +144,7 @@ final class JourneysListings {
                                             .free(true)
                                             .pickupWindow(now, now + 2L * 24 * 3600 * 1000)
                                             .pickupWindowDays(2)
+                                            .sprayDisclosure("UAT: no sprays used")
                                             .expiresAtMs(now + 2L * 24 * 3600 * 1000)
                                             .build(), cb));
                     ctx.assertNotNull("free listing id", listing.getId());
