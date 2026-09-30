@@ -140,8 +140,14 @@ public class HomeZipActivity extends AppCompatActivity {
                             @Override
                             public void onError(ApiException e) {
                                 setBusy(false);
-                                statusText.setText("Couldn't upload your photo ("
-                                        + e.getCode() + "). Try again or skip the photo.");
+                                // database_waking: cold start after idle (Neon
+                                // resume) — the backend already retried the
+                                // checkout; one more tap will go through.
+                                String msg = "database_waking".equals(e.getCode())
+                                        ? "Our servers are waking up — try again in a moment, or skip the photo for now."
+                                        : "Couldn't upload your photo ("
+                                                + e.getCode() + "). Try again or skip the photo.";
+                                statusText.setText(msg);
                             }
                         }));
             } catch (Exception e) {
