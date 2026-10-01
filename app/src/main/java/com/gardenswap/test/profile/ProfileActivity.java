@@ -33,6 +33,8 @@ import com.gardenswap.test.util.IdvStatusMapper;
 import com.gardenswap.test.util.ImageLoader;
 import com.gardenswap.test.util.NavRouter;
 import com.gardenswap.test.util.SwapLogic;
+import com.google.android.gms.auth.api.signin.GoogleSignIn;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
 import com.google.firebase.auth.FirebaseAuth;
 
 /**
@@ -196,7 +198,7 @@ public class ProfileActivity extends AppCompatActivity {
     private void confirmLogout() {
         new AlertDialog.Builder(this)
                 .setTitle("Log out?")
-                .setMessage("You'll need to sign in again with your phone number.")
+                .setMessage("You'll need to sign in again next time.")
                 .setPositiveButton("Log out", (dialog, which) -> doLogout())
                 .setNegativeButton("Cancel", null)
                 .show();
@@ -204,6 +206,18 @@ public class ProfileActivity extends AppCompatActivity {
 
     private void doLogout() {
         FirebaseAuth.getInstance().signOut();
+        // Firebase sign-out alone leaves the Google account cached in Play
+        // Services, so the next sign-in would silently reuse it. Clear it too
+        // so the account picker shows again.
+        GoogleSignInOptions gso = new GoogleSignInOptions.Builder(
+                GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+                .build();
+        GoogleSignIn.getClient(this, gso).signOut()
+                .addOnCompleteListener(task -> goToSignIn());
+    }
+
+    private void goToSignIn() {
         // MainActivity routes to PhoneAuthActivity when no user is signed in;
         // clearing the task keeps the back button from returning here.
         Intent intent = new Intent(this, MainActivity.class);
