@@ -1,5 +1,6 @@
 package com.gardenswap.test.profile;
 
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -15,6 +16,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.res.ResourcesCompat;
 
+import com.gardenswap.test.MainActivity;
 import com.gardenswap.test.R;
 import com.gardenswap.test.api.ApiException;
 import com.gardenswap.test.api.ApiProvider;
@@ -31,6 +33,7 @@ import com.gardenswap.test.util.IdvStatusMapper;
 import com.gardenswap.test.util.ImageLoader;
 import com.gardenswap.test.util.NavRouter;
 import com.gardenswap.test.util.SwapLogic;
+import com.google.firebase.auth.FirebaseAuth;
 
 /**
  * Profile screen (UID-023).
@@ -86,6 +89,11 @@ public class ProfileActivity extends AppCompatActivity {
         prefsButton.setOnClickListener(v -> startActivity(
                 new Intent(this, NotificationPrefsActivity.class)));
         root.addView(prefsButton);
+        Ui.gap(root, this, 8);
+
+        TextView logoutButton = Ui.secondaryButton(this, "Log out");
+        logoutButton.setOnClickListener(v -> confirmLogout());
+        root.addView(logoutButton);
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
@@ -182,6 +190,27 @@ public class ProfileActivity extends AppCompatActivity {
         cell.addView(caption);
         row.addView(cell);
         return value;
+    }
+
+    /** Confirm, then sign out of Firebase and reset to the onboarding router. */
+    private void confirmLogout() {
+        new AlertDialog.Builder(this)
+                .setTitle("Log out?")
+                .setMessage("You'll need to sign in again with your phone number.")
+                .setPositiveButton("Log out", (dialog, which) -> doLogout())
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void doLogout() {
+        FirebaseAuth.getInstance().signOut();
+        // MainActivity routes to PhoneAuthActivity when no user is signed in;
+        // clearing the task keeps the back button from returning here.
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(intent);
+        finish();
     }
 
     private void load() {
