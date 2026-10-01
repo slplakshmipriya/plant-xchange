@@ -481,8 +481,28 @@ public final class JsonParsers {
         if (name == null || name.isEmpty()) {
             name = mine ? "You" : "Neighbor";
         }
+        // The backend sends kind: "text" | "photo" | "system". Photo messages
+        // carry the image URL in photo_url (body mirrors it); render from
+        // photo_url so a missing/rotated body field can't break the image.
+        String kindStr = o.optString("kind", "text");
+        ChatMessage.Kind kind;
+        if ("photo".equalsIgnoreCase(kindStr)) {
+            kind = ChatMessage.Kind.PHOTO;
+        } else if ("system".equalsIgnoreCase(kindStr)) {
+            kind = ChatMessage.Kind.SYSTEM;
+        } else {
+            kind = ChatMessage.Kind.TEXT;
+        }
+        String body = o.optString("body", "");
+        String text = body;
+        if (kind == ChatMessage.Kind.PHOTO) {
+            String photoUrl = o.optString("photo_url", null);
+            if (photoUrl != null && !photoUrl.isEmpty()) {
+                text = photoUrl;
+            }
+        }
         return new ChatMessage(o.getString("id"), o.optString("thread_id", ""),
-                name, mine, ChatMessage.Kind.TEXT, o.optString("body", ""),
+                name, mine, kind, text,
                 parseIsoMs(o.optString("created_at", null)));
     }
 
