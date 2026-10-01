@@ -265,7 +265,12 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                             JSONObject finBody = new JSONObject();
                             finBody.put("key", key);
                             authed("POST", "/v1/uploads/finalize", finBody,
-                                    (s2, finJson) -> callback.onSuccess(key),
+                                    // Use the key from the finalize response, not the
+                                    // temp sign key: on the GCS backend a deduped
+                                    // upload deletes the temp object and the
+                                    // response points at the surviving object.
+                                    (s2, finJson) -> callback.onSuccess(
+                                            finJson.optString("key", key)),
                                     callback);
                         } catch (Exception e) {
                             fail(callback, new ApiException("encode_error",
