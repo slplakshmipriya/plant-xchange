@@ -16,9 +16,16 @@ public final class ChatMessage {
     private final Kind kind;
     private final String text;
     private final long sentAtMs;
+    private final boolean deleted;
 
     public ChatMessage(String messageId, String threadId, String senderName,
                        boolean mine, Kind kind, String text, long sentAtMs) {
+        this(messageId, threadId, senderName, mine, kind, text, sentAtMs, false);
+    }
+
+    public ChatMessage(String messageId, String threadId, String senderName,
+                       boolean mine, Kind kind, String text, long sentAtMs,
+                       boolean deleted) {
         this.messageId = messageId;
         this.threadId = threadId;
         this.senderName = senderName;
@@ -26,6 +33,7 @@ public final class ChatMessage {
         this.kind = kind;
         this.text = text;
         this.sentAtMs = sentAtMs;
+        this.deleted = deleted;
     }
 
     public String getMessageId() {
@@ -55,5 +63,16 @@ public final class ChatMessage {
 
     public long getSentAtMs() {
         return sentAtMs;
+    }
+
+    /** True once the sender deletes the message (tombstone). */
+    public boolean isDeleted() {
+        return deleted;
+    }
+
+    /** Copy of this message marked deleted, for tombstone rendering. */
+    public ChatMessage asDeleted() {
+        return new ChatMessage(messageId, threadId, senderName, mine, kind,
+                "", sentAtMs, true);
     }
 }

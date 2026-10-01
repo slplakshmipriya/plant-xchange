@@ -1065,6 +1065,23 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void deleteMessage(String threadId, String messageId,
+            Callback<ChatMessage> callback) {
+        if (threadId == null || threadId.isEmpty()
+                || messageId == null || messageId.isEmpty()) {
+            fail(callback, new ApiException("invalid_message", "Nothing to delete."));
+            return;
+        }
+        final String uid = myUid();
+        authed("DELETE", "/v1/threads/" + enc(threadId) + "/messages/" + enc(messageId),
+                null,
+                (status, json) -> callback.onSuccess(
+                        JsonParsers.parseChatMessage(
+                                JsonParsers.unwrap(json, "message"), uid)),
+                callback);
+    }
+
+    @Override
     public void getCreditExpiry(Callback<CreditExpiry> callback) {
         authed("GET", "/v1/users/me/credit-expiry", null,
                 (status, json) -> callback.onSuccess(

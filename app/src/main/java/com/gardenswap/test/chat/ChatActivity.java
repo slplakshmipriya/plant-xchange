@@ -239,13 +239,52 @@ public class ChatActivity extends AppCompatActivity {
             first = false;
             boolean system = group.get(0).getKind() == ChatMessage.Kind.SYSTEM;
             for (ChatMessage message : group) {
-                messages.addView(system
-                        ? ChatViews.systemMessage(this, message.getText())
-                        : ChatViews.bubbleRow(this, message));
+                if (system) {
+                    messages.addView(ChatViews.systemMessage(this, message.getText()));
+                } else {
+                    View row = ChatViews.bubbleRow(this, message);
+                    // Long-press your own messages to delete them.
+                    if (message.isMine() && !message.isDeleted()) {
+                        row.setOnLongClickListener(v -> {
+                            confirmDelete(message);
+                            return true;
+                        });
+                    }
+                    messages.addView(row);
+                }
                 Ui.gap(messages, this, 4);
             }
         }
         scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+    }
+
+    /** Long-press handler for your own messages: confirm, then delete. */
+    private void confirmDelete(ChatMessage message) {
+        new AlertDialog.Builder(this)
+                .setTitle("Delete message?")
+                .setMessage("This removes the message for everyone in this chat.")
+                .setPositiveButton("Delete", (d, w) -> deleteMessage(message))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void deleteMessage(ChatMessage message) {
+        ApiProvider.get().deleteMessage(threadId, message.getMessageId(),
+                new GardenSwapApi.Callback<ChatMessage>() {
+                    @Override
+                    public void onSuccess(ChatMessage tombstone) {
+                        load(); // re-render the thread with the tombstone
+                        FirebaseAnalytics.getInstance(ChatActivity.this)
+                                .logEvent("chat_message_deleted", null);
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        Toast.makeText(ChatActivity.this,
+                                "Couldn't delete (" + e.getCode() + ").",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
     }
 
     private void onSend() {

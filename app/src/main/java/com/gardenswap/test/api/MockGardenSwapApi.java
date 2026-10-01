@@ -332,6 +332,25 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 "You", true, ChatMessage.Kind.TEXT, text, System.currentTimeMillis()));
     }
 
+    @Override
+    public void deleteMessage(String threadId, String messageId,
+            Callback<ChatMessage> callback) {
+        // Mock: only the "You" message is deletable, mirroring the
+        // sender-only rule. Returns the tombstone.
+        java.util.List<ChatMessage> seed = new java.util.ArrayList<>();
+        seed.add(new ChatMessage("m2", threadId, "You", true,
+                ChatMessage.Kind.TEXT, "See you Saturday!",
+                System.currentTimeMillis() - 3_600_000L));
+        for (ChatMessage m : seed) {
+            if (m.getMessageId().equals(messageId) && m.isMine()) {
+                emit(callback, m.asDeleted());
+                return;
+            }
+        }
+        emitError(callback, new ApiException("not_your_message",
+                "Only the sender can delete a message."));
+    }
+
     // ------------------------------------------------------------ Wave 2 (proposed)
     @Override
     public void createListing(ListingInput input, Callback<Listing> callback) {

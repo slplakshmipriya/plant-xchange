@@ -274,6 +274,13 @@ public interface GardenSwapApi {
     void sendAttachment(String threadId, String uploadKey, Callback<ChatMessage> callback);
 
     /**
+     * Delete your own message: {@code DELETE /v1/threads/{id}/messages/{mid}}.
+     * Sender-only (403 otherwise). Returns the tombstone {@link ChatMessage}
+     * ({@link ChatMessage#isDeleted()} true, content cleared).
+     */
+    void deleteMessage(String threadId, String messageId, Callback<ChatMessage> callback);
+
+    /**
      * Seasonal credit expiry state (planned:
      * {@code GET /v1/users/me/credit-expiry} → {@code {balance, expiring:
      * [{credits, expires_at_ms}], season_end_ms}}).

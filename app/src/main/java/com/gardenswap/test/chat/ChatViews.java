@@ -117,7 +117,17 @@ final class ChatViews {
                         : R.color.garden_ink,
                 context.getTheme());
         boolean isPhoto = message.getKind() == ChatMessage.Kind.PHOTO;
-        if (isPhoto) {
+        if (message.isDeleted()) {
+            // Deleted tombstone: no content, muted caption so the other side
+            // sees the message was removed rather than it vanishing.
+            TextView tombstone = Ui.caption(context,
+                    message.isMine() ? "You deleted this message"
+                            : "This message was deleted");
+            tombstone.setTypeface(tombstone.getTypeface(), Typeface.ITALIC);
+            tombstone.setTextColor(onBubble);
+            tombstone.setAlpha(0.75f);
+            bubble.addView(tombstone);
+        } else if (isPhoto) {
             // Photo attachment: render the image; fall back to text on failure.
             ImageView photoView = new ImageView(context);
             int photoSize = Ui.dp(context, 200);

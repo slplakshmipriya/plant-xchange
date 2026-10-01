@@ -501,9 +501,10 @@ public final class JsonParsers {
                 text = photoUrl;
             }
         }
+        boolean deleted = o.optBoolean("deleted", false);
         return new ChatMessage(o.getString("id"), o.optString("thread_id", ""),
-                name, mine, kind, text,
-                parseIsoMs(o.optString("created_at", null)));
+                name, mine, kind, deleted ? "" : text,
+                parseIsoMs(o.optString("created_at", null)), deleted);
     }
 
     /** Parse {@code GET /v1/threads/{id}/messages}. */
