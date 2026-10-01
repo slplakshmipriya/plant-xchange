@@ -909,6 +909,23 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void openThread(String listingId, Callback<String> callback) {
+        // POST /v1/threads {listing_id} — idempotent per listing: returns the
+        // existing thread or creates one. Only the thread id is needed here;
+        // the caller builds the ChatActivity extras from the listing it
+        // already holds.
+        try {
+            JSONObject body = new JSONObject();
+            body.put("listing_id", listingId);
+            authed("POST", "/v1/threads", body,
+                    (status, json) -> callback.onSuccess(json.getString("id")),
+                    callback);
+        } catch (JSONException e) {
+            callback.onError(new ApiException("bad_request", "Couldn't open chat.", e));
+        }
+    }
+
+    @Override
     public void getMessages(String threadId,
             Callback<java.util.List<ChatMessage>> callback) {
         final String uid = myUid();

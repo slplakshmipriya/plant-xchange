@@ -25,6 +25,7 @@ import com.gardenswap.test.api.ApiProvider;
 import com.gardenswap.test.api.GardenSwapApi;
 import com.gardenswap.test.api.Listing;
 import com.gardenswap.test.api.ListingStatus;
+import com.gardenswap.test.chat.ChatActivity;
 import com.gardenswap.test.ui.ClaimBottomSheet;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.ui.VerifiedBadgeView;
@@ -195,6 +196,21 @@ public class ListingDetailActivity extends AppCompatActivity {
             declineButton.setOnClickListener(v -> confirmDeclineClaim());
             claimDecisionRow.addView(declineButton);
             body.addView(claimDecisionRow);
+            Ui.gap(body, this, 8);
+        }
+        // Chat: once a listing is claimed, the claimer and the giver can
+        // message each other about pickup. The thread endpoint is idempotent
+        // per listing, so this just opens the existing thread on repeat taps.
+        if (listing.getStatus() == ListingStatus.CLAIMED
+                && listing.getClaimerUid() != null
+                && viewerUid != null
+                && (viewerUid.equals(listing.getClaimerUid())
+                    || viewerUid.equals(listing.getOwnerUid()))) {
+            Button messageButton = Ui.primaryButton(this,
+                    viewerUid.equals(listing.getOwnerUid())
+                            ? "Message claimer" : "Message giver");
+            messageButton.setOnClickListener(v -> openChat());
+            body.addView(messageButton);
             Ui.gap(body, this, 8);
         }
         if (isOwnHarvestListing()) {
@@ -383,7 +399,44 @@ public class ListingDetailActivity extends AppCompatActivity {
         ClaimBottomSheet.show(this, listing.getId(), result -> {
             listing = result;
             render();
+            // The claim landed: open the chat thread so the claimer can
+            // arrange pickup with the giver right away.
+            openChat();
         });
+    }
+
+    /**
+     * Opens (or creates) the chat thread about this listing, then launches
+     * ChatActivity. The thread endpoint is idempotent per listing.
+     */
+    private void openChat() {
+        ApiProvider.get().openThread(listing.getId(),
+                new GardenSwapApi.Callback<String>() {
+                    @Override
+                    public void onSuccess(String threadId) {
+                        String otherUid = viewerUid != null
+                                && viewerUid.equals(listing.getOwnerUid())
+                                ? listing.getClaimerUid() : listing.getOwnerUid();
+                        Intent intent = new Intent(ListingDetailActivity.this,
+                                ChatActivity.class);
+                        intent.putExtra(ChatActivity.EXTRA_THREAD_ID, threadId);
+                        intent.putExtra(ChatActivity.EXTRA_OTHER_NAME, "Neighbor");
+                        intent.putExtra(ChatActivity.EXTRA_PARTICIPANT_ID, otherUid);
+                        intent.putExtra(ChatActivity.EXTRA_CONTEXT, contextLabel());
+                        startActivity(intent);
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        Toast.makeText(ListingDetailActivity.this,
+                                "Couldn't open chat.", Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
+    private String contextLabel() {
+        String variety = listing.getVariety() == null ? "Listing" : listing.getVariety();
+        return variety + " · " + listing.getStatus();
     }
 
     private void confirmCancel() {

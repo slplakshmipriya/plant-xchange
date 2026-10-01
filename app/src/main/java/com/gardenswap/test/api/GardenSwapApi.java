@@ -134,6 +134,13 @@ public interface GardenSwapApi {
     /** Chat thread list (proposed: API-080, GET /v1/threads). */
     void getThreads(Callback<List<ChatThread>> callback);
 
+    /**
+     * Open (or fetch) the chat thread about a listing (API-080,
+     * POST /v1/threads). Idempotent per listing; the callback receives
+     * the thread id.
+     */
+    void openThread(String listingId, Callback<String> callback);
+
     /** Messages in a thread (proposed: API-080, GET /v1/threads/{id}/messages). */
     void getMessages(String threadId, Callback<List<ChatMessage>> callback);
 
