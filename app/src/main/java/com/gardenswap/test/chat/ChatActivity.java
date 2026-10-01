@@ -54,6 +54,11 @@ public class ChatActivity extends AppCompatActivity {
 
     public static final String EXTRA_THREAD_ID = "thread_id";
     public static final String EXTRA_OTHER_NAME = "other_name";
+    /**
+     * Optional: absolute URL of the other participant's avatar. Shown in
+     * the header; falls back to the initials placeholder when absent.
+     */
+    public static final String EXTRA_OTHER_AVATAR = "other_avatar_url";
     public static final String EXTRA_CONTEXT = "context";
     /**
      * Optional: the other participant's user id. When present, reports target
@@ -101,6 +106,9 @@ public class ChatActivity extends AppCompatActivity {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
+        String otherAvatarUrl = getIntent().getStringExtra(EXTRA_OTHER_AVATAR);
+        header.addView(ChatViews.otherAvatar(this, otherName, otherAvatarUrl));
+        header.addView(ChatViews.hGap(this, 12));
         TextView title = Ui.headline(this, otherName == null ? "Chat" : otherName);
         title.setLayoutParams(new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));

@@ -56,6 +56,26 @@ final class ChatViews {
         return view;
     }
 
+    /** Circular avatar loaded from a URL; leaf glyph while loading / on failure. */
+    static ImageView photoAvatar(Context context, String url) {
+        ImageView view = new ImageView(context);
+        int size = Ui.dp(context, 48);
+        view.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+        ImageLoader.loadCircularInto(view, url);
+        return view;
+    }
+
+    /**
+     * Other party's avatar: their photo when the backend supplied a URL,
+     * the initials placeholder otherwise.
+     */
+    static View otherAvatar(Context context, String name, String avatarUrl) {
+        if (avatarUrl != null && !avatarUrl.trim().isEmpty()) {
+            return photoAvatar(context, avatarUrl);
+        }
+        return avatar(context, name);
+    }
+
     private static String initialsOf(String name) {
         if (name == null || name.trim().isEmpty()) {
             return "?";

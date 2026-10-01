@@ -457,7 +457,10 @@ public final class JsonParsers {
                 o.optString("last_message_preview", ""),
                 parseIsoMs(o.optString("last_message_at", null)),
                 0) // no read receipts on the wire; unread is always 0
-                .withParticipantUserId(o.optString("participant_user_id", null));
+                .withParticipantUserId(o.isNull("participant_user_id")
+                        ? null : o.optString("participant_user_id", null))
+                .withOtherAvatarUrl(o.isNull("other_avatar_url")
+                        ? null : o.optString("other_avatar_url", null));
     }
 
     /** Parse {@code GET /v1/threads} ({@code {"threads": [...]}}). */

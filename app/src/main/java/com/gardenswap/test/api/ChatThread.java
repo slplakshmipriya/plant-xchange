@@ -12,17 +12,27 @@ public final class ChatThread {
     private final int unreadCount;
     /** Uid of the other participant; null when the wire doesn't identify them. */
     private final String participantUserId;
+    /** Absolute URL of the other participant's avatar; null when unset. */
+    private final String otherAvatarUrl;
 
     public ChatThread(String threadId, String listingSummary, String listingStatus,
                       String otherPartyName, String lastMessagePreview,
                       long lastMessageAtMs, int unreadCount) {
         this(threadId, listingSummary, listingStatus, otherPartyName,
-                lastMessagePreview, lastMessageAtMs, unreadCount, null);
+                lastMessagePreview, lastMessageAtMs, unreadCount, null, null);
     }
 
     public ChatThread(String threadId, String listingSummary, String listingStatus,
                       String otherPartyName, String lastMessagePreview,
                       long lastMessageAtMs, int unreadCount, String participantUserId) {
+        this(threadId, listingSummary, listingStatus, otherPartyName,
+                lastMessagePreview, lastMessageAtMs, unreadCount, participantUserId, null);
+    }
+
+    public ChatThread(String threadId, String listingSummary, String listingStatus,
+                      String otherPartyName, String lastMessagePreview,
+                      long lastMessageAtMs, int unreadCount, String participantUserId,
+                      String otherAvatarUrl) {
         this.threadId = threadId;
         this.listingSummary = listingSummary;
         this.listingStatus = listingStatus;
@@ -31,6 +41,7 @@ public final class ChatThread {
         this.lastMessageAtMs = lastMessageAtMs;
         this.unreadCount = unreadCount;
         this.participantUserId = participantUserId;
+        this.otherAvatarUrl = otherAvatarUrl;
     }
 
     public String getThreadId() {
@@ -71,6 +82,18 @@ public final class ChatThread {
     public ChatThread withParticipantUserId(String participantUserId) {
         return new ChatThread(threadId, listingSummary, listingStatus,
                 otherPartyName, lastMessagePreview, lastMessageAtMs, unreadCount,
-                participantUserId);
+                participantUserId, otherAvatarUrl);
+    }
+
+    /** Absolute URL of the other participant's avatar; null when unset. */
+    public String getOtherAvatarUrl() {
+        return otherAvatarUrl;
+    }
+
+    /** Immutable copy with the other participant's avatar URL set. */
+    public ChatThread withOtherAvatarUrl(String otherAvatarUrl) {
+        return new ChatThread(threadId, listingSummary, listingStatus,
+                otherPartyName, lastMessagePreview, lastMessageAtMs, unreadCount,
+                participantUserId, otherAvatarUrl);
     }
 }

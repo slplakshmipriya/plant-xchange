@@ -309,8 +309,9 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
-    public void openThread(String listingId, Callback<String> callback) {
-        emit(callback, "mock-thread-" + listingId);
+    public void openThread(String listingId, Callback<ChatThread> callback) {
+        emit(callback, new ChatThread("mock-thread-" + listingId,
+                "Mock listing", "live", "Priya", "", System.currentTimeMillis(), 0));
     }
 
     @Override

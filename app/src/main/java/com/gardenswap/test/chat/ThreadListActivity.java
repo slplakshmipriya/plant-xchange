@@ -112,7 +112,8 @@ public class ThreadListActivity extends AppCompatActivity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(ChatViews.avatar(this, thread.getOtherPartyName()));
+        row.addView(ChatViews.otherAvatar(this, thread.getOtherPartyName(),
+                thread.getOtherAvatarUrl()));
         row.addView(ChatViews.hGap(this, 12));
 
         LinearLayout textCol = new LinearLayout(this);
@@ -156,6 +157,7 @@ public class ThreadListActivity extends AppCompatActivity {
             Intent intent = new Intent(this, ChatActivity.class);
             intent.putExtra(ChatActivity.EXTRA_THREAD_ID, thread.getThreadId());
             intent.putExtra(ChatActivity.EXTRA_OTHER_NAME, thread.getOtherPartyName());
+            intent.putExtra(ChatActivity.EXTRA_OTHER_AVATAR, thread.getOtherAvatarUrl());
             intent.putExtra(ChatActivity.EXTRA_PARTICIPANT_ID, thread.getParticipantUserId());
             intent.putExtra(ChatActivity.EXTRA_CONTEXT,
                     thread.getListingSummary() + " · " + thread.getListingStatus());

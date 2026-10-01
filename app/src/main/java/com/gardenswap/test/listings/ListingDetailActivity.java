@@ -22,6 +22,7 @@ import androidx.core.content.res.ResourcesCompat;
 import com.gardenswap.test.R;
 import com.gardenswap.test.api.ApiException;
 import com.gardenswap.test.api.ApiProvider;
+import com.gardenswap.test.api.ChatThread;
 import com.gardenswap.test.api.GardenSwapApi;
 import com.gardenswap.test.api.Listing;
 import com.gardenswap.test.api.ListingStatus;
@@ -411,17 +412,19 @@ public class ListingDetailActivity extends AppCompatActivity {
      */
     private void openChat() {
         ApiProvider.get().openThread(listing.getId(),
-                new GardenSwapApi.Callback<String>() {
+                new GardenSwapApi.Callback<ChatThread>() {
                     @Override
-                    public void onSuccess(String threadId) {
-                        String otherUid = viewerUid != null
-                                && viewerUid.equals(listing.getOwnerUid())
-                                ? listing.getClaimerUid() : listing.getOwnerUid();
+                    public void onSuccess(ChatThread thread) {
                         Intent intent = new Intent(ListingDetailActivity.this,
                                 ChatActivity.class);
-                        intent.putExtra(ChatActivity.EXTRA_THREAD_ID, threadId);
-                        intent.putExtra(ChatActivity.EXTRA_OTHER_NAME, "Neighbor");
-                        intent.putExtra(ChatActivity.EXTRA_PARTICIPANT_ID, otherUid);
+                        intent.putExtra(ChatActivity.EXTRA_THREAD_ID,
+                                thread.getThreadId());
+                        intent.putExtra(ChatActivity.EXTRA_OTHER_NAME,
+                                thread.getOtherPartyName());
+                        intent.putExtra(ChatActivity.EXTRA_OTHER_AVATAR,
+                                thread.getOtherAvatarUrl());
+                        intent.putExtra(ChatActivity.EXTRA_PARTICIPANT_ID,
+                                thread.getParticipantUserId());
                         intent.putExtra(ChatActivity.EXTRA_CONTEXT, contextLabel());
                         startActivity(intent);
                     }
