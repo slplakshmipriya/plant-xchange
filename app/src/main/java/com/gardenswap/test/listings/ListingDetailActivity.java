@@ -400,6 +400,7 @@ public class ListingDetailActivity extends AppCompatActivity {
         ClaimBottomSheet.show(this, listing.getId(), result -> {
             listing = result;
             render();
+            markChanged();
             // The claim landed: open the chat thread so the claimer can
             // arrange pickup with the giver right away.
             openChat();
@@ -452,6 +453,7 @@ public class ListingDetailActivity extends AppCompatActivity {
                                     @Override
                                     public void onSuccess(Listing result) {
                                         listing = result;
+                                        markChanged();
                                         Toast.makeText(ListingDetailActivity.this,
                                                 "Listing cancelled", Toast.LENGTH_SHORT).show();
                                         render();
@@ -516,6 +518,7 @@ public class ListingDetailActivity extends AppCompatActivity {
                     @Override
                     public void onSuccess(Listing result) {
                         listing = result;
+                        markChanged();
                         Toast.makeText(ListingDetailActivity.this,
                                 "Claim accepted", Toast.LENGTH_SHORT).show();
                         render();
@@ -548,6 +551,7 @@ public class ListingDetailActivity extends AppCompatActivity {
                                     @Override
                                     public void onSuccess(Listing result) {
                                         listing = result;
+                                        markChanged();
                                         Toast.makeText(ListingDetailActivity.this,
                                                 "Claim declined", Toast.LENGTH_SHORT).show();
                                         render();
@@ -575,8 +579,26 @@ public class ListingDetailActivity extends AppCompatActivity {
 
     /** Convenience launcher. */
     public static void open(android.content.Context context, String listingId) {
+        context.startActivity(intentFor(context, listingId));
+    }
+
+    /**
+     * Intent for opening the detail; callers that want a feed refresh when
+     * the listing is claimed/cancelled launch this with an
+     * ActivityResultLauncher and watch for RESULT_OK (see markChanged).
+     */
+    public static Intent intentFor(android.content.Context context, String listingId) {
         Intent intent = new Intent(context, ListingDetailActivity.class);
         intent.putExtra(EXTRA_LISTING_ID, listingId);
-        context.startActivity(intent);
+        return intent;
+    }
+
+    /**
+     * Flags this detail session as having changed the listing (claimed,
+     * cancelled, claim accepted/declined) so the launching screen can
+     * refresh its feed when we return.
+     */
+    private void markChanged() {
+        setResult(RESULT_OK);
     }
 }

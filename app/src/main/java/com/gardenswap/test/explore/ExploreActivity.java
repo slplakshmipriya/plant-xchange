@@ -1,16 +1,20 @@
 package com.gardenswap.test.explore;
 
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.res.ResourcesCompat;
 
@@ -55,13 +59,48 @@ public class ExploreActivity extends AppCompatActivity {
     private TextView walletLine;
     private TextView wantLine;
 
+    /**
+     * Create/detail launcher: refreshes the feed when the user published,
+     * claimed, or cancelled a listing (those activities set RESULT_OK).
+     */
+    private final ActivityResultLauncher<Intent> refreshLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    result -> {
+                        if (result.getResultCode() == RESULT_OK) {
+                            refresh();
+                        }
+                    });
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         // Sticky title bar: the leaf + wordmark row never scrolls away.
+        // A tiny reload icon sits at the top right for manual refresh.
         LinearLayout header = Ui.column(this, 20);
-        header.addView(Ui.appTitleRow(this));
+        LinearLayout brandRow = new LinearLayout(this);
+        brandRow.setOrientation(LinearLayout.HORIZONTAL);
+        brandRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout brand = Ui.appTitleRow(this);
+        brand.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        brandRow.addView(brand);
+        ImageButton refreshButton = new ImageButton(this);
+        refreshButton.setImageResource(android.R.drawable.ic_popup_sync);
+        refreshButton.setImageTintList(ColorStateList.valueOf(
+                ResourcesCompat.getColor(getResources(),
+                        R.color.garden_leaf, getTheme())));
+        refreshButton.setBackground(null);
+        refreshButton.setContentDescription("Refresh listings");
+        int iconSize = Ui.dp(this, 36);
+        refreshButton.setLayoutParams(
+                new LinearLayout.LayoutParams(iconSize, iconSize));
+        int iconPad = Ui.dp(this, 6);
+        refreshButton.setPadding(iconPad, iconPad, iconPad, iconPad);
+        refreshButton.setOnClickListener(v -> refresh());
+        brandRow.addView(refreshButton);
+        header.addView(brandRow);
         int pad = Ui.dp(this, 20);
         header.setPadding(pad, pad, pad, 0);
 
@@ -96,7 +135,7 @@ public class ExploreActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         Button newListing = Ui.rowButton(this, "+ Create your listing", false);
         newListing.setOnClickListener(v ->
-                startActivity(new Intent(this, CreateListingActivity.class)));
+                refreshLauncher.launch(new Intent(this, CreateListingActivity.class)));
         listingsHeader.addView(listingsTitle);
         listingsHeader.addView(newListing);
         root.addView(listingsHeader);
@@ -226,7 +265,8 @@ public class ExploreActivity extends AppCompatActivity {
             ListingCardView card = new ListingCardView(this);
             card.bind(listing);
             card.setOnClickListener(
-                    v -> ListingDetailActivity.open(this, listing.getId()));
+                    v -> refreshLauncher.launch(
+                            ListingDetailActivity.intentFor(this, listing.getId())));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -304,6 +344,16 @@ public class ExploreActivity extends AppCompatActivity {
                 wantLine.setText("Couldn't load matches — tap to view your want list.");
             }
         });
+    }
+
+    /**
+     * Manual + automatic refresh: reloads the feed and the wallet balance
+     * (claims move credits). Called from the refresh button and when a
+     * create/detail flow returns RESULT_OK.
+     */
+    private void refresh() {
+        loadFeed();
+        loadWallet();
     }
 
     private void loadFeed() {

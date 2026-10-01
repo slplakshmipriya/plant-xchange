@@ -606,6 +606,7 @@ public class CreateListingActivity extends AppCompatActivity {
                 clearDraft();
                 Toast.makeText(CreateListingActivity.this,
                         "Listing published", Toast.LENGTH_SHORT).show();
+                setResult(RESULT_OK);
                 finish();
             }
 
