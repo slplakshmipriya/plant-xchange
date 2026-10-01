@@ -291,45 +291,62 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                 callback);
     }
 
-    /** PUT raw bytes to an upload URL with Firebase auth. */
+    /**
+     * PUT raw bytes to an upload URL. Relative paths go to our own backend
+     * (Firebase bearer auth); absolute URLs are pre-signed third-party URLs
+     * (GCS) whose query string is the authorization — attaching our Firebase
+     * token there makes GCS reject the PUT, so none is sent.
+     */
     private void putRawBytes(String path, byte[] bytes, String contentType,
-                             Callback<Void> callback) {        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+                             Callback<Void> callback) {
+        if (path.startsWith("http")) {
+            net.execute(() -> putBytes(path, bytes, contentType, null, callback));
+            return;
+        }
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
         if (user == null) {
             fail(callback, new ApiException("not_signed_in", "No Firebase user signed in."));
             return;
         }
-        user.getIdToken(true).addOnSuccessListener(result -> net.execute(() -> {
-            try {
-                String url = path.startsWith("http") ? path : baseUrl + path;
-                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-                try {
-                    conn.setRequestMethod("PUT");
-                    conn.setConnectTimeout(30_000);
-                    conn.setReadTimeout(30_000);
-                    conn.setRequestProperty("Authorization", "Bearer " + result.getToken());
-                    conn.setDoOutput(true);
-                    conn.setRequestProperty("Content-Type", contentType);
-                    conn.setFixedLengthStreamingMode(bytes.length);
-                    try (OutputStream out = conn.getOutputStream()) {
-                        out.write(bytes);
-                    }
-                    int status = conn.getResponseCode();
-                    if (status >= 200 && status < 300) {
-                        main.post(() -> callback.onSuccess(null));
-                    } else {
-                        String raw = readAll(conn.getErrorStream());
-                        main.post(() -> callback.onError(JsonParsers.parseError(status, raw)));
-                    }
-                } finally {
-                    conn.disconnect();
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "raw PUT failed", e);
-                fail(callback, new ApiException("network_error",
-                        "Couldn't upload the photo. Check your connection."));
-            }
-        })).addOnFailureListener(e -> fail(callback,
+        user.getIdToken(true).addOnSuccessListener(result -> net.execute(() ->
+                putBytes(baseUrl + path, bytes, contentType, result.getToken(), callback))
+        ).addOnFailureListener(e -> fail(callback,
                 new ApiException("auth_error", "Couldn't get an auth token.")));
+    }
+
+    /** PUT bytes; a null bearerToken sends no Authorization header. */
+    private void putBytes(String url, byte[] bytes, String contentType,
+                          String bearerToken, Callback<Void> callback) {
+        try {
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            try {
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(30_000);
+                conn.setReadTimeout(30_000);
+                if (bearerToken != null) {
+                    conn.setRequestProperty("Authorization", "Bearer " + bearerToken);
+                }
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", contentType);
+                conn.setFixedLengthStreamingMode(bytes.length);
+                try (OutputStream out = conn.getOutputStream()) {
+                    out.write(bytes);
+                }
+                int status = conn.getResponseCode();
+                if (status >= 200 && status < 300) {
+                    main.post(() -> callback.onSuccess(null));
+                } else {
+                    String raw = readAll(conn.getErrorStream());
+                    main.post(() -> callback.onError(JsonParsers.parseError(status, raw)));
+                }
+            } finally {
+                conn.disconnect();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "raw PUT failed", e);
+            fail(callback, new ApiException("network_error",
+                    "Couldn't upload the photo. Check your connection."));
+        }
     }
 
     @Override

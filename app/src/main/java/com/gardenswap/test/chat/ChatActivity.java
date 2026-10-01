@@ -325,8 +325,14 @@ public class ChatActivity extends AppCompatActivity {
 
                             @Override
                             public void onError(ApiException e) {
+                                // Show the backend message too (e.g. "photo exceeds
+                                // 8 MB") so the exact cause is visible, not just
+                                // the code.
+                                String detail = e.getMessage() != null
+                                        ? e.getMessage() : e.getCode();
                                 Toast.makeText(ChatActivity.this,
-                                        "Couldn't upload photo (" + e.getCode() + ").",
+                                        "Couldn't upload photo (" + e.getCode()
+                                                + "): " + detail,
                                         Toast.LENGTH_LONG).show();
                             }
                         }));
