@@ -418,8 +418,12 @@ public class ExploreActivity extends AppCompatActivity {
                     public void onSuccess(List<Listing> feed) {
                         allListings.clear();
                         if (feed != null) {
-                            allListings.addAll(
-                                    ExploreLogic.sortByFreshness(feed));
+                            // Server order is authoritative: want-list match
+                            // tier, then newest, then soonest-expiring. Do NOT
+                            // re-sort client-side — that would destroy the
+                            // ranking (e.g. an exact "Rosy" match must stay
+                            // above a newer "Rosemary").
+                            allListings.addAll(feed);
                         }
                         emptyState.setOnClickListener(null);
                         emptyState.setClickable(false);
