@@ -12,6 +12,7 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -27,6 +28,7 @@ import com.gardenswap.test.api.Listing;
 import com.gardenswap.test.api.ListingType;
 import com.gardenswap.test.api.UserProfile;
 import com.gardenswap.test.api.Wallet;
+import com.gardenswap.test.api.WantItem;
 import com.gardenswap.test.listings.CreateListingActivity;
 import com.gardenswap.test.listings.ListingDetailActivity;
 import com.gardenswap.test.sitters.SitterListActivity;
@@ -38,7 +40,9 @@ import com.gardenswap.test.util.ExploreLogic;
 import com.gardenswap.test.util.ListingFilter;
 import com.gardenswap.test.util.NavRouter;
 import com.gardenswap.test.wallet.WalletActivity;
+import com.gardenswap.test.wantlist.WantDialogs;
 import com.gardenswap.test.wantlist.WantListActivity;
+import com.gardenswap.test.wantlist.WantStripView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -58,6 +62,7 @@ public class ExploreActivity extends AppCompatActivity {
     private TextView heroSubline;
     private TextView walletLine;
     private TextView wantLine;
+    private WantStripView wantStrip;
 
     /**
      * Create/detail launcher: refreshes the feed when the user published,
@@ -167,8 +172,15 @@ public class ExploreActivity extends AppCompatActivity {
 
         loadProfile();
         loadWallet();
+        loadWants();
         loadWantMatches();
         loadFeed();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        loadWants();
     }
 
     /** Two way cards side by side. */
@@ -248,6 +260,12 @@ public class ExploreActivity extends AppCompatActivity {
         LinearLayout panel = Ui.card(this);
         panel.addView(Ui.eyebrow(this, "Want list"));
         Ui.gap(panel, this, 4);
+        wantStrip = new WantStripView(this);
+        wantStrip.setOnAddClickListener(v ->
+                WantDialogs.showAddDialog(this, this::refreshWants));
+        wantStrip.setOnRemoveListener(this::removeWant);
+        panel.addView(wantStrip);
+        Ui.gap(panel, this, 8);
         wantLine = Ui.body(this, "Checking for matches…");
         panel.addView(wantLine);
         panel.setClickable(true);
@@ -325,6 +343,41 @@ public class ExploreActivity extends AppCompatActivity {
         });
     }
 
+    /** Reloads the want-list strip; matches depend on it, so refresh both. */
+    private void refreshWants() {
+        loadWants();
+        loadWantMatches();
+    }
+
+    private void loadWants() {
+        ApiProvider.get().getWantList(new GardenSwapApi.Callback<List<WantItem>>() {
+            @Override
+            public void onSuccess(List<WantItem> wants) {
+                wantStrip.setWants(wants);
+            }
+
+            @Override
+            public void onError(ApiException e) {
+                // Keep the previous strip state; the want-list screen retries.
+            }
+        });
+    }
+
+    private void removeWant(String wantId) {
+        ApiProvider.get().removeWant(wantId, new GardenSwapApi.Callback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                refreshWants();
+            }
+
+            @Override
+            public void onError(ApiException e) {
+                Toast.makeText(ExploreActivity.this,
+                        "Could not remove: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
     private void loadWantMatches() {
         ApiProvider.get().getMatches(new GardenSwapApi.Callback<List<Listing>>() {
             @Override
@@ -354,6 +407,7 @@ public class ExploreActivity extends AppCompatActivity {
     private void refresh() {
         loadFeed();
         loadWallet();
+        loadWants();
     }
 
     private void loadFeed() {
