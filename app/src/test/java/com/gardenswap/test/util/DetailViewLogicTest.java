@@ -105,4 +105,23 @@ public class DetailViewLogicTest {
         assertTrue(DetailViewLogic.visitRuleItems(null).isEmpty());
         assertTrue(DetailViewLogic.visitRuleItems("  \n ").isEmpty());
     }
+
+    @Test
+    public void visitRulesTreatsLiteralNullAsBlank() {
+        assertTrue(DetailViewLogic.visitRuleItems("null").isEmpty());
+        assertTrue(DetailViewLogic.visitRuleItems("NULL").isEmpty());
+        assertTrue(DetailViewLogic.visitRuleItems(" Null ").isEmpty());
+    }
+
+    @Test
+    public void visitRulesDropsNullLinesButKeepsRealRules() {
+        List<String> items = DetailViewLogic.visitRuleItems("null\nBring gloves\nNULL");
+        assertEquals(Arrays.asList("Bring gloves"), items);
+    }
+
+    @Test
+    public void visitRulesKeepsLinesMerelyContainingNull() {
+        List<String> items = DetailViewLogic.visitRuleItems("Do not nullify the gate code");
+        assertEquals(Arrays.asList("Do not nullify the gate code"), items);
+    }
 }

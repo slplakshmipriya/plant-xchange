@@ -65,7 +65,10 @@ public final class DetailViewLogic {
 
     /**
      * Visit rules split into display items, one per non-blank line.
-     * Empty list when rules are null or blank.
+     * Empty list when rules are null or blank. A line containing the literal
+     * text "null" (case-insensitive) is treated as blank: some stored rows
+     * carry the string "null" rather than a real null, and it must not
+     * render as a bullet.
      */
     public static List<String> visitRuleItems(String visitRules) {
         if (visitRules == null) {
@@ -74,7 +77,7 @@ public final class DetailViewLogic {
         List<String> items = new ArrayList<>();
         for (String line : visitRules.split("\n")) {
             String trimmed = line.trim();
-            if (!trimmed.isEmpty()) {
+            if (!trimmed.isEmpty() && !"null".equalsIgnoreCase(trimmed)) {
                 items.add(trimmed);
             }
         }
