@@ -124,4 +124,22 @@ public class DetailViewLogicTest {
         List<String> items = DetailViewLogic.visitRuleItems("Do not nullify the gate code");
         assertEquals(Arrays.asList("Do not nullify the gate code"), items);
     }
+
+    @Test
+    public void sprayLabelMapsNoneSentinelToFriendlyLabel() {
+        assertEquals("No sprays used", DetailViewLogic.sprayDisclosureLabel("none"));
+        assertEquals("No sprays used", DetailViewLogic.sprayDisclosureLabel(" NONE "));
+    }
+
+    @Test
+    public void sprayLabelPassesFreeTextThroughTrimmed() {
+        assertEquals("Neem oil only, last applied 3 weeks ago.",
+                DetailViewLogic.sprayDisclosureLabel("  Neem oil only, last applied 3 weeks ago. "));
+    }
+
+    @Test
+    public void sprayLabelKeepsNullAndBlankAsNull() {
+        assertNull(DetailViewLogic.sprayDisclosureLabel(null));
+        assertNull(DetailViewLogic.sprayDisclosureLabel("   "));
+    }
 }

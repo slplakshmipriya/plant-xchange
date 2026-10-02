@@ -132,7 +132,8 @@ public class ListingDetailActivity extends AppCompatActivity {
         addSection(body, "Variety", listing.getVariety());
         addSection(body, "Quantity",
                 DetailViewLogic.quantityLine(listing.getQuantity(), listing.getUnit()));
-        addSection(body, "Spray disclosure", listing.getSprayDisclosure());
+        addSection(body, "Spray disclosure",
+                DetailViewLogic.sprayDisclosureLabel(listing.getSprayDisclosure()));
         Ui.gap(body, this, 4);
 
         // 012-T3: visit-rules panel — suppressed entirely when blank.

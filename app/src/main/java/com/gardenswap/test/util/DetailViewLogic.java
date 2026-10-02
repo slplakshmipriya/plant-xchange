@@ -20,6 +20,26 @@ public final class DetailViewLogic {
     private DetailViewLogic() {
     }
 
+    /**
+     * Display label for a spray disclosure. The create flow stores the
+     * sentinel "none" when "No sprays used" is picked; render it back as
+     * the friendly label. Free-text disclosures pass through (trimmed);
+     * null/blank stays null so the section shows its placeholder.
+     */
+    public static String sprayDisclosureLabel(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        if ("none".equalsIgnoreCase(trimmed)) {
+            return "No sprays used";
+        }
+        return trimmed;
+    }
+
     /** Claim CTA visibility: live listing and the viewer is not the owner. */
     public static boolean isClaimCtaVisible(ListingStatus status, String ownerUid, String viewerUid) {
         return ListingDetailLogic.canClaim(status, ownerUid, viewerUid);
