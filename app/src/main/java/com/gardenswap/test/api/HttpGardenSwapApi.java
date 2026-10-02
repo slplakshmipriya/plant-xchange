@@ -441,7 +441,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
             if (input.getUnit() != null) {
                 body.put("unit", input.getUnit());
             }
-            // Reconciled: the backend prices listings at 1-3 credits (DB CHECK).
+            // Reconciled: the backend prices listings at 1-100 credits.
             // "Free" maps to the 1-credit floor — never silently dropped, never
             // sent as 0 (the backend would 422). See docs/api-contract.md.
             body.put("credit_cost", input.isFree() ? 1 : input.getCreditCost());

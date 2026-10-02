@@ -33,6 +33,8 @@ public class ListingCardView extends LinearLayout {
     private final ImageView photoView;
     private final ImageView photoGlyph;
     private final TextView photoCountBadge;
+    private final LinearLayout giverRow;
+    private final TextView giverName;
 
     public ListingCardView(Context context) {
         super(context);
@@ -107,6 +109,16 @@ public class ListingCardView extends LinearLayout {
         cueView.setVisibility(View.GONE);
         body.addView(cueView);
 
+        // Giver row: avatar + display name of the listing owner.
+        giverRow = new LinearLayout(context);
+        giverRow.setOrientation(LinearLayout.HORIZONTAL);
+        giverRow.setGravity(Gravity.CENTER_VERTICAL);
+        giverRow.setPadding(0, Ui.dp(context, 8), 0, 0);
+        giverName = Ui.body(context, "");
+        Ui.textColor(context, giverName, R.color.garden_muted);
+        giverRow.addView(giverName);
+        body.addView(giverRow);
+
         addView(body);
     }
 
@@ -148,6 +160,17 @@ public class ListingCardView extends LinearLayout {
         if (multiPhoto) {
             photoCountBadge.setText(photos.size() + " photos");
         }
+
+        // Giver: avatar + display name of the listing owner.
+        giverRow.removeAllViews();
+        giverRow.addView(Ui.avatarView(getContext(), listing.getOwnerDisplayName(),
+                listing.getOwnerAvatarUrl(), 32));
+        giverName.setText(listing.getOwnerDisplayName());
+        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        nameParams.leftMargin = Ui.dp(getContext(), 8);
+        giverName.setLayoutParams(nameParams);
+        giverRow.addView(giverName);
     }
 
     public void bind(Listing listing) {

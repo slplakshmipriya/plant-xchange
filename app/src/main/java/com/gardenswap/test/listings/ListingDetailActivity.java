@@ -135,9 +135,12 @@ public class ListingDetailActivity extends AppCompatActivity {
         addSection(body, "Spray disclosure", listing.getSprayDisclosure());
         Ui.gap(body, this, 4);
 
-        // 012-T3: visit-rules panel.
-        body.addView(visitRulesPanel());
-        Ui.gap(body, this, 12);
+        // 012-T3: visit-rules panel — suppressed entirely when blank.
+        List<String> rules = DetailViewLogic.visitRuleItems(listing.getVisitRules());
+        if (!rules.isEmpty()) {
+            body.addView(visitRulesPanel(rules));
+            Ui.gap(body, this, 12);
+        }
 
         // 012-T4: owner row.
         body.addView(ownerRow());
@@ -338,52 +341,37 @@ public class ListingDetailActivity extends AppCompatActivity {
     }
 
     /** 012-T3: visit-rules card; one bullet row per rule line. */
-    private View visitRulesPanel() {
+    private View visitRulesPanel(List<String> rules) {
         LinearLayout panel = Ui.card(this);
         panel.addView(Ui.eyebrow(this, "Visit rules"));
         Ui.gap(panel, this, 8);
-        List<String> rules = DetailViewLogic.visitRuleItems(listing.getVisitRules());
-        if (rules.isEmpty()) {
-            panel.addView(Ui.body(this, "No visit rules provided."));
-        } else {
-            for (String rule : rules) {
-                panel.addView(Ui.body(this, "\u2022 " + rule));
-                Ui.gap(panel, this, 4);
-            }
+        for (String rule : rules) {
+            panel.addView(Ui.body(this, "\u2022 " + rule));
+            Ui.gap(panel, this, 4);
         }
         return panel;
     }
 
     /**
-     * 012-T4: owner row — avatar placeholder, name, verification badge.
-     * The API exposes no per-owner profile endpoint (only {@code getMe}),
-     * so the name is a generic label until owner profiles are available.
+     * 012-T4: owner row — the giver's avatar photo (initials fallback),
+     * display name, and verification badge.
      */
     private View ownerRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView avatar = new TextView(this);
-        avatar.setText("G");
-        avatar.setGravity(Gravity.CENTER);
-        avatar.setTextColor(ResourcesCompat.getColor(
-                getResources(), R.color.garden_nav_ink, getTheme()));
-        GradientDrawable avatarBg = new GradientDrawable();
-        avatarBg.setShape(GradientDrawable.OVAL);
-        avatarBg.setColor(ResourcesCompat.getColor(
-                getResources(), R.color.garden_leaf, getTheme()));
-        avatar.setBackground(avatarBg);
-        int avatarSize = Ui.dp(this, 44);
+        View avatar = Ui.avatarView(this, listing.getOwnerDisplayName(),
+                listing.getOwnerAvatarUrl(), 44);
         LinearLayout.LayoutParams avatarParams =
-                new LinearLayout.LayoutParams(avatarSize, avatarSize);
+                new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44));
         avatarParams.setMarginEnd(Ui.dp(this, 12));
         avatar.setLayoutParams(avatarParams);
         row.addView(avatar);
 
         LinearLayout nameCol = new LinearLayout(this);
         nameCol.setOrientation(LinearLayout.VERTICAL);
-        nameCol.addView(Ui.title(this, "Giver"));
+        nameCol.addView(Ui.title(this, listing.getOwnerDisplayName()));
         nameCol.addView(new VerifiedBadgeView(this));
         row.addView(nameCol);
 

@@ -39,30 +39,7 @@ final class ChatViews {
 
     /** Circular avatar placeholder with the other party's initials. */
     static TextView avatar(Context context, String name) {
-        TextView view = new TextView(context);
-        view.setText(initialsOf(name));
-        view.setGravity(Gravity.CENTER);
-        view.setTypeface(null, Typeface.BOLD);
-        view.setTextSize(16);
-        view.setTextColor(ResourcesCompat.getColor(context.getResources(),
-                R.color.garden_ink, context.getTheme()));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(ResourcesCompat.getColor(context.getResources(),
-                R.color.garden_line, context.getTheme()));
-        view.setBackground(bg);
-        int size = Ui.dp(context, 48);
-        view.setLayoutParams(new LinearLayout.LayoutParams(size, size));
-        return view;
-    }
-
-    /** Circular avatar loaded from a URL; leaf glyph while loading / on failure. */
-    static ImageView photoAvatar(Context context, String url) {
-        ImageView view = new ImageView(context);
-        int size = Ui.dp(context, 48);
-        view.setLayoutParams(new LinearLayout.LayoutParams(size, size));
-        ImageLoader.loadCircularInto(view, url);
-        return view;
+        return (TextView) Ui.avatarView(context, name, null, 48);
     }
 
     /**
@@ -70,22 +47,7 @@ final class ChatViews {
      * the initials placeholder otherwise.
      */
     static View otherAvatar(Context context, String name, String avatarUrl) {
-        if (avatarUrl != null && !avatarUrl.trim().isEmpty()) {
-            return photoAvatar(context, avatarUrl);
-        }
-        return avatar(context, name);
-    }
-
-    private static String initialsOf(String name) {
-        if (name == null || name.trim().isEmpty()) {
-            return "?";
-        }
-        String[] parts = name.trim().split("\\s+");
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < Math.min(2, parts.length); i++) {
-            sb.append(Character.toUpperCase(parts[i].charAt(0)));
-        }
-        return sb.toString();
+        return Ui.avatarView(context, name, avatarUrl, 48);
     }
 
     /** Small acid dot marking threads with unread messages. */

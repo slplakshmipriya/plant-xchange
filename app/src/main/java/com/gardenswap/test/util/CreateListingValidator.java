@@ -71,8 +71,9 @@ public final class CreateListingValidator {
                 errors.add("Quantity must be a number.");
             }
         }
-        if (draft.creditCost < 1 || draft.creditCost > 3) {
-            errors.add("Credit cost must be 1–3.");
+        if (draft.creditCost < CreditStepperLogic.MIN_CREDIT_COST
+                || draft.creditCost > CreditStepperLogic.MAX_CREDIT_COST) {
+            errors.add("Credit cost must be 1–100.");
         }
         if (!isBlank(draft.pickupStartText) && draft.pickupStartMs == null) {
             errors.add("Pickup start must look like 2026-10-05 09:00.");

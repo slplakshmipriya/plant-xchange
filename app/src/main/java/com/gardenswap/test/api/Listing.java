@@ -14,6 +14,10 @@ public final class Listing {
 
     private final String id;
     private final String ownerUid;
+    /** Display name of the giver; "Neighbor" when the wire doesn't say. */
+    private final String ownerDisplayName;
+    /** Absolute URL of the giver's avatar; null when unset. */
+    private final String ownerAvatarUrl;
     private final ListingType type;
     private final List<String> photos;
     private final String variety;
@@ -49,6 +53,8 @@ public final class Listing {
     private Listing(Builder builder) {
         this.id = builder.id;
         this.ownerUid = builder.ownerUid;
+        this.ownerDisplayName = builder.ownerDisplayName;
+        this.ownerAvatarUrl = builder.ownerAvatarUrl;
         this.type = builder.type;
         this.photos = Collections.unmodifiableList(new ArrayList<>(builder.photos));
         this.variety = builder.variety;
@@ -78,6 +84,16 @@ public final class Listing {
 
     public String getOwnerUid() {
         return ownerUid;
+    }
+
+    /** Display name of the giver; "Neighbor" when the wire doesn't say. */
+    public String getOwnerDisplayName() {
+        return ownerDisplayName == null ? "Neighbor" : ownerDisplayName;
+    }
+
+    /** Absolute URL of the giver's avatar; null when unset. */
+    public String getOwnerAvatarUrl() {
+        return ownerAvatarUrl;
     }
 
     public ListingType getType() {
@@ -171,6 +187,8 @@ public final class Listing {
     public static final class Builder {
         private final String id;
         private String ownerUid;
+        private String ownerDisplayName;
+        private String ownerAvatarUrl;
         private ListingType type = ListingType.SEEDLING;
         private List<String> photos = new ArrayList<>();
         private String variety;
@@ -199,6 +217,16 @@ public final class Listing {
 
         public Builder ownerUid(String ownerUid) {
             this.ownerUid = ownerUid;
+            return this;
+        }
+
+        public Builder ownerDisplayName(String ownerDisplayName) {
+            this.ownerDisplayName = ownerDisplayName;
+            return this;
+        }
+
+        public Builder ownerAvatarUrl(String ownerAvatarUrl) {
+            this.ownerAvatarUrl = ownerAvatarUrl;
             return this;
         }
 

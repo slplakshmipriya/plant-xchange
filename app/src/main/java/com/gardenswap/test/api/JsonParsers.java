@@ -136,6 +136,10 @@ public final class JsonParsers {
         ListingStatus status = ListingStatus.fromString(o.optString("status", null));
         Listing.Builder b = Listing.builder(o.getString("id"))
                 .ownerUid(o.optString("owner_uid", null))
+                .ownerDisplayName(o.isNull("owner_display_name")
+                        ? null : o.optString("owner_display_name", null))
+                .ownerAvatarUrl(o.isNull("owner_avatar_url")
+                        ? null : o.optString("owner_avatar_url", null))
                 .type(type)
                 .variety(o.optString("variety", null))
                 .sprayDisclosure(o.optString("spray_disclosure", null))

@@ -44,7 +44,7 @@ import java.util.Locale;
 
 /**
  * Create-listing flow (AND-020), restyled for UID-014: type picker → photos →
- * variety → quantity → credit stepper (1–3) → pickup window → expiry → spray
+ * variety → quantity → credit stepper (1–100) → pickup window → expiry → spray
  * disclosure (mandatory) → visit rules → publish. Draft autosaves to
  * SharedPreferences.
  *
@@ -235,6 +235,9 @@ public class CreateListingActivity extends AppCompatActivity {
         stepperRow.addView(plusButton, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         creditCard.addView(stepperRow);
+        Ui.gap(creditCard, this, 4);
+        creditCard.addView(Ui.caption(this,
+                "Setting a low price like 2 credits will gather more attention from prospective customers."));
         Ui.gap(creditCard, this, 8);
         freeChip = Ui.chip(this, "Free listing — no credits needed");
         freeChip.setOnClickListener(v -> {

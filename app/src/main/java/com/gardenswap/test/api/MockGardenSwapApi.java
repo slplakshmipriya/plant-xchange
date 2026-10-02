@@ -63,6 +63,7 @@ public class MockGardenSwapApi implements GardenSwapApi {
     private void seedSampleListings() {
         seedListing(Listing.builder("sample-1")
                 .ownerUid("gardener-ana")
+                .ownerDisplayName("Ana")
                 .type(ListingType.SEEDLING)
                 .photos(new ArrayList<String>())
                 .variety("Cherokee Purple tomato")
@@ -74,6 +75,7 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 .build());
         seedListing(Listing.builder("sample-2")
                 .ownerUid("gardener-ben")
+                .ownerDisplayName("Ben")
                 .type(ListingType.HARVEST)
                 .photos(new ArrayList<String>())
                 .variety("Meyer lemons")
@@ -85,6 +87,7 @@ public class MockGardenSwapApi implements GardenSwapApi {
                 .build());
         seedListing(Listing.builder("sample-3")
                 .ownerUid("gardener-ana")
+                .ownerDisplayName("Ana")
                 .type(ListingType.SEEDLING)
                 .photos(new ArrayList<String>())
                 .variety("Genovese basil")

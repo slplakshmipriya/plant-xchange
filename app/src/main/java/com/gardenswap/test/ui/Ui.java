@@ -15,6 +15,7 @@ import android.widget.TextView;
 import androidx.core.content.res.ResourcesCompat;
 
 import com.gardenswap.test.R;
+import com.gardenswap.test.util.ImageLoader;
 import com.gardenswap.test.util.SitterServices;
 
 import java.util.LinkedHashSet;
@@ -343,5 +344,48 @@ public final class Ui {
     public static void textColor(Context context, TextView view, int colorRes) {
         view.setTextColor(ResourcesCompat.getColor(
                 context.getResources(), colorRes, context.getTheme()));
+    }
+
+    /**
+     * Person avatar: their photo (circular, via {@link ImageLoader}) when an
+     * avatar URL is set, else a circular initials placeholder. Broken URLs
+     * fall back to the leaf glyph, never a blank hole.
+     */
+    public static View avatarView(Context context, String name,
+                                  String avatarUrl, int sizeDp) {
+        int size = dp(context, sizeDp);
+        if (avatarUrl != null && !avatarUrl.trim().isEmpty()) {
+            ImageView view = new ImageView(context);
+            view.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+            ImageLoader.loadCircularInto(view, avatarUrl);
+            return view;
+        }
+        TextView view = new TextView(context);
+        view.setText(initialsOf(name));
+        view.setGravity(Gravity.CENTER);
+        view.setTypeface(null, Typeface.BOLD);
+        view.setTextSize(16);
+        view.setTextColor(ResourcesCompat.getColor(context.getResources(),
+                R.color.garden_ink, context.getTheme()));
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        bg.setColor(ResourcesCompat.getColor(context.getResources(),
+                R.color.garden_line, context.getTheme()));
+        view.setBackground(bg);
+        view.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+        return view;
+    }
+
+    private static String initialsOf(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return "?";
+        }
+        String[] parts = name.trim().split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < Math.min(2, parts.length); i++) {
+            sb.append(Character.toUpperCase(parts[i].charAt(0)));
+        }
+        return sb.toString();
     }
 }

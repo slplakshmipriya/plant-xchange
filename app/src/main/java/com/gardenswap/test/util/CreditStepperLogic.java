@@ -5,7 +5,7 @@ package com.gardenswap.test.util;
  *
  * <p>No Android dependencies — safe for JVM unit tests. The bounds encode
  * the product contract that free listings sit on a 1-credit floor (never 0)
- * and paid listings cost 1–3 credits.
+ * and paid listings cost 1–100 credits.
  */
 public final class CreditStepperLogic {
 
@@ -13,7 +13,7 @@ public final class CreditStepperLogic {
     public static final int MIN_CREDIT_COST = 1;
 
     /** Maximum credit cost for a listing. */
-    public static final int MAX_CREDIT_COST = 3;
+    public static final int MAX_CREDIT_COST = 100;
 
     private CreditStepperLogic() {
     }
