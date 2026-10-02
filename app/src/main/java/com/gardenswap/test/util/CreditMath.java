@@ -22,7 +22,7 @@ public final class CreditMath {
 
     public static final int STARTER_CREDITS = 3;
     public static final int MIN_LISTING_COST = 1;
-    public static final int MAX_LISTING_COST = 3;
+    public static final int MAX_LISTING_COST = 100;
     public static final int WEEKLY_EARN_CAP = 10;
 
     private CreditMath() {
@@ -34,7 +34,7 @@ public final class CreditMath {
         return STARTER_CREDITS;
     }
 
-    /** Clamp a requested listing cost into the allowed 1-3 credit band. */
+    /** Clamp a requested listing cost into the allowed 1-100 credit band. */
     public static int clampListingCost(int requested) {
         return Math.max(MIN_LISTING_COST, Math.min(MAX_LISTING_COST, requested));
     }

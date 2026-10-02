@@ -15,13 +15,13 @@ public class CreditMathTest {
     }
 
     @Test
-    public void clampListingCost_boundsToOneThroughThree() {
+    public void clampListingCost_boundsToOneThroughHundred() {
         assertEquals(1, CreditMath.clampListingCost(0));
         assertEquals(1, CreditMath.clampListingCost(-5));
         assertEquals(1, CreditMath.clampListingCost(1));
         assertEquals(2, CreditMath.clampListingCost(2));
-        assertEquals(3, CreditMath.clampListingCost(3));
-        assertEquals(3, CreditMath.clampListingCost(99));
+        assertEquals(100, CreditMath.clampListingCost(100));
+        assertEquals(100, CreditMath.clampListingCost(999));
     }
 
     @Test

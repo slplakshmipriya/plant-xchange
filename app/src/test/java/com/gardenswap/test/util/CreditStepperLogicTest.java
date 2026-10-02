@@ -43,19 +43,19 @@ public class CreditStepperLogicTest {
     @Test
     public void creditBounds_matchProductContract() {
         assertEquals(1, CreditStepperLogic.MIN_CREDIT_COST);
-        assertEquals(3, CreditStepperLogic.MAX_CREDIT_COST);
+        assertEquals(100, CreditStepperLogic.MAX_CREDIT_COST);
     }
 
     @Test
-    public void stepper_neverLeavesOneThroughThree() {
+    public void stepper_neverLeavesOneThroughHundred() {
         int value = CreditStepperLogic.MIN_CREDIT_COST;
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 200; i++) {
             value = CreditStepperLogic.increment(value,
                     CreditStepperLogic.MIN_CREDIT_COST,
                     CreditStepperLogic.MAX_CREDIT_COST);
         }
-        assertEquals(3, value);
-        for (int i = 0; i < 10; i++) {
+        assertEquals(100, value);
+        for (int i = 0; i < 200; i++) {
             value = CreditStepperLogic.decrement(value,
                     CreditStepperLogic.MIN_CREDIT_COST,
                     CreditStepperLogic.MAX_CREDIT_COST);

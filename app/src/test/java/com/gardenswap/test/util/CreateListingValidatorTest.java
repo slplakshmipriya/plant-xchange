@@ -69,9 +69,9 @@ public class CreateListingValidatorTest {
         CreateListingValidator.Draft draft = validDraft();
         draft.creditCost = 0;
         assertTrue(hasError(draft, "credit"));
-        draft.creditCost = 4;
+        draft.creditCost = 101;
         assertTrue(hasError(draft, "credit"));
-        draft.creditCost = 3;
+        draft.creditCost = 100;
         assertTrue(CreateListingValidator.validate(draft, NOW).isEmpty());
     }
 
