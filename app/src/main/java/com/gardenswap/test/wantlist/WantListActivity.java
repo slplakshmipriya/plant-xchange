@@ -20,6 +20,7 @@ import com.gardenswap.test.listings.ListingDetailActivity;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.ListingDetailLogic;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -36,6 +37,8 @@ public class WantListActivity extends AppCompatActivity {
     private WantStripView wantStrip;
     private LinearLayout matchRows;
     private TextView statusView;
+    /** Last-loaded want-list; passed to the add dialog for duplicate filtering. */
+    private List<WantItem> currentWants = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,7 +57,7 @@ public class WantListActivity extends AppCompatActivity {
         Ui.gap(root, this, 4);
         wantStrip = new WantStripView(this);
         wantStrip.setOnAddClickListener(v ->
-                WantDialogs.showAddDialog(this, this::refresh));
+                WantDialogs.showAddDialog(this, currentWants, this::refresh));
         wantStrip.setOnRemoveListener(this::removeWant);
         root.addView(wantStrip);
         Ui.gap(root, this, 12);
@@ -101,6 +104,7 @@ public class WantListActivity extends AppCompatActivity {
         api.getWantList(new GardenSwapApi.Callback<List<WantItem>>() {
             @Override
             public void onSuccess(List<WantItem> result) {
+                currentWants = result != null ? result : new ArrayList<>();
                 wantStrip.setWants(result);
             }
 

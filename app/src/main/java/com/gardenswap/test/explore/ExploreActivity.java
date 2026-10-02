@@ -64,6 +64,8 @@ public class ExploreActivity extends AppCompatActivity {
     private TextView walletLine;
     private TextView wantLine;
     private WantStripView wantStrip;
+    /** Last-loaded want-list; passed to the add dialog for duplicate filtering. */
+    private List<WantItem> currentWants = new ArrayList<>();
 
     /**
      * Create/detail launcher: refreshes the feed when the user published,
@@ -268,7 +270,7 @@ public class ExploreActivity extends AppCompatActivity {
         Ui.gap(panel, this, 4);
         wantStrip = new WantStripView(this);
         wantStrip.setOnAddClickListener(v ->
-                WantDialogs.showAddDialog(this, this::refreshWants));
+                WantDialogs.showAddDialog(this, currentWants, this::refreshWants));
         wantStrip.setOnRemoveListener(this::removeWant);
         panel.addView(wantStrip);
         Ui.gap(panel, this, 8);
@@ -361,6 +363,7 @@ public class ExploreActivity extends AppCompatActivity {
         ApiProvider.get().getWantList(new GardenSwapApi.Callback<List<WantItem>>() {
             @Override
             public void onSuccess(List<WantItem> wants) {
+                currentWants = wants != null ? wants : new ArrayList<>();
                 wantStrip.setWants(wants);
             }
 
