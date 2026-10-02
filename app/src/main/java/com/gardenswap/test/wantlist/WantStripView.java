@@ -2,6 +2,7 @@ package com.gardenswap.test.wantlist;
 
 import android.content.Context;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.HorizontalScrollView;
@@ -87,7 +88,9 @@ public class WantStripView extends LinearLayout {
         bubble.setBackgroundResource(R.drawable.chip_bg);
         int hPad = Ui.dp(context, 12);
         int vPad = Ui.dp(context, 8);
-        bubble.setPadding(hPad, vPad, hPad, vPad);
+        // Right inset comes from the × hit-padding below, so the bubble
+        // doesn't end up with double trailing space.
+        bubble.setPadding(hPad, vPad, 0, vPad);
         LayoutParams params = new LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -100,12 +103,23 @@ public class WantStripView extends LinearLayout {
         bubble.addView(name);
 
         TextView remove = new TextView(context);
-        remove.setText("  ×");
-        remove.setTextSize(16);
+        remove.setText("×");
+        remove.setTextSize(18);
+        remove.setGravity(Gravity.CENTER);
+        // 48dp minimum touch target (Android accessibility guideline): the
+        // padding expands the hit area well beyond the glyph itself, which
+        // was previously only ~12dp wide and hard to tap.
+        int hitPad = Ui.dp(context, 14);
+        remove.setPadding(hitPad, hitPad, hitPad, hitPad);
         remove.setClickable(true);
         remove.setFocusable(true);
-        remove.setPadding(Ui.dp(context, 4), 0, 0, 0);
         remove.setOnClickListener(v -> {
+            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            v.animate().scaleX(0.8f).scaleY(0.8f).setDuration(90)
+                    .withEndAction(() -> {
+                        v.setScaleX(1f);
+                        v.setScaleY(1f);
+                    }).start();
             if (onRemoveListener != null) {
                 onRemoveListener.onRemove(want.getId());
             }
