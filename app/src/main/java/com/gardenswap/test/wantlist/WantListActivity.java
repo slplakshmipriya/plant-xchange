@@ -1,12 +1,15 @@
 package com.gardenswap.test.wantlist;
 
+import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -14,6 +17,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.gardenswap.test.R;
 import com.gardenswap.test.api.ApiException;
 import com.gardenswap.test.api.ApiProvider;
 import com.gardenswap.test.api.GardenSwapApi;
@@ -44,7 +48,7 @@ public class WantListActivity extends AppCompatActivity {
 
     private static final String PREFS = "wantlist_prefs";
 
-    private LinearLayout wantRows;
+    private LinearLayout wantBubbles;
     private LinearLayout matchRows;
     private TextView statusView;
 
@@ -59,25 +63,36 @@ public class WantListActivity extends AppCompatActivity {
         root.addView(title);
         Ui.gap(root, this, 8);
 
-        root.addView(Ui.label(this, "Add a variety you want"));
-        AutoCompleteTextView varietyInput = new AutoCompleteTextView(this);
-        varietyInput.setHint("e.g. Cherokee Purple tomato");
-        varietyInput.setAdapter(new ArrayAdapter<>(this,
-                android.R.layout.simple_dropdown_item_1line, VARIETY_SUGGESTIONS));
-        varietyInput.setThreshold(1);
-        varietyInput.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        Button addButton = Ui.button(this, "Add to want-list");
-        addButton.setOnClickListener(v -> addWant(varietyInput.getText().toString(), varietyInput));
-        root.addView(varietyInput);
-        root.addView(addButton);
-        Ui.gap(root, this, 12);
+        // Want-list strip: a scrollable row of item bubbles with a fixed
+        // "+ Add" button pinned at the right end.
+        root.addView(Ui.label(this, "Wanted items"));
+        Ui.gap(root, this, 4);
+        LinearLayout strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.HORIZONTAL);
+        strip.setGravity(Gravity.CENTER_VERTICAL);
 
-        root.addView(Ui.label(this, "Wanted varieties"));
-        wantRows = new LinearLayout(this);
-        wantRows.setOrientation(LinearLayout.VERTICAL);
-        root.addView(wantRows);
+        HorizontalScrollView bubbleScroll = new HorizontalScrollView(this);
+        bubbleScroll.setHorizontalScrollBarEnabled(false);
+        bubbleScroll.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        wantBubbles = new LinearLayout(this);
+        wantBubbles.setOrientation(LinearLayout.HORIZONTAL);
+        wantBubbles.setGravity(Gravity.CENTER_VERTICAL);
+        bubbleScroll.addView(wantBubbles,
+                new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
+        strip.addView(bubbleScroll);
+
+        Button addButton = Ui.button(this, "+ Add");
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        addParams.leftMargin = Ui.dp(this, 8);
+        addButton.setLayoutParams(addParams);
+        addButton.setOnClickListener(v -> showAddDialog());
+        strip.addView(addButton);
+
+        root.addView(strip);
         Ui.gap(root, this, 12);
 
         root.addView(Ui.label(this, "Matches near you"));
@@ -117,7 +132,30 @@ public class WantListActivity extends AppCompatActivity {
         root.addView(checkBox);
     }
 
-    private void addWant(String variety, AutoCompleteTextView input) {
+    /** "+ Add" dialog: autosuggest variety input for a new wanted item. */
+    private void showAddDialog() {
+        AutoCompleteTextView input = new AutoCompleteTextView(this);
+        input.setHint("e.g. Cherokee Purple tomato");
+        input.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_dropdown_item_1line, VARIETY_SUGGESTIONS));
+        input.setThreshold(1);
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        int pad = Ui.dp(this, 20);
+        container.setPadding(pad, Ui.dp(this, 8), pad, 0);
+        container.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        new AlertDialog.Builder(this)
+                .setTitle("Add to want-list")
+                .setView(container)
+                .setPositiveButton("Add", (dialog, which) ->
+                        addWant(input.getText().toString()))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void addWant(String variety) {
         if (variety.trim().isEmpty()) {
             Toast.makeText(this, "Enter a variety", Toast.LENGTH_SHORT).show();
             return;
@@ -125,7 +163,6 @@ public class WantListActivity extends AppCompatActivity {
         ApiProvider.get().addWant(variety, new GardenSwapApi.Callback<WantItem>() {
             @Override
             public void onSuccess(WantItem result) {
-                input.setText("");
                 refresh();
             }
 
@@ -163,25 +200,45 @@ public class WantListActivity extends AppCompatActivity {
     }
 
     private void renderWants(List<WantItem> wants) {
-        wantRows.removeAllViews();
+        wantBubbles.removeAllViews();
         if (wants.isEmpty()) {
-            wantRows.addView(Ui.label(this, "Nothing wanted yet — add varieties above."));
+            wantBubbles.addView(Ui.caption(this, "Nothing wanted yet — tap + Add."));
             return;
         }
         for (WantItem want : wants) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView name = Ui.label(this, want.getVariety());
-            name.setLayoutParams(new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            Button remove = new Button(this);
-            remove.setText("Remove");
-            remove.setOnClickListener(v -> removeWant(want.getId()));
-            row.addView(name);
-            row.addView(remove);
-            wantRows.addView(row);
+            wantBubbles.addView(wantBubble(want));
         }
+    }
+
+    /** One wanted item as a bubble: the variety plus a × to remove it. */
+    private LinearLayout wantBubble(WantItem want) {
+        LinearLayout bubble = new LinearLayout(this);
+        bubble.setOrientation(LinearLayout.HORIZONTAL);
+        bubble.setGravity(Gravity.CENTER_VERTICAL);
+        bubble.setBackgroundResource(R.drawable.chip_bg);
+        int hPad = Ui.dp(this, 12);
+        int vPad = Ui.dp(this, 8);
+        bubble.setPadding(hPad, vPad, hPad, vPad);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.rightMargin = Ui.dp(this, 8);
+        bubble.setLayoutParams(params);
+
+        TextView name = new TextView(this);
+        name.setText(want.getVariety());
+        name.setTextSize(14);
+        bubble.addView(name);
+
+        TextView remove = new TextView(this);
+        remove.setText("  ×");
+        remove.setTextSize(16);
+        remove.setClickable(true);
+        remove.setFocusable(true);
+        remove.setPadding(Ui.dp(this, 4), 0, 0, 0);
+        remove.setOnClickListener(v -> removeWant(want.getId()));
+        bubble.addView(remove);
+        return bubble;
     }
 
     private void removeWant(String wantId) {
