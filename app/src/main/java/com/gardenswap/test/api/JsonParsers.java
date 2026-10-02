@@ -36,15 +36,28 @@ public final class JsonParsers {
     private JsonParsers() {
     }
 
+    /**
+     * Null-safe string read. Android's {@code JSONObject.optString(key, null)}
+     * returns the literal string {@code "null"} when the value is JSON null
+     * (org.json converts {@code JSONObject.NULL} to "null" rather than
+     * returning the fallback), so nullable fields must be read through here.
+     */
+    public static String nullableString(JSONObject o, String key) {
+        if (o == null || o.isNull(key)) {
+            return null;
+        }
+        return o.optString(key, null);
+    }
+
     /** Parse {@code GET /v1/users/me} (OwnerProfile) into a {@link UserProfile}. */
     public static UserProfile parseUserProfile(JSONObject o, boolean phoneVerified)
             throws JSONException {
         return UserProfile.builder(o.getString("uid"))
-                .displayName(o.optString("display_name", null))
-                .avatarUrl(o.optString("avatar_url", null))
-                .homeZip(o.optString("home_zip", null))
+                .displayName(JsonParsers.nullableString(o, "display_name"))
+                .avatarUrl(JsonParsers.nullableString(o, "avatar_url"))
+                .homeZip(JsonParsers.nullableString(o, "home_zip"))
                 .phoneVerified(phoneVerified)
-                .idvStatus(IdvStatus.fromString(o.optString("idv_status", null)))
+                .idvStatus(IdvStatus.fromString(JsonParsers.nullableString(o, "idv_status")))
                 .build();
     }
 
@@ -129,24 +142,24 @@ public final class JsonParsers {
 
     /** Parse {@code GET /v1/listings/{id}} / {@code /v1/listings/mine} items. */
     public static Listing parseListing(JSONObject o) throws JSONException {
-        ListingType type = ListingType.fromString(o.optString("type", null));
+        ListingType type = ListingType.fromString(JsonParsers.nullableString(o, "type"));
         if (type == null) {
             throw new JSONException("unknown listing type: " + o.optString("type"));
         }
-        ListingStatus status = ListingStatus.fromString(o.optString("status", null));
+        ListingStatus status = ListingStatus.fromString(JsonParsers.nullableString(o, "status"));
         Listing.Builder b = Listing.builder(o.getString("id"))
-                .ownerUid(o.optString("owner_uid", null))
+                .ownerUid(JsonParsers.nullableString(o, "owner_uid"))
                 .ownerDisplayName(o.isNull("owner_display_name")
-                        ? null : o.optString("owner_display_name", null))
+                        ? null : JsonParsers.nullableString(o, "owner_display_name"))
                 .ownerAvatarUrl(o.isNull("owner_avatar_url")
-                        ? null : o.optString("owner_avatar_url", null))
+                        ? null : JsonParsers.nullableString(o, "owner_avatar_url"))
                 .type(type)
-                .variety(o.optString("variety", null))
-                .sprayDisclosure(o.optString("spray_disclosure", null))
+                .variety(JsonParsers.nullableString(o, "variety"))
+                .sprayDisclosure(JsonParsers.nullableString(o, "spray_disclosure"))
                 .status(status == null ? ListingStatus.DRAFT : status)
-                .claimerUid(o.optString("claimer_uid", null))
-                .visitRules(o.optString("visit_rules", null));
-        long createdAt = parseIsoMs(o.optString("created_at", null));
+                .claimerUid(JsonParsers.nullableString(o, "claimer_uid"))
+                .visitRules(JsonParsers.nullableString(o, "visit_rules"));
+        long createdAt = parseIsoMs(JsonParsers.nullableString(o, "created_at"));
         if (createdAt > 0) {
             b.createdAtMs(createdAt);
         }
@@ -163,17 +176,17 @@ public final class JsonParsers {
         if (!o.isNull("quantity")) {
             b.quantity(o.optDouble("quantity"));
         }
-        b.unit(o.optString("unit", null));
+        b.unit(JsonParsers.nullableString(o, "unit"));
         b.creditCost(o.optInt("credit_cost", 1));
         JSONObject window = o.optJSONObject("pickup_window");
         if (window != null) {
-            long start = parseIsoMs(window.optString("start", null));
-            long end = parseIsoMs(window.optString("end", null));
+            long start = parseIsoMs(JsonParsers.nullableString(window, "start"));
+            long end = parseIsoMs(JsonParsers.nullableString(window, "end"));
             if (start > 0 && end > 0) {
                 b.pickupWindow(start, end);
             }
         }
-        long expiresAt = parseIsoMs(o.optString("expires_at", null));
+        long expiresAt = parseIsoMs(JsonParsers.nullableString(o, "expires_at"));
         if (expiresAt > 0) {
             b.expiresAtMs(expiresAt);
         }
@@ -213,7 +226,7 @@ public final class JsonParsers {
     /** Parse a {@code /v1/want-list} entry. */
     public static WantItem parseWantItem(JSONObject o) throws JSONException {
         return new WantItem(o.getString("id"), o.optString("variety", ""),
-                parseIsoMs(o.optString("created_at", null)));
+                parseIsoMs(JsonParsers.nullableString(o, "created_at")));
     }
 
     /** Parse {@code GET /v1/want-list} ({@code {"items": [...]}}). */
@@ -232,7 +245,7 @@ public final class JsonParsers {
     public static HarvestEvent parseHarvestEvent(JSONObject o) throws JSONException {
         return new HarvestEvent(o.getString("id"), o.optString("listing_id", ""),
                 o.optDouble("delta_kg", 0), "",
-                parseIsoMs(o.optString("created_at", null)));
+                parseIsoMs(JsonParsers.nullableString(o, "created_at")));
     }
 
     /** Parse {@code GET /v1/listings/{id}/harvest-events}. */
@@ -258,8 +271,8 @@ public final class JsonParsers {
                 .variety(o.optString("variety", ""))
                 .ripeWindow(0, 0)
                 .perPickerLimit(null)
-                .pickupRules(o.optString("visit_rules", null))
-                .sprayDisclosure(o.optString("spray_disclosure", null))
+                .pickupRules(JsonParsers.nullableString(o, "visit_rules"))
+                .sprayDisclosure(JsonParsers.nullableString(o, "spray_disclosure"))
                 .ownerDisplayName(ownerDisplayName)
                 .addressUnlocked(false)
                 .ripeAlertsSubscribed(false)
@@ -289,8 +302,8 @@ public final class JsonParsers {
                 LedgerEntry.Kind kind =
                         delta > 0 ? LedgerEntry.Kind.ISSUED : LedgerEntry.Kind.SPENT;
                 entries.add(new LedgerEntry(e.optString("id", ""), delta, kind,
-                        e.optString("reason", ""), e.optString("ref_id", null),
-                        parseIsoMs(e.optString("created_at", null)), null));
+                        e.optString("reason", ""), JsonParsers.nullableString(e, "ref_id"),
+                        parseIsoMs(JsonParsers.nullableString(e, "created_at")), null));
             }
         }
         // No seasonal expiry on the wire yet: nextExpiryMs null, earnedThisWeek 0.
@@ -317,7 +330,7 @@ public final class JsonParsers {
     public static SitterProfile parseSitterProfile(JSONObject o) throws JSONException {
         double rating = o.isNull("rating_avg") ? 0.0 : o.optDouble("rating_avg", 0.0);
         Double rateAmount = o.isNull("rate_amount") ? null : o.optDouble("rate_amount");
-        String rateUnit = o.isNull("rate_unit") ? null : o.optString("rate_unit", null);
+        String rateUnit = o.isNull("rate_unit") ? null : JsonParsers.nullableString(o, "rate_unit");
         String[] services = parseStringArray(o.optJSONArray("services"));
         Set<String> available = new LinkedHashSet<>();
         JSONArray avail = o.optJSONArray("available_dates");
@@ -359,7 +372,7 @@ public final class JsonParsers {
      * verified-booking badge.
      */
     public static Review parseReview(JSONObject o) throws JSONException {
-        String createdAt = o.isNull("created_at") ? null : o.optString("created_at", null);
+        String createdAt = o.isNull("created_at") ? null : JsonParsers.nullableString(o, "created_at");
         return new Review(o.optInt("rating", 5), null,
                 o.optString("comment", ""), "OWNER", true, createdAt);
     }
@@ -420,7 +433,7 @@ public final class JsonParsers {
         int payout = o.has("sitter_payout_cents")
                 ? o.optInt("sitter_payout_cents", subtotal - fee) : subtotal - fee;
         return new Booking(o.getString("id"), o.optString("sitter_uid", ""),
-                parseBookingStatus(o.optString("status", null)),
+                parseBookingStatus(JsonParsers.nullableString(o, "status")),
                 dates,
                 parseStringArray(o.optJSONArray("services")),
                 subtotal, fee, customerTotal, payout,
@@ -459,12 +472,12 @@ public final class JsonParsers {
                 o.optString("listing_status", ""),
                 o.optString("other_display_name", "Neighbor"),
                 o.optString("last_message_preview", ""),
-                parseIsoMs(o.optString("last_message_at", null)),
+                parseIsoMs(JsonParsers.nullableString(o, "last_message_at")),
                 0) // no read receipts on the wire; unread is always 0
                 .withParticipantUserId(o.isNull("participant_user_id")
-                        ? null : o.optString("participant_user_id", null))
+                        ? null : JsonParsers.nullableString(o, "participant_user_id"))
                 .withOtherAvatarUrl(o.isNull("other_avatar_url")
-                        ? null : o.optString("other_avatar_url", null));
+                        ? null : JsonParsers.nullableString(o, "other_avatar_url"));
     }
 
     /** Parse {@code GET /v1/threads} ({@code {"threads": [...]}}). */
@@ -484,7 +497,7 @@ public final class JsonParsers {
             throws JSONException {
         String senderUid = o.optString("sender_uid", "");
         boolean mine = myUid != null && myUid.equals(senderUid);
-        String name = o.optString("sender_display_name", null);
+        String name = JsonParsers.nullableString(o, "sender_display_name");
         if (name == null || name.isEmpty()) {
             name = mine ? "You" : "Neighbor";
         }
@@ -503,7 +516,7 @@ public final class JsonParsers {
         String body = o.optString("body", "");
         String text = body;
         if (kind == ChatMessage.Kind.PHOTO) {
-            String photoUrl = o.optString("photo_url", null);
+            String photoUrl = JsonParsers.nullableString(o, "photo_url");
             if (photoUrl != null && !photoUrl.isEmpty()) {
                 text = photoUrl;
             }
@@ -511,7 +524,7 @@ public final class JsonParsers {
         boolean deleted = o.optBoolean("deleted", false);
         return new ChatMessage(o.getString("id"), o.optString("thread_id", ""),
                 name, mine, kind, deleted ? "" : text,
-                parseIsoMs(o.optString("created_at", null)), deleted);
+                parseIsoMs(JsonParsers.nullableString(o, "created_at")), deleted);
     }
 
     /** Parse {@code GET /v1/threads/{id}/messages}. */
@@ -647,8 +660,8 @@ public final class JsonParsers {
                 .creditWarnings(categories.optBoolean("creditWarnings", true))
                 .bookingReminders(categories.optBoolean("bookingReminders", true));
         if (quiet != null) {
-            b.quietHours(quiet.optString("start", null),
-                    quiet.optString("end", null));
+            b.quietHours(JsonParsers.nullableString(quiet, "start"),
+                    JsonParsers.nullableString(quiet, "end"));
         }
         return b.build();
     }

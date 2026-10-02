@@ -75,4 +75,31 @@ public class JsonParsersTest {
         ApiException e = JsonParsers.parseError(401, null);
         assertEquals("http_401", e.getCode());
     }
+
+    @Test
+    public void nullableStringTreatsJsonNullAsNull() throws Exception {
+        // Regression: Android org.json's optString(key, null) returns the
+        // literal string "null" for JSON-null values — nullableString must not.
+        JSONObject o = new JSONObject()
+                .put("visit_rules", JSONObject.NULL)
+                .put("variety", "Tomato");
+        assertEquals(null, JsonParsers.nullableString(o, "visit_rules"));
+        assertEquals("Tomato", JsonParsers.nullableString(o, "variety"));
+        assertEquals(null, JsonParsers.nullableString(o, "missing_key"));
+    }
+
+    @Test
+    public void parseListingNullVisitRulesParsesToJavaNull() throws Exception {
+        JSONObject o = new JSONObject()
+                .put("id", "l1")
+                .put("owner_uid", "alice")
+                .put("type", "seedling")
+                .put("status", "live")
+                .put("variety", "Rosemary")
+                .put("visit_rules", JSONObject.NULL)
+                .put("claimer_uid", JSONObject.NULL);
+        Listing listing = JsonParsers.parseListing(o);
+        assertEquals(null, listing.getVisitRules());
+        assertEquals(null, listing.getClaimerUid());
+    }
 }

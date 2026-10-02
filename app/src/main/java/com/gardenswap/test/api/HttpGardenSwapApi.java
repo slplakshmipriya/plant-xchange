@@ -198,8 +198,8 @@ public class HttpGardenSwapApi implements GardenSwapApi {
             signBody.put("content_type", contentType);
             signBody.put("size_bytes", imageBytes.length);
             authed("POST", "/v1/uploads/sign", signBody, (s, signJson) -> {
-                String key = signJson.optString("key", null);
-                String uploadUrl = signJson.optString("upload_url", null);
+                String key = JsonParsers.nullableString(signJson, "key");
+                String uploadUrl = JsonParsers.nullableString(signJson, "upload_url");
                 if (key == null || uploadUrl == null) {
                     callback.onError(new ApiException("upload_error",
                             "Couldn't start the photo upload."));
@@ -215,7 +215,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                             finBody.put("key", key);
                             authed("POST", "/v1/uploads/finalize", finBody,
                                     (s2, finJson) -> {
-                                        String publicUrl = finJson.optString("public_url", null);
+                                        String publicUrl = JsonParsers.nullableString(finJson, "public_url");
                                         if (publicUrl == null) {
                                             callback.onError(new ApiException("upload_error",
                                                     "Couldn't finish the photo upload."));
@@ -251,8 +251,8 @@ public class HttpGardenSwapApi implements GardenSwapApi {
             signBody.put("content_type", contentType);
             signBody.put("size_bytes", bytes.length);
             authed("POST", "/v1/uploads/sign", signBody, (s, signJson) -> {
-                final String key = signJson.optString("key", null);
-                String uploadUrl = signJson.optString("upload_url", null);
+                final String key = JsonParsers.nullableString(signJson, "key");
+                String uploadUrl = JsonParsers.nullableString(signJson, "upload_url");
                 if (key == null || uploadUrl == null) {
                     callback.onError(new ApiException("upload_error",
                             "Couldn't start the photo upload."));
@@ -365,7 +365,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     public void getIdvStatus(Callback<IdvStatus> callback) {
         authed("GET", "/v1/users/me", null,
                 (status, body) -> callback.onSuccess(
-                        IdvStatus.fromString(body.optString("idv_status", null))),
+                        IdvStatus.fromString(JsonParsers.nullableString(body, "idv_status"))),
                 callback);
     }
 
@@ -679,7 +679,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                                 "This listing isn't a tree."));
                         return;
                     }
-                    String ownerUid = json.optString("owner_uid", null);
+                    String ownerUid = JsonParsers.nullableString(json, "owner_uid");
                     if (ownerUid == null || ownerUid.isEmpty()) {
                         callback.onSuccess(JsonParsers.parseTreeListing(json, null));
                         return;
@@ -688,7 +688,7 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                     authed("GET", "/v1/users/" + enc(ownerUid), null,
                             (s2, profile) -> callback.onSuccess(
                                     JsonParsers.parseTreeListing(json,
-                                            profile.optString("display_name", null))),
+                                            JsonParsers.nullableString(profile, "display_name"))),
                             new Callback<Void>() {
                                 @Override
                                 public void onSuccess(Void v) {
