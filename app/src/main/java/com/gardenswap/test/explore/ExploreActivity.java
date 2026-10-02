@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ImageButton;
@@ -103,7 +104,12 @@ public class ExploreActivity extends AppCompatActivity {
                 new LinearLayout.LayoutParams(iconSize, iconSize));
         int iconPad = Ui.dp(this, 6);
         refreshButton.setPadding(iconPad, iconPad, iconPad, iconPad);
-        refreshButton.setOnClickListener(v -> refresh());
+        refreshButton.setOnClickListener(v -> {
+            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            v.animate().rotationBy(360f).setDuration(450)
+                    .withEndAction(() -> v.setRotation(0f)).start();
+            refresh();
+        });
         brandRow.addView(refreshButton);
         header.addView(brandRow);
         int pad = Ui.dp(this, 20);
