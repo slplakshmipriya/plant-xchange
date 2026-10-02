@@ -349,10 +349,12 @@ public class ExploreActivity extends AppCompatActivity {
         });
     }
 
-    /** Reloads the want-list strip; matches depend on it, so refresh both. */
+    /** Reloads the want-list strip; the feed ranking and match count depend
+     * on the want list, so refresh all three. */
     private void refreshWants() {
         loadWants();
         loadWantMatches();
+        loadFeed();
     }
 
     private void loadWants() {
