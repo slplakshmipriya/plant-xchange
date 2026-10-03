@@ -116,7 +116,12 @@ public class HomeZipActivity extends AppCompatActivity {
                     }
                     byte[] buf = new byte[8192];
                     int n;
+                    // Enforce the 8 MB cap while streaming, not after
+                    // buffering the whole file (L6).
                     while ((n = in.read(buf)) != -1) {
+                        if (out.size() + n > 8 * 1024 * 1024) {
+                            throw new IOException("That photo is too large (8 MB max).");
+                        }
                         out.write(buf, 0, n);
                     }
                     bytes = out.toByteArray();
@@ -151,9 +156,11 @@ public class HomeZipActivity extends AppCompatActivity {
                             }
                         }));
             } catch (Exception e) {
+                String message = e.getMessage() != null && !e.getMessage().isEmpty()
+                        ? e.getMessage() : "Couldn't read your photo. Try again or skip it.";
                 runOnUiThread(() -> {
                     setBusy(false);
-                    statusText.setText("Couldn't read your photo. Try again or skip it.");
+                    statusText.setText(message);
                 });
             }
         }).start();

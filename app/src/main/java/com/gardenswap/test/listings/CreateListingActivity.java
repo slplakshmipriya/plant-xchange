@@ -407,7 +407,12 @@ public class CreateListingActivity extends AppCompatActivity {
                         }
                         byte[] buf = new byte[8192];
                         int n;
+                        // Enforce the 8 MB cap while streaming, not after
+                        // buffering the whole file (L6).
                         while ((n = in.read(buf)) != -1) {
+                            if (out.size() + n > 8 * 1024 * 1024) {
+                                throw new IOException("That photo is too large (8 MB max).");
+                            }
                             out.write(buf, 0, n);
                         }
                         bytes = out.toByteArray();
@@ -440,10 +445,12 @@ public class CreateListingActivity extends AppCompatActivity {
                                 }
                             }));
                 } catch (Exception e) {
+                    String message = e.getMessage() != null && !e.getMessage().isEmpty()
+                            ? e.getMessage() : "Couldn't read your photo. Try again.";
                     runOnUiThread(() -> {
                         photosUploading--;
                         updatePhotoCount();
-                        statusView.setText("Couldn't read your photo. Try again.");
+                        statusView.setText(message);
                     });
                 }
             }).start();
@@ -723,5 +730,11 @@ public class CreateListingActivity extends AppCompatActivity {
 
     private void clearDraft() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply();
+    }
+
+    /** Wipe any saved draft from another screen (logout: an unpublished
+     * draft must not leak to the next account on this device). */
+    public static void clearSavedDraft(android.content.Context context) {
+        context.getSharedPreferences(PREFS, MODE_PRIVATE).edit().clear().apply();
     }
 }

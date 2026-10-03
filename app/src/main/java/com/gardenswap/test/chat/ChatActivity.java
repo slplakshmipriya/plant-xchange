@@ -357,7 +357,13 @@ public class ChatActivity extends AppCompatActivity {
                     }
                     byte[] buf = new byte[8192];
                     int n;
+                    // Stream with the backend's 8 MB upload cap enforced
+                    // as we read (L6): a huge pick must fail here instead
+                    // of being buffered whole and OOMing the app.
                     while ((n = in.read(buf)) != -1) {
+                        if (out.size() + n > 8 * 1024 * 1024) {
+                            throw new IOException("Photo is larger than 8 MB.");
+                        }
                         out.write(buf, 0, n);
                     }
                     bytes = out.toByteArray();
@@ -384,8 +390,10 @@ public class ChatActivity extends AppCompatActivity {
                             }
                         }));
             } catch (Exception e) {
+                String message = e.getMessage() != null && !e.getMessage().isEmpty()
+                        ? e.getMessage() : "Couldn't read the photo.";
                 runOnUiThread(() -> Toast.makeText(ChatActivity.this,
-                        "Couldn't read the photo.", Toast.LENGTH_LONG).show());
+                        message, Toast.LENGTH_LONG).show());
             }
         }).start();
     }
