@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Garden Swap design tokens — light theme (UID-001).
-         Extracted from the garden-swap-app-ui-design prototype. -->
-    <color name="garden_bg">#F3F5EF</color>
+    <!-- Design tokens — light theme (UID-001). The garden_* tokens carry the
+         emerald surface palette; the brand_* tokens carry the active
+         vertical's action/selection colors (Gardenia: sky blue). Shared
+         drawables and helpers reference the brand tokens, so a future
+         vertical re-skins by changing token values only. -->
+    <color name="garden_bg">#0E9F6E</color>
     <color name="garden_surface">#FFFFFF</color>
     <color name="garden_ink">#172018</color>
-    <color name="garden_muted">#5F6D61</color>
+    <color name="garden_muted">#11432F</color>
     <color name="garden_line">#D8DED4</color>
     <color name="garden_leaf">#175F3A</color>
     <color name="garden_leaf_dark">#163722</color>
@@ -17,6 +20,26 @@
     <color name="garden_yellow">#F0C44C</color>
     <color name="garden_orange">#F08A54</color>
     <color name="garden_red">#EB8376</color>
+    <!-- Text drawn directly on the emerald window background (app title row,
+         scaffold text). Use the dark garden_muted only on white cards. -->
+    <color name="garden_on_bg">#FFFFFF</color>
+    <color name="garden_on_bg_muted">#D9F2E4</color>
+    <!-- Gardenia brand tokens (v2 configurability test): sky-blue actions and
+         selection states on the emerald brand background. Filled buttons use
+         brand_button (sky 600) so white text keeps ~4.1:1 contrast; the
+         lighter brand_button_sky is for accents and strokes. -->
+    <color name="brand_button">#0284C7</color>
+    <color name="brand_button_sky">#0EA5E9</color>
+    <color name="brand_button_text">#FFFFFF</color>
+    <color name="brand_button_dark">#0369A1</color>
+    <color name="brand_icon_bg">#047857</color>
+    <color name="brand_button_sheet">#0284C7</color>
+    <!-- Pale sky fill for secondary buttons: readable with deep-sky text on
+         both the emerald background and white surfaces. -->
+    <color name="brand_button_tint">#F0F9FF</color>
+    <!-- Selection surfaces: bottom-nav checked tint and cell tints. -->
+    <color name="brand_nav_selected">#7DD3FC</color>
+    <color name="brand_cell_tint">#1A0284C7</color>
     <!-- Turquoise-blue accent for the credit-balance readout (readable on the
          acid panel in both themes; the panel stays light at night). -->
     <color name="garden_turquoise">#0E7490</color>
@@ -25,7 +48,7 @@
          light sheet in both modes. -->
     <color name="garden_sheet_ink">#172018</color>
     <color name="garden_sheet_muted">#4A554C</color>
-    <color name="garden_sheet_leaf">#175F3A</color>
+    <color name="garden_sheet_leaf">#0369A1</color>
     <color name="garden_sheet_line">#D8DED4</color>
     <color name="garden_sheet_surface">#FFFFFF</color>
     <color name="garden_sheet_red">#B3261E</color>

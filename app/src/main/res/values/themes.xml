@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Garden Swap theme (UID-001/UID-002). DayNight parent gives automatic
-         dark-theme switching via values-night/colors.xml. -->
+    <!-- App theme (UID-001/UID-002). DayNight parent gives automatic
+         dark-theme switching via values-night/colors.xml. The framework
+         primary/accent colors resolve to the brand sky tokens so dialogs,
+         progress bars, cursors, and default controls match the buttons;
+         colorPrimaryDark is the deep-sky brand token. -->
     <style name="Theme.GardenSwap" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/garden_leaf</item>
-        <item name="colorPrimaryDark">@color/garden_leaf_dark</item>
-        <item name="colorAccent">@color/garden_focus</item>
+        <item name="colorPrimary">@color/brand_button</item>
+        <item name="colorPrimaryDark">@color/brand_button_dark</item>
+        <item name="colorAccent">@color/brand_button_sky</item>
         <item name="android:windowBackground">@color/garden_bg</item>
         <item name="android:textColorPrimary">@color/garden_ink</item>
         <item name="android:textColorSecondary">@color/garden_muted</item>

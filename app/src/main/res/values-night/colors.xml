@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Garden Swap design tokens — dark theme (UID-001). -->
-    <color name="garden_bg">#101512</color>
+    <!-- Design tokens — dark theme (UID-001). garden_bg stays in the emerald
+         family; brand_button* overrides keep actions sky in dark mode. -->
+    <color name="garden_bg">#065F46</color>
     <color name="garden_surface">#18201A</color>
     <color name="garden_ink">#EDF5EE</color>
     <color name="garden_muted">#A8B4AA</color>
@@ -16,4 +17,16 @@
     <color name="garden_yellow">#E9BF45</color>
     <color name="garden_orange">#E16F38</color>
     <color name="garden_red">#BD4A3C</color>
+    <!-- On-background text stays pale on the dark emerald background. -->
+    <color name="garden_on_bg">#FFFFFF</color>
+    <color name="garden_on_bg_muted">#A7C4B2</color>
+    <!-- Night brand tokens: filled buttons stay sky 600; the deep-sky text
+         token lightens so secondary buttons stay readable on dark surfaces,
+         and their tint fill goes dark-sky instead of pale. -->
+    <color name="brand_button">#0284C7</color>
+    <color name="brand_button_sky">#38BDF8</color>
+    <color name="brand_button_dark">#7DD3FC</color>
+    <color name="brand_button_tint">#0C2D3F</color>
+    <color name="brand_nav_selected">#7DD3FC</color>
+    <color name="brand_cell_tint">#330284C7</color>
 </resources>
