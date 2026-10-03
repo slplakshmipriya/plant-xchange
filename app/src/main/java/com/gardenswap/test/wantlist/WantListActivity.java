@@ -147,9 +147,9 @@ public class WantListActivity extends AppCompatActivity {
             return;
         }
         for (Listing listing : matches) {
-            Button row = new Button(this);
             String variety = listing.getVariety() == null ? "Listing" : listing.getVariety();
-            row.setText("🌱 Match: " + variety + " · "
+            Button row = Ui.primaryButton(this,
+                    "🌱 Match: " + variety + " · "
                     + listing.getCreditCost() + " cr · "
                     + ListingDetailLogic.formatCountdown(
                             listing.getExpiresAtMs(), System.currentTimeMillis()));

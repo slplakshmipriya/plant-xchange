@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Filter chip, selected: leaf fill (UID-003). -->
+<!-- Filter chip, selected: brand sky fill (UID-003). Text flips to white
+     via Ui.setChipSelected. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="999dp" />
-    <solid android:color="@color/garden_leaf" />
+    <solid android:color="@color/brand_button" />
     <padding android:left="16dp" android:right="16dp"
         android:top="8dp" android:bottom="8dp" />
 </shape>

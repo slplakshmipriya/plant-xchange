@@ -12,6 +12,7 @@ import android.widget.Toast;
 
 import com.gardenswap.test.R;
 import com.gardenswap.test.api.ApiException;
+import com.gardenswap.test.brand.BrandConfig;
 import com.gardenswap.test.api.ApiProvider;
 import com.gardenswap.test.api.GardenSwapApi;
 import com.gardenswap.test.api.ReportRequest;
@@ -135,7 +136,9 @@ public final class ReportDialog {
                         public void onSuccess(Void result) {
                             dialog.dismiss();
                             Toast.makeText(context,
-                                    "Report submitted. Thanks for keeping Garden Swap safe.",
+                                    "Report submitted. Thanks for keeping "
+                                            + context.getString(BrandConfig.APP_NAME_RES)
+                                            + " safe.",
                                     Toast.LENGTH_LONG).show();
                         }
 

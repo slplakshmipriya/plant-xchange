@@ -10,6 +10,7 @@ import androidx.core.app.NotificationCompat;
 
 import com.gardenswap.test.MainActivity;
 import com.gardenswap.test.api.ApiException;
+import com.gardenswap.test.brand.BrandConfig;
 import com.gardenswap.test.api.ApiProvider;
 import com.gardenswap.test.api.GardenSwapApi;
 import com.google.firebase.auth.FirebaseAuth;
@@ -54,7 +55,7 @@ public class GardenSwapMessagingService extends FirebaseMessagingService {
             body = notification.getBody();
         }
         if (title == null) {
-            title = "Garden Swap";
+            title = getString(BrandConfig.APP_NAME_RES);
         }
         if (body == null) {
             Log.d(TAG, "onMessageReceived: empty body, nothing to show");

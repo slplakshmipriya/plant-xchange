@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Selected chip for the claim bottom sheet: fixed dark-leaf pill.
-     Night-mode independent, like the sheet itself. -->
+<!-- Selected chip for the claim bottom sheet: fixed deep-sky pill
+     (garden_sheet_leaf). Night-mode independent, like the sheet itself. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="999dp" />

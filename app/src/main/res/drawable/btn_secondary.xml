@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Secondary pill button: transparent fill, leaf outline (UID-003). -->
+<!-- Secondary pill button: pale sky fill with a sky outline and deep-sky
+     text (via Ui.secondaryButton), so it stays readable on both the emerald
+     window background and white card surfaces (UID-003). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="999dp" />
-    <stroke android:width="1.5dp" android:color="@color/garden_leaf" />
+    <solid android:color="@color/brand_button_tint" />
+    <stroke android:width="1.5dp" android:color="@color/brand_button_sky" />
     <padding android:left="24dp" android:right="24dp"
         android:top="14dp" android:bottom="14dp" />
 </shape>

@@ -1,7 +1,6 @@
 package com.gardenswap.test.ui;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -15,6 +14,7 @@ import android.widget.TextView;
 import androidx.core.content.res.ResourcesCompat;
 
 import com.gardenswap.test.R;
+import com.gardenswap.test.brand.BrandConfig;
 import com.gardenswap.test.util.ImageLoader;
 import com.gardenswap.test.util.SitterServices;
 
@@ -68,22 +68,22 @@ public final class Ui {
     }
 
     /**
-     * App brand row: leaf mark + "Garden Swap" wordmark. Used as the sticky
+     * App brand row: the brand mark ({@link BrandConfig#TITLE_MARK_RES}) +
+     * the app-name wordmark from {@code strings.xml}. Used as the sticky
      * header on every bottom-nav tab so the branding sits in the same
-     * position app-wide.
+     * position app-wide. The header sits directly on the emerald window
+     * background, so the wordmark uses the pale on-background token.
      */
     public static LinearLayout appTitleRow(Context context) {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         ImageView mark = new ImageView(context);
-        mark.setImageResource(R.drawable.ic_leaf);
-        mark.setImageTintList(ColorStateList.valueOf(
-                ResourcesCompat.getColor(context.getResources(),
-                        R.color.garden_leaf, context.getTheme())));
+        mark.setImageResource(BrandConfig.TITLE_MARK_RES);
         int size = dp(context, 32);
         row.addView(mark, new LinearLayout.LayoutParams(size, size));
-        TextView title = display(context, "Garden Swap");
+        TextView title = display(context, context.getString(BrandConfig.APP_NAME_RES));
+        textColor(context, title, R.color.garden_on_bg);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -158,13 +158,13 @@ public final class Ui {
         return view;
     }
 
-    /** Primary CTA: leaf-green pill, nav-ink text, DM Sans medium. */
+    /** Primary CTA: sky-blue pill, white text, DM Sans medium. */
     public static Button primaryButton(Context context, String text) {
         Button view = new Button(context);
         view.setText(text);
         view.setBackgroundResource(R.drawable.btn_primary);
         view.setTextColor(ResourcesCompat.getColor(
-                context.getResources(), R.color.garden_nav_ink, context.getTheme()));
+                context.getResources(), R.color.brand_button_text, context.getTheme()));
         view.setTypeface(ResourcesCompat.getFont(context, R.font.dm_sans), Typeface.BOLD);
         view.setAllCaps(false);
         view.setTextSize(16);
@@ -175,12 +175,13 @@ public final class Ui {
         return view;
     }
 
-    /** Secondary action: leaf outline pill. */
+    /** Secondary action: pale sky fill + sky outline pill, deep-sky text so
+     *  it reads on both the emerald background and white surfaces. */
     public static Button secondaryButton(Context context, String text) {
         Button view = primaryButton(context, text);
         view.setBackgroundResource(R.drawable.btn_secondary);
         view.setTextColor(ResourcesCompat.getColor(
-                context.getResources(), R.color.garden_leaf, context.getTheme()));
+                context.getResources(), R.color.brand_button_dark, context.getTheme()));
         return view;
     }
 
@@ -191,7 +192,7 @@ public final class Ui {
      * when the button lands in a horizontal LinearLayout. Use this instead of
      * building the button and overriding its params by hand.
      *
-     * @param primary true for the leaf-green primary style, false for the
+     * @param primary true for the brand-sky primary style, false for the
      *                outline secondary style.
      */
     public static Button rowButton(Context context, String text, boolean primary) {
@@ -217,7 +218,7 @@ public final class Ui {
 
     /**
      * Filter chip. Call {@link #setChipSelected} to toggle the selected
-     * (leaf fill) state.
+     * (brand sky fill) state.
      */
     public static TextView chip(Context context, String text) {
         TextView view = new TextView(context);

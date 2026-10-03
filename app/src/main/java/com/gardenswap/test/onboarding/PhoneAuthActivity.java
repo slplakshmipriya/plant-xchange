@@ -16,6 +16,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 
+import com.gardenswap.test.R;
+import com.gardenswap.test.brand.BrandConfig;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.OnboardingValidator;
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
@@ -83,9 +85,12 @@ public class PhoneAuthActivity extends AppCompatActivity {
         googleSignInClient = buildGoogleSignInClient();
 
         LinearLayout root = Ui.column(this, 24);
-        TextView title = Ui.display(this, "Welcome to Garden Swap");
+        TextView title = Ui.display(this,
+                "Welcome to " + getString(BrandConfig.APP_NAME_RES));
+        Ui.textColor(this, title, R.color.garden_on_bg);
         TextView subtitle = Ui.body(this,
                 "Sign in with your phone number to start swapping plants.");
+        Ui.textColor(this, subtitle, R.color.garden_on_bg_muted);
         phoneInput = Ui.input(this, "Phone number (e.g. +1 555 010 2030)",
                 InputType.TYPE_CLASS_PHONE);
         sendCodeButton = Ui.primaryButton(this, "Continue");

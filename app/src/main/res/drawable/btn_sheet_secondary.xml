@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Secondary pill for the claim bottom sheet: transparent fill, fixed
-     dark-leaf outline. Night-mode independent, like the sheet itself. -->
+     deep-sky outline (garden_sheet_leaf). Night-mode independent, like the
+     sheet itself. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="999dp" />

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Availability day cell, selected (blocked out): blue rectangle outline. -->
+<!-- Availability day cell, selected (blocked out): brand-sky outline +
+     translucent sky tint (brand_cell_tint). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="8dp" />
-    <solid android:color="#1A0E7490" />
-    <stroke android:width="2dp" android:color="@color/garden_turquoise" />
+    <solid android:color="@color/brand_cell_tint" />
+    <stroke android:width="2dp" android:color="@color/brand_button_sky" />
 </shape>

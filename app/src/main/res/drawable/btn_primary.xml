@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Primary pill button: leaf green fill, white text (UID-003). -->
+<!-- Primary pill button: sky-blue fill, white text (UID-003). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <corners android:radius="999dp" />
-    <solid android:color="@color/garden_leaf" />
+    <solid android:color="@color/brand_button" />
     <padding android:left="24dp" android:right="24dp"
         android:top="14dp" android:bottom="14dp" />
 </shape>

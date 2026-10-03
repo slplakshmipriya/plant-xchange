@@ -83,11 +83,9 @@ public class HarvestLogActivity extends AppCompatActivity {
         noteInput = Ui.input(this, "Note (optional)", InputType.TYPE_CLASS_TEXT);
         LinearLayout buttonRow = new LinearLayout(this);
         buttonRow.setOrientation(LinearLayout.HORIZONTAL);
-        Button addedButton = new Button(this);
-        addedButton.setText("+ Picked");
+        Button addedButton = Ui.primaryButton(this, "+ Picked");
         addedButton.setOnClickListener(v -> logEvent(1));
-        Button takenButton = new Button(this);
-        takenButton.setText("− Taken");
+        Button takenButton = Ui.secondaryButton(this, "− Taken");
         takenButton.setOnClickListener(v -> logEvent(-1));
         buttonRow.addView(addedButton, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));

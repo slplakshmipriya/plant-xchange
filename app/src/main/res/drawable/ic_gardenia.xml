@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Gardenia flower mark (brand icon variant "gardenia_flower").
+     Layered white petals with a cream/yellow center on transparency, padded
+     to the adaptive-icon safe zone in a 108 viewport. Used for the launcher
+     foreground and the in-app title mark; ic_leaf.xml remains the photo
+     placeholder glyph. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer petals: one petal path rotated in 60-degree steps. -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="0">
+        <path
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#D9E6D8"
+            android:strokeWidth="1.5"
+            android:pathData="M54,24 C62.5,33 62.5,45 54,52 C45.5,45 45.5,33 54,24 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="60">
+        <path
+            android:fillColor="#F7FAF4"
+            android:strokeColor="#D9E6D8"
+            android:strokeWidth="1.5"
+            android:pathData="M54,24 C62.5,33 62.5,45 54,52 C45.5,45 45.5,33 54,24 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="120">
+        <path
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#D9E6D8"
+            android:strokeWidth="1.5"
+            android:pathData="M54,24 C62.5,33 62.5,45 54,52 C45.5,45 45.5,33 54,24 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="180">
+        <path
+            android:fillColor="#F7FAF4"
+            android:strokeColor="#D9E6D8"
+            android:strokeWidth="1.5"
+            android:pathData="M54,24 C62.5,33 62.5,45 54,52 C45.5,45 45.5,33 54,24 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="240">
+        <path
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#D9E6D8"
+            android:strokeWidth="1.5"
+            android:pathData="M54,24 C62.5,33 62.5,45 54,52 C45.5,45 45.5,33 54,24 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="300">
+        <path
+            android:fillColor="#F7FAF4"
+            android:strokeColor="#D9E6D8"
+            android:strokeWidth="1.5"
+            android:pathData="M54,24 C62.5,33 62.5,45 54,52 C45.5,45 45.5,33 54,24 Z" />
+    </group>
+    <!-- Inner petals, offset 30 degrees, slightly smaller. -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="30">
+        <path
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#CFE0CC"
+            android:strokeWidth="1.2"
+            android:pathData="M54,33 C60,39.5 60,47.5 54,52 C48,47.5 48,39.5 54,33 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="90">
+        <path
+            android:fillColor="#EFF4EA"
+            android:strokeColor="#CFE0CC"
+            android:strokeWidth="1.2"
+            android:pathData="M54,33 C60,39.5 60,47.5 54,52 C48,47.5 48,39.5 54,33 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="150">
+        <path
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#CFE0CC"
+            android:strokeWidth="1.2"
+            android:pathData="M54,33 C60,39.5 60,47.5 54,52 C48,47.5 48,39.5 54,33 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="210">
+        <path
+            android:fillColor="#EFF4EA"
+            android:strokeColor="#CFE0CC"
+            android:strokeWidth="1.2"
+            android:pathData="M54,33 C60,39.5 60,47.5 54,52 C48,47.5 48,39.5 54,33 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="270">
+        <path
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#CFE0CC"
+            android:strokeWidth="1.2"
+            android:pathData="M54,33 C60,39.5 60,47.5 54,52 C48,47.5 48,39.5 54,33 Z" />
+    </group>
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="330">
+        <path
+            android:fillColor="#FFFFFF"
+            android:strokeColor="#CFE0CC"
+            android:strokeWidth="1.2"
+            android:pathData="M54,33 C60,39.5 60,47.5 54,52 C48,47.5 48,39.5 54,33 Z" />
+    </group>
+    <!-- Cream/yellow center. -->
+    <path
+        android:fillColor="#FDE68A"
+        android:pathData="M54,47 a7,7 0 1,0 0.1,0 Z" />
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M54,50.5 a3.5,3.5 0 1,0 0.1,0 Z" />
+</vector>
