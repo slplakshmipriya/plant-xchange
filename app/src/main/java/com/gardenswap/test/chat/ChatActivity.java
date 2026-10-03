@@ -329,7 +329,19 @@ public class ChatActivity extends AppCompatActivity {
                     @Override
                     public void onError(ApiException e) {
                         input.setEnabled(true);
-                        statusText.setText("Couldn't send (" + e.getCode() + ").");
+                        if ("message_inappropriate".equals(e.getCode())) {
+                            // Server-side moderation blocked the message before
+                            // it was posted or stored. The typed text stays in
+                            // the input so the user can reword and resend.
+                            new AlertDialog.Builder(ChatActivity.this)
+                                    .setTitle("Inappropriate message detected")
+                                    .setMessage("Inappropriate message detected, "
+                                            + "and will not be posted.")
+                                    .setPositiveButton("OK", null)
+                                    .show();
+                        } else {
+                            statusText.setText("Couldn't send (" + e.getCode() + ").");
+                        }
                     }
                 });
     }
