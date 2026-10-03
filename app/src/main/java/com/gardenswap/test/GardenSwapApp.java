@@ -15,9 +15,14 @@ import androidx.core.view.WindowInsetsCompat;
 
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.analytics.FirebaseAnalytics;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.crashlytics.FirebaseCrashlytics;
 import com.google.firebase.messaging.FirebaseMessaging;
 
+import com.gardenswap.test.api.ApiException;
+import com.gardenswap.test.api.ApiProvider;
+import com.gardenswap.test.api.GardenSwapApi;
 import com.gardenswap.test.notifications.GardenSwapMessagingService;
 
 /**
@@ -31,8 +36,6 @@ public class GardenSwapApp extends Application {
 
     private static final String TAG = "GardenSwapApp";
 
-    private BackendRegistrar backendRegistrar = new NoOpBackendRegistrar();
-
     @Override
     public void onCreate() {
         super.onCreate();
@@ -42,11 +45,6 @@ public class GardenSwapApp extends Application {
         registerFcmToken();
         createNotificationChannels();
         padScreensBelowStatusBar();
-    }
-
-    /** Visible for tests / future DI. */
-    public void setBackendRegistrar(BackendRegistrar registrar) {
-        this.backendRegistrar = registrar;
     }
 
     /**
@@ -112,20 +110,33 @@ public class GardenSwapApp extends Application {
     }
 
     private void registerFcmToken() {
-        FirebaseMessaging.getInstance().getToken()
-                .addOnCompleteListener(task -> {
-                    if (!task.isSuccessful()) {
-                        Log.w(TAG, "FCM token fetch failed", task.getException());
-                        return;
-                    }
-                    // Real backend call lands with the API contract (API-004);
-                    // for now this is routed to the no-op stub.
-                    backendRegistrar.registerFcmToken(currentUserId(), task.getResult());
-                });
-    }
+        // Register this device's FCM token with the backend whenever a
+        // user is signed in (rotation is handled by
+        // GardenSwapMessagingService.onNewToken). Signed-out devices have
+        // no account to target, so there is nothing to register.
+        FirebaseAuth.getInstance().addAuthStateListener(auth -> {
+            FirebaseUser user = auth.getCurrentUser();
+            if (user == null) {
+                return;
+            }
+            FirebaseMessaging.getInstance().getToken()
+                    .addOnCompleteListener(task -> {
+                        if (!task.isSuccessful()) {
+                            Log.w(TAG, "FCM token fetch failed", task.getException());
+                            return;
+                        }
+                        ApiProvider.get().registerFcmToken(user.getUid(), task.getResult(),
+                                new GardenSwapApi.Callback<Void>() {
+                                    @Override
+                                    public void onSuccess(Void ignored) {
+                                    }
 
-    private String currentUserId() {
-        // Firebase Auth sign-in lands in EPIC-MVP-2 (AND-010); empty = anonymous.
-        return "";
+                                    @Override
+                                    public void onError(ApiException e) {
+                                        Log.w(TAG, "FCM register failed: " + e.getCode());
+                                    }
+                                });
+                    });
+        });
     }
 }

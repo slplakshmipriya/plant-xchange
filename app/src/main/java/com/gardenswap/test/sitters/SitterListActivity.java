@@ -16,6 +16,7 @@ import com.gardenswap.test.api.ApiException;
 import com.gardenswap.test.api.ApiProvider;
 import com.gardenswap.test.api.GardenSwapApi;
 import com.gardenswap.test.api.SitterProfile;
+import com.gardenswap.test.api.UserProfile;
 import com.gardenswap.test.ui.Nav;
 import com.gardenswap.test.ui.SitterCardAdapter;
 import com.gardenswap.test.ui.Ui;
@@ -99,7 +100,31 @@ public class SitterListActivity extends AppCompatActivity {
         super.onResume();
         // Reload here (not just onCreate) so a sitter profile created via
         // BecomeSitterActivity shows up when returning to this screen.
-        load("85281"); // mock zip; real flow reads the profile's homeZip
+        // Search around the signed-in user's own home ZIP (was a hardcoded
+        // mock ZIP).
+        load();
+    }
+
+    private void load() {
+        statusText.setText("Finding sitters near you…");
+        ApiProvider.get().getMe(new GardenSwapApi.Callback<UserProfile>() {
+            @Override
+            public void onSuccess(UserProfile profile) {
+                String zip = profile.getHomeZip();
+                if (zip == null || zip.isEmpty()) {
+                    statusText.setText(
+                            "Set your home ZIP in your profile to find sitters nearby.");
+                    render(new ArrayList<>());
+                    return;
+                }
+                load(zip);
+            }
+
+            @Override
+            public void onError(ApiException e) {
+                statusText.setText("Couldn't load your profile (" + e.getCode() + ").");
+            }
+        });
     }
 
     private void load(String zip) {
