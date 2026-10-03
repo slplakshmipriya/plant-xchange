@@ -42,9 +42,6 @@
             android:name=".idv.IdvActivity"
             android:exported="false" />
         <activity
-            android:name=".idv.StubIdvActivity"
-            android:exported="false" />
-        <activity
             android:name=".trees.TreeDetailActivity"
             android:exported="false" />
         <activity

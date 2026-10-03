@@ -33,9 +33,13 @@ import com.gardenswap.test.util.IdvStatusMapper;
 import com.gardenswap.test.util.ImageLoader;
 import com.gardenswap.test.util.NavRouter;
 import com.gardenswap.test.util.SwapLogic;
+import com.bumptech.glide.Glide;
+import com.gardenswap.test.listings.CreateListingActivity;
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 /**
  * Profile screen (UID-023).
@@ -205,6 +209,43 @@ public class ProfileActivity extends AppCompatActivity {
     }
 
     private void doLogout() {
+        // Per-user local state must not leak to the next account on this
+        // device: the unpublished listing draft and Glide's image cache
+        // (avatars, chat photos) go now; the rest needs the signed-in
+        // token, so it happens before sign-out below.
+        CreateListingActivity.clearSavedDraft(this);
+        Glide.get(this).clearMemory();
+        new Thread(() -> Glide.get(this).clearDiskCache()).start();
+
+        // Deregister this device's push token (needs the signed-in ID
+        // token; best-effort — sign-out proceeds on any outcome), and shed
+        // the legacy per-user topic subscription from older installs.
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user != null) {
+            FirebaseMessaging.getInstance().unsubscribeFromTopic("user_" + user.getUid());
+        }
+        FirebaseMessaging.getInstance().getToken()
+                .addOnCompleteListener(task -> {
+                    if (task.isSuccessful() && task.getResult() != null) {
+                        ApiProvider.get().unregisterFcmToken(task.getResult(),
+                                new GardenSwapApi.Callback<Void>() {
+                                    @Override
+                                    public void onSuccess(Void ignored) {
+                                        signOutEverywhere();
+                                    }
+
+                                    @Override
+                                    public void onError(ApiException e) {
+                                        signOutEverywhere();
+                                    }
+                                });
+                    } else {
+                        signOutEverywhere();
+                    }
+                });
+    }
+
+    private void signOutEverywhere() {
         FirebaseAuth.getInstance().signOut();
         // Firebase sign-out alone leaves the Google account cached in Play
         // Services, so the next sign-in would silently reuse it. Clear it too

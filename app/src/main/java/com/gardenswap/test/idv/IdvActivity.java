@@ -21,7 +21,6 @@ import com.gardenswap.test.api.ApiProvider;
 import com.gardenswap.test.api.GardenSwapApi;
 import com.gardenswap.test.api.IdvSession;
 import com.gardenswap.test.api.IdvStatus;
-import com.gardenswap.test.api.MockGardenSwapApi;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.ui.VerifiedBadgeView;
 import com.gardenswap.test.util.IdvStatusMapper;
@@ -32,8 +31,14 @@ import com.google.firebase.analytics.FirebaseAnalytics;
  *
  * <p>Flow: check current status → "Start verification" creates a session via
  * {@link GardenSwapApi#createIdvSession} → {@link IdvProvider} runs the
- * provider flow (currently {@link StubIdvProvider}) → badge + status render.
- * Failure shows a retry path; cancel returns to the start state.
+ * provider flow → badge + status render from the SERVER's status (never the
+ * provider's self-report). Failure shows a retry path; cancel returns to
+ * the start state.
+ *
+ * <p>There is no real IDV provider wired yet. The test stub
+ * ({@code StubIdvProvider}, debug source set only) exists for debug builds;
+ * release builds show the server-reported status with verification marked
+ * unavailable instead of simulating success.
  *
  * <p>UID-022 restyles this screen against the prototype: eyebrow + headline,
  * a "What to expect" card, the verification status in a card, and a primary
@@ -42,8 +47,13 @@ import com.google.firebase.analytics.FirebaseAnalytics;
  */
 public class IdvActivity extends AppCompatActivity {
 
-    /** Swap this line for the real provider SDK; nothing else changes. */
-    private final IdvProvider idvProvider = new StubIdvProvider();
+    /**
+     * The IDV provider for this build, or {@code null} when none is wired.
+     * Only debug builds get the test stub (via the debug source set's
+     * factory); release builds must never simulate verification — the real
+     * provider SDK replaces this when IDV is implemented.
+     */
+    private final IdvProvider idvProvider = IdvProviderFactory.create();
 
     private enum Action {
         START_VERIFICATION,
@@ -225,6 +235,15 @@ public class IdvActivity extends AppCompatActivity {
         if (verifying) {
             return;
         }
+        if (idvProvider == null) {
+            // Release build, no provider wired: never simulate an outcome.
+            // Show the server-reported status and say verification is not
+            // available yet.
+            statusText.setText("ID verification isn't available yet — "
+                    + "we'll let you know when it opens.");
+            actionButton.setEnabled(true);
+            return;
+        }
         verifying = true;
         statusText.setText("Creating verification session…");
         actionButton.setEnabled(false);
@@ -242,7 +261,11 @@ public class IdvActivity extends AppCompatActivity {
                                                 ? "idv_verified" : "idv_failed",
                                         null);
                                 syncMockStatus(status);
-                                renderStatus(status);
+                                // Render the SERVER's status, not the
+                                // provider's self-report — the webhook-fed
+                                // server value is the only one other users'
+                                // trust decisions rely on.
+                                refreshStatus();
                             }
 
                             @Override
@@ -264,15 +287,13 @@ public class IdvActivity extends AppCompatActivity {
     }
 
     /**
-     * Mock-phase consistency: the stub provider reports the outcome to us, so
-     * mirror it into the mock backend's status. The real backend derives this
-     * server-side from the provider webhook (API-012) — this goes away with
-     * the mock.
+     * Mirror the provider's reported outcome into the backend used by this
+     * build. Production ignores it (server status comes from the provider
+     * webhook); the mock backend records it so debug builds can exercise
+     * the verified states. The screen always re-reads the server status
+     * afterwards either way.
      */
     private void syncMockStatus(IdvStatus status) {
-        GardenSwapApi api = ApiProvider.get();
-        if (api instanceof MockGardenSwapApi) {
-            ((MockGardenSwapApi) api).setMockIdvStatus(status);
-        }
+        ApiProvider.get().noteProviderOutcome(status);
     }
 }

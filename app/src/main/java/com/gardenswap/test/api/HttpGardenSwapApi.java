@@ -41,9 +41,10 @@ import java.util.concurrent.Executors;
  *   <li>{@code createIdvSession} → {@code POST /v1/idv/session}</li>
  *   <li>{@code getIdvStatus} → {@code GET /v1/users/me} → {@code idv_status}
  *       (no dedicated endpoint; reconciled in docs/api-contract.md)</li>
- *   <li>{@code registerFcmToken} → {@code FirebaseMessaging.subscribeToTopic("user_" + uid)}
- *       — the backend fans out to the per-user topic; there is intentionally
- *       no {@code /v1/devices} endpoint (see notify.py contract).</li>
+ *   <li>{@code registerFcmToken} → {@code POST /v1/users/me/fcm-token}
+ *       — device-token registration; pushes are device-targeted (the old
+ *       {@code user_<uid>} topic design let anyone subscribe to a victim's
+ *       pushes, since uids are public on listings).</li>
  * </ul>
  */
 public class HttpGardenSwapApi implements GardenSwapApi {
@@ -134,6 +135,10 @@ public class HttpGardenSwapApi implements GardenSwapApi {
         main.post(() -> callback.onError(error));
     }
 
+    /** Response bodies are small JSON; cap accumulation so a hostile or
+     * buggy server response can't OOM the app (L6). */
+    private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+
     private static String readAll(InputStream in) throws Exception {
         if (in == null) {
             return "";
@@ -143,6 +148,9 @@ public class HttpGardenSwapApi implements GardenSwapApi {
             byte[] buf = new byte[4096];
             int n;
             while ((n = autoClose.read(buf)) != -1) {
+                if (out.size() + n > MAX_RESPONSE_BYTES) {
+                    throw new java.io.IOException("response too large");
+                }
                 out.write(buf, 0, n);
             }
             return out.toString("UTF-8");
@@ -206,7 +214,8 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                     return;
                 }
                 // Step 2: PUT raw bytes to the signed upload URL.
-                putRawBytes(uploadUrl, imageBytes, contentType, new Callback<Void>() {
+                long maxBytes = signJson.optLong("max_bytes", -1);
+                putRawBytes(uploadUrl, imageBytes, contentType, maxBytes, new Callback<Void>() {
                     @Override
                     public void onSuccess(Void v) {
                         // Step 3: Finalize (strips EXIF GPS, makes it servable).
@@ -258,7 +267,8 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                             "Couldn't start the photo upload."));
                     return;
                 }
-                putRawBytes(uploadUrl, bytes, contentType, new Callback<Void>() {
+                long maxBytes = signJson.optLong("max_bytes", -1);
+                putRawBytes(uploadUrl, bytes, contentType, maxBytes, new Callback<Void>() {
                     @Override
                     public void onSuccess(Void v) {
                         try {
@@ -300,12 +310,14 @@ public class HttpGardenSwapApi implements GardenSwapApi {
      * PUT raw bytes to an upload URL. Relative paths go to our own backend
      * (Firebase bearer auth); absolute URLs are pre-signed third-party URLs
      * (GCS) whose query string is the authorization — attaching our Firebase
-     * token there makes GCS reject the PUT, so none is sent.
+     * token there makes GCS reject the PUT, so none is sent. When the sign
+     * response carried {@code maxBytes}, the signed URL binds that
+     * content-length range and the PUT must echo it as a header.
      */
-    private void putRawBytes(String path, byte[] bytes, String contentType,
+    private void putRawBytes(String path, byte[] bytes, String contentType, long maxBytes,
                              Callback<Void> callback) {
         if (path.startsWith("http")) {
-            net.execute(() -> putBytes(path, bytes, contentType, null, callback));
+            net.execute(() -> putBytes(path, bytes, contentType, null, maxBytes, callback));
             return;
         }
         FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
@@ -314,14 +326,14 @@ public class HttpGardenSwapApi implements GardenSwapApi {
             return;
         }
         user.getIdToken(true).addOnSuccessListener(result -> net.execute(() ->
-                putBytes(baseUrl + path, bytes, contentType, result.getToken(), callback))
+                putBytes(baseUrl + path, bytes, contentType, result.getToken(), -1, callback))
         ).addOnFailureListener(e -> fail(callback,
                 new ApiException("auth_error", "Couldn't get an auth token.")));
     }
 
     /** PUT bytes; a null bearerToken sends no Authorization header. */
     private void putBytes(String url, byte[] bytes, String contentType,
-                          String bearerToken, Callback<Void> callback) {
+                          String bearerToken, long maxBytes, Callback<Void> callback) {
         try {
             HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
             try {
@@ -330,6 +342,12 @@ public class HttpGardenSwapApi implements GardenSwapApi {
                 conn.setReadTimeout(30_000);
                 if (bearerToken != null) {
                     conn.setRequestProperty("Authorization", "Bearer " + bearerToken);
+                }
+                if (maxBytes > 0) {
+                    // The GCS signed URL binds this header (backend L1);
+                    // without the echo the signature check fails.
+                    conn.setRequestProperty("x-goog-content-length-range",
+                            "0," + maxBytes);
                 }
                 conn.setDoOutput(true);
                 conn.setRequestProperty("Content-Type", contentType);
@@ -371,20 +389,37 @@ public class HttpGardenSwapApi implements GardenSwapApi {
 
     @Override
     public void registerFcmToken(String userId, String fcmToken, Callback<Void> callback) {
-        // Backend contract: pushes go to the per-user FCM topic
-        // "user_{uid}" (see api/app/notify.py). Subscribing the device to
-        // that topic IS the registration — no token upload endpoint exists.
-        // The fcmToken parameter is intentionally unused (kept for signature
-        // stability); delivery relies on backend topic fan-out.
-        FirebaseMessaging.getInstance().subscribeToTopic("user_" + userId)
-                .addOnCompleteListener(task -> {
-                    if (task.isSuccessful()) {
-                        main.post(() -> callback.onSuccess(null));
-                    } else {
-                        fail(callback, new ApiException("fcm_subscribe_failed",
-                                "Couldn't subscribe to push notifications."));
-                    }
-                });
+        // Backend contract: POST /v1/users/me/fcm-token stores the DEVICE
+        // token (one owner per token) and pushes are device-targeted. The
+        // old design subscribed the device to a "user_<uid>" topic — topic
+        // subscription is unauthenticated and uids are public on listings,
+        // so anyone could receive another user's pushes. Unsubscribe from
+        // the legacy topic so upgraded installs shed it.
+        FirebaseMessaging.getInstance().unsubscribeFromTopic("user_" + userId);
+        try {
+            JSONObject body = new JSONObject()
+                    .put("token", fcmToken)
+                    .put("platform", "android");
+            authed("POST", "/v1/users/me/fcm-token", body,
+                    (status, json) -> callback.onSuccess(null),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("fcm_register_failed",
+                    "Couldn't register for push notifications."));
+        }
+    }
+
+    @Override
+    public void unregisterFcmToken(String fcmToken, Callback<Void> callback) {
+        try {
+            JSONObject body = new JSONObject().put("token", fcmToken);
+            authed("DELETE", "/v1/users/me/fcm-token", body,
+                    (status, json) -> callback.onSuccess(null),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("fcm_unregister_failed",
+                    "Couldn't deregister push notifications."));
+        }
     }
 
     // ------------------------------------------------------------ helpers

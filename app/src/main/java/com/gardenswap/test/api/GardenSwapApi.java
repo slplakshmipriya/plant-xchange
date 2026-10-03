@@ -49,11 +49,28 @@ public interface GardenSwapApi {
     void getIdvStatus(Callback<IdvStatus> callback);
 
     /**
-     * Register this device's FCM token for push (AND-002). Delivery is via the
-     * per-user FCM topic ({@code user_<uid>}); the {@code fcmToken} parameter
-     * is intentionally unused and kept for signature stability.
+     * Test-harness seam: an IDV provider flow just reported {@code status}.
+     * The production client ignores this — the SERVER's status (from the
+     * provider webhook) is the only truth, re-read via {@link #getIdvStatus}.
+     * The mock backend overrides it to mirror the stub outcome so debug
+     * builds can exercise the verified UI states.
+     */
+    default void noteProviderOutcome(IdvStatus status) {
+        // no-op in production
+    }
+
+    /**
+     * Register this device's FCM token for push (AND-002): the token is
+     * POSTed to the backend, which targets pushes per device. (Was: per-user
+     * FCM topic subscription — guessable from any listing's owner uid.)
      */
     void registerFcmToken(String userId, String fcmToken, Callback<Void> callback);
+
+    /**
+     * Deregister this device's FCM token (logout). Best-effort: callers sign
+     * out regardless of the result.
+     */
+    void unregisterFcmToken(String fcmToken, Callback<Void> callback);
 
     // ------------------------------------------------------------ Wave 3 (proposed)
 

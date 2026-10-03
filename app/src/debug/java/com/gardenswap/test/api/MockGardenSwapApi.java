@@ -110,6 +110,11 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void noteProviderOutcome(IdvStatus status) {
+        setMockIdvStatus(status);
+    }
+
+    @Override
     public void getMe(Callback<UserProfile> callback) {
         emit(callback, profile);
     }
@@ -157,6 +162,12 @@ public class MockGardenSwapApi implements GardenSwapApi {
     @Override
     public void registerFcmToken(String userId, String fcmToken, Callback<Void> callback) {
         Log.d(TAG, "registerFcmToken user=" + userId + " (mock: dropped)");
+        emit(callback, null);
+    }
+
+    @Override
+    public void unregisterFcmToken(String fcmToken, Callback<Void> callback) {
+        Log.d(TAG, "unregisterFcmToken (mock: dropped)");
         emit(callback, null);
     }
 
