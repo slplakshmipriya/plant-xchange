@@ -329,18 +329,31 @@ public class ChatActivity extends AppCompatActivity {
                     @Override
                     public void onError(ApiException e) {
                         input.setEnabled(true);
-                        if ("message_inappropriate".equals(e.getCode())) {
+                        String serverMessage = e.getMessage();
+                        boolean inappropriate = "message_inappropriate".equals(e.getCode())
+                                || (serverMessage != null
+                                && serverMessage.toLowerCase().contains("inappropriate"));
+                        if (inappropriate) {
                             // Server-side moderation blocked the message before
                             // it was posted or stored. The typed text stays in
                             // the input so the user can reword and resend.
+                            String popupMessage = serverMessage != null
+                                    && !serverMessage.trim().isEmpty()
+                                    && !"message_inappropriate".equals(serverMessage)
+                                    ? serverMessage
+                                    : "Inappropriate message detected, and will not be posted.";
                             new AlertDialog.Builder(ChatActivity.this)
                                     .setTitle("Inappropriate message detected")
-                                    .setMessage("Inappropriate message detected, "
-                                            + "and will not be posted.")
+                                    .setMessage(popupMessage)
                                     .setPositiveButton("OK", null)
                                     .show();
                         } else {
-                            statusText.setText("Couldn't send (" + e.getCode() + ").");
+                            String friendly = serverMessage != null
+                                    && !serverMessage.trim().isEmpty()
+                                    && !serverMessage.equals(e.getCode())
+                                    ? serverMessage
+                                    : "Please try again.";
+                            statusText.setText("Couldn't send: " + friendly);
                         }
                     }
                 });
