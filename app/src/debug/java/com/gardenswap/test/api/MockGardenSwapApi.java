@@ -808,10 +808,38 @@ public class MockGardenSwapApi implements GardenSwapApi {
                             "This slot is full"));
                     return;
                 }
-                Slot claimed = slot.withClaimedCount(slot.getClaimedCount() + 1);
+                Slot claimed = slot.withClaimedCount(slot.getClaimedCount() + 1)
+                        .withClaimedByMe();
                 List<Slot> slots = slotsByTree.get(treeId);
                 slots.set(slots.indexOf(slot), claimed);
                 emit(callback, claimed);
+                return;
+            }
+        }
+        emitError(callback, new ApiException("slot_not_found", "No such slot"));
+    }
+
+    @Override
+    public void confirmTreeVisit(String treeId, String slotId, double lbsPicked,
+            Callback<Slot> callback) {
+        if (!(lbsPicked > 0) || lbsPicked > 1000) {
+            emitError(callback, new ApiException("invalid_lbs",
+                    "lbs_picked must be greater than 0 and at most 1000"));
+            return;
+        }
+        for (Slot slot : slotsForTree(treeId)) {
+            if (slot.getId().equals(slotId)) {
+                if (!slot.isClaimedByMe()) {
+                    emitError(callback, new ApiException("not_claimed",
+                            "You have not claimed a spot in this slot"));
+                    return;
+                }
+                // Mock: mark the claim visited and echo the amount, like the
+                // backend (idempotent — re-confirming updates the lbs).
+                Slot updated = slot.withVisitConfirmed(lbsPicked);
+                List<Slot> slots = slotsByTree.get(treeId);
+                slots.set(slots.indexOf(slot), updated);
+                emit(callback, updated);
                 return;
             }
         }

@@ -275,6 +275,17 @@ public interface GardenSwapApi {
     void claimTreeSlot(String treeId, String slotId, Callback<Slot> callback);
 
     /**
+     * Confirm a pick-your-own visit after the fact and log the pounds
+     * picked ({@code POST /v1/trees/{treeId}/slots/{slotId}/confirm-visit}
+     * with {@code {lbs_picked}}). Only the slot's claimer may confirm
+     * (403 {@code not_claimed} otherwise); confirming again updates the
+     * logged amount. Moves no credits. Returns the updated slot, annotated
+     * {@code claimed_by_me}/{@code visit_confirmed}/{@code lbs_picked}.
+     */
+    void confirmTreeVisit(String treeId, String slotId, double lbsPicked,
+            Callback<Slot> callback);
+
+    /**
      * Upload raw file bytes via the /v1/uploads flow (sign → PUT → finalize).
      * Returns the storage <b>key</b> (e.g. {@code u/&lt;uid&gt;/&lt;id&gt;.jpg}),
      * not the public URL. Use the key with {@link #sendAttachment}.
