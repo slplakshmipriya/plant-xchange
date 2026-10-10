@@ -1,5 +1,6 @@
 package com.gardenswap.test.trees;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
@@ -15,13 +16,18 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.gardenswap.test.api.ApiException;
 import com.gardenswap.test.api.ApiProvider;
+import com.gardenswap.test.api.ChatThread;
 import com.gardenswap.test.api.GardenSwapApi;
 import com.gardenswap.test.api.Slot;
 import com.gardenswap.test.api.TreeListing;
+import com.gardenswap.test.chat.ChatActivity;
 import com.gardenswap.test.ui.Ui;
 import com.gardenswap.test.util.RipeWindow;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -45,9 +51,26 @@ public class TreeDetailActivity extends AppCompatActivity {
     private TreeListing tree;
     private String treeId;
 
+    // Visit-confirm section state: the slot the section targets (the
+    // caller's earliest unconfirmed claim — see chooseVisitTarget), the
+    // caller's claimed slots so the target can be re-picked as claims and
+    // confirmations land, the section's widgets so async slot loads can
+    // refresh them, and an in-flight flag so a refresh cannot re-enable
+    // the Confirm button mid-request.
+    private Slot mySlot;
+    private final List<Slot> myClaimedSlots = new ArrayList<>();
+    private boolean confirmInFlight;
+    private TextView visitStateText;
+    private EditText visitLbsInput;
+    private Button visitConfirmButton;
+    private String viewerUid;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        viewerUid = user == null ? null : user.getUid();
 
         LinearLayout root = Ui.column(this, 24);
         TextView title = Ui.label(this, "Pick your own");
@@ -121,10 +144,15 @@ public class TreeDetailActivity extends AppCompatActivity {
             content.addView(Ui.label(this,
                     "The exact pickup address stays hidden until your visit is confirmed. "
                             + "Message " + tree.getOwnerDisplayName() + " to arrange a time."));
-            Button contact = Ui.button(this, "Message " + tree.getOwnerDisplayName());
-            contact.setOnClickListener(v -> statusText.setText(
-                    "Chat opens after you claim a slot (Wave 3 mock)."));
-            content.addView(contact);
+            // The owner messaging themselves is pointless (the thread
+            // would show the other party as "Neighbor") — mirror
+            // ListingDetailActivity, which only offers chat to the other
+            // party.
+            if (!isOwnTree()) {
+                Button contact = Ui.button(this, "Message " + tree.getOwnerDisplayName());
+                contact.setOnClickListener(v -> openChat());
+                content.addView(contact);
+            }
         }
         Ui.gap(content, this, 12);
 
@@ -142,44 +170,186 @@ public class TreeDetailActivity extends AppCompatActivity {
     }
 
     /**
-     * Post-visit confirm (AND-050): an lbs-taken input plus a Confirm button.
-     * No visit-confirm endpoint exists in {@link GardenSwapApi} yet — API-060's
-     * {@code confirmExchange} is two-sided credit-exchange confirmation and its
-     * semantics do not fit a tree visit — so the button reports the backend gap
-     * instead of inventing an API call.
+     * Opens (or creates) the chat thread with this tree's owner so the
+     * visitor can arrange a time — before any claim; the thread endpoint is
+     * idempotent per listing. Threads key off the listing id, and a tree's
+     * id IS its listing id (the same id the slot endpoints use), so this
+     * mirrors {@code ListingDetailActivity.openChat()} unchanged.
+     */
+    private void openChat() {
+        ApiProvider.get().openThread(treeId,
+                new GardenSwapApi.Callback<ChatThread>() {
+                    @Override
+                    public void onSuccess(ChatThread thread) {
+                        Intent intent = new Intent(TreeDetailActivity.this,
+                                ChatActivity.class);
+                        intent.putExtra(ChatActivity.EXTRA_THREAD_ID,
+                                thread.getThreadId());
+                        intent.putExtra(ChatActivity.EXTRA_OTHER_NAME,
+                                thread.getOtherPartyName());
+                        intent.putExtra(ChatActivity.EXTRA_OTHER_AVATAR,
+                                thread.getOtherAvatarUrl());
+                        intent.putExtra(ChatActivity.EXTRA_PARTICIPANT_ID,
+                                thread.getParticipantUserId());
+                        intent.putExtra(ChatActivity.EXTRA_CONTEXT, contextLabel());
+                        startActivity(intent);
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        Toast.makeText(TreeDetailActivity.this,
+                                "Couldn't open chat.", Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
+    private String contextLabel() {
+        String variety = tree == null || tree.getVariety() == null
+                ? "Pick-your-own" : tree.getVariety();
+        return variety + " · Pick-your-own visit";
+    }
+
+    /**
+     * Post-visit confirm (AND-050): an lbs-taken input plus a Confirm button,
+     * wired to {@link GardenSwapApi#confirmTreeVisit}
+     * ({@code POST /v1/trees/{id}/slots/{slotId}/confirm-visit}). Only the
+     * claimer of a slot may confirm, so the section follows the caller's
+     * claim state (see {@link #refreshVisitSection()}): with no claim held,
+     * the button explains that a slot must be claimed first and never calls
+     * the API; with a claim held it posts the entered lbs; once confirmed,
+     * it shows the recorded amount with the input prefilled, and confirming
+     * again updates the amount (idempotent on the backend). No credits move
+     * here — they settled at claim time.
      */
     private void renderVisitSection() {
         TextView title = Ui.label(this, "Confirm visit");
         title.setTextSize(14);
         content.addView(title);
         Ui.gap(content, this, 4);
-        content.addView(Ui.caption(this, "Log what you picked after your visit."));
+        visitStateText = Ui.caption(this, "Log what you picked after your visit.");
+        content.addView(visitStateText);
         Ui.gap(content, this, 4);
 
-        final EditText lbsInput = Ui.input(this, "Pounds picked",
+        visitLbsInput = Ui.input(this, "Pounds picked",
                 InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        content.addView(lbsInput);
+        content.addView(visitLbsInput);
         Ui.gap(content, this, 8);
 
-        Button confirm = Ui.button(this, "Confirm visit");
-        confirm.setOnClickListener(v -> {
-            String raw = lbsInput.getText().toString().trim();
-            if (raw.isEmpty()) {
-                Toast.makeText(this, "Enter pounds picked first", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            try {
-                Double.parseDouble(raw);
-            } catch (NumberFormatException nfe) {
-                Toast.makeText(this, "Enter a number for pounds picked", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            Toast.makeText(this,
-                    "Visit confirmation needs the backend visit API",
-                    Toast.LENGTH_SHORT).show();
-        });
-        content.addView(confirm);
+        visitConfirmButton = Ui.button(this, "Confirm visit");
+        visitConfirmButton.setOnClickListener(v -> onConfirmVisit());
+        content.addView(visitConfirmButton);
         Ui.gap(content, this, 12);
+        refreshVisitSection();
+    }
+
+    private void onConfirmVisit() {
+        if (mySlot == null) {
+            Toast.makeText(this,
+                    "Claim a slot first — you can log your pick after the visit.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        String raw = visitLbsInput.getText().toString().trim();
+        if (raw.isEmpty()) {
+            Toast.makeText(this, "Enter pounds picked first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final double lbs;
+        try {
+            lbs = Double.parseDouble(raw);
+        } catch (NumberFormatException nfe) {
+            Toast.makeText(this, "Enter a number for pounds picked",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // Mirror the server/mock rule (finite, > 0, <= 1000) locally: it
+        // fails fast with a friendly message, and "NaN" never reaches
+        // JSONObject encoding, where it would die as an encode error.
+        if (!Double.isFinite(lbs) || lbs <= 0 || lbs > 1000) {
+            Toast.makeText(this, "Enter pounds picked (up to 1000)",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        confirmInFlight = true;
+        visitConfirmButton.setEnabled(false);
+        ApiProvider.get().confirmTreeVisit(treeId, mySlot.getId(), lbs,
+                new GardenSwapApi.Callback<Slot>() {
+                    @Override
+                    public void onSuccess(Slot updated) {
+                        confirmInFlight = false;
+                        mySlot = updated;
+                        upsertClaim(updated);
+                        refreshVisitSection();
+                        Toast.makeText(TreeDetailActivity.this,
+                                "Visit confirmed — " + formatLbs(lbs) + " lbs logged",
+                                Toast.LENGTH_SHORT).show();
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        confirmInFlight = false;
+                        visitConfirmButton.setEnabled(true);
+                        Toast.makeText(TreeDetailActivity.this,
+                                friendlyMessage(e), Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    /**
+     * Keeps the visit section in step with the caller's claim state: no
+     * claim yet (log after claiming), claim held (ready to log), or visit
+     * confirmed (recorded amount shown, input prefilled for an update).
+     * Safe to call before the section is rendered (widgets still null).
+     */
+    private void refreshVisitSection() {
+        if (visitStateText == null) {
+            return;
+        }
+        // Never re-enable Confirm while a confirm request is in flight —
+        // the server call is idempotent, but duplicate POSTs are noise.
+        if (mySlot == null) {
+            visitStateText.setText("Log what you picked after your visit.");
+            visitConfirmButton.setText("Confirm visit");
+            visitConfirmButton.setEnabled(!confirmInFlight);
+        } else if (mySlot.isVisitConfirmed()) {
+            Double lbs = mySlot.getLbsPicked();
+            visitStateText.setText("Slot " + slotDateTime(mySlot) + " · "
+                    + (lbs == null
+                            ? "Visit confirmed."
+                            : "Visit confirmed · " + formatLbs(lbs) + " lbs picked"));
+            visitConfirmButton.setText("Update amount");
+            visitConfirmButton.setEnabled(!confirmInFlight);
+            if (lbs != null && visitLbsInput.getText().toString().trim().isEmpty()) {
+                visitLbsInput.setText(formatLbs(lbs));
+            }
+        } else {
+            visitStateText.setText("Slot " + slotDateTime(mySlot)
+                    + " — log what you picked after your visit.");
+            visitConfirmButton.setText("Confirm visit");
+            visitConfirmButton.setEnabled(!confirmInFlight);
+        }
+    }
+
+    /** Whole amounts read "5"; fractional ones read "5.5". */
+    private static String formatLbs(double lbs) {
+        if (lbs == Math.floor(lbs) && !Double.isInfinite(lbs)) {
+            return String.valueOf((long) lbs);
+        }
+        return String.format(Locale.US, "%.1f", lbs);
+    }
+
+    /**
+     * Human-readable error text for toasts: the server's plain-language
+     * message when it sent one, never a raw error code (same pattern as
+     * ChatActivity's send errors).
+     */
+    private static String friendlyMessage(ApiException e) {
+        String serverMessage = e.getMessage();
+        if (serverMessage != null && !serverMessage.trim().isEmpty()
+                && !serverMessage.equals(e.getCode())) {
+            return serverMessage;
+        }
+        return "Please try again.";
     }
 
     /**
@@ -194,6 +364,20 @@ public class TreeDetailActivity extends AppCompatActivity {
             @Override
             public void onSuccess(List<Slot> result) {
                 renderSlots(result);
+                // The slot list annotates the caller's own claims; collect
+                // them so the visit section can target the right one (with
+                // several claims on one tree, logging against the wrong
+                // slot confirms a visit that never happened there).
+                myClaimedSlots.clear();
+                if (result != null) {
+                    for (Slot slot : result) {
+                        if (slot.isClaimedByMe()) {
+                            myClaimedSlots.add(slot);
+                        }
+                    }
+                }
+                mySlot = chooseVisitTarget(myClaimedSlots);
+                refreshVisitSection();
             }
 
             @Override
@@ -203,6 +387,53 @@ public class TreeDetailActivity extends AppCompatActivity {
                         "Slots not available yet"));
             }
         });
+    }
+
+    /**
+     * Picks the slot the visit section should act on: the caller's
+     * earliest unconfirmed claim (the visit still waiting to be logged),
+     * or the earliest claim overall when all are confirmed (so its
+     * recorded amount can be reviewed/updated). Null when the caller
+     * holds no claim. Slot order is by scheduled day, then start time.
+     */
+    private static Slot chooseVisitTarget(List<Slot> claimed) {
+        Slot earliest = null;
+        Slot earliestUnconfirmed = null;
+        for (Slot slot : claimed) {
+            if (earliest == null || comesBefore(slot, earliest)) {
+                earliest = slot;
+            }
+            if (!slot.isVisitConfirmed()
+                    && (earliestUnconfirmed == null
+                        || comesBefore(slot, earliestUnconfirmed))) {
+                earliestUnconfirmed = slot;
+            }
+        }
+        return earliestUnconfirmed != null ? earliestUnconfirmed : earliest;
+    }
+
+    private static boolean comesBefore(Slot a, Slot b) {
+        if (a.getDayMs() != b.getDayMs()) {
+            return a.getDayMs() < b.getDayMs();
+        }
+        return a.getStartMs() < b.getStartMs();
+    }
+
+    /** Adds a claimed slot (or replaces the same-id entry) in the tracked set. */
+    private void upsertClaim(Slot slot) {
+        for (int i = 0; i < myClaimedSlots.size(); i++) {
+            if (myClaimedSlots.get(i).getId().equals(slot.getId())) {
+                myClaimedSlots.set(i, slot);
+                return;
+            }
+        }
+        myClaimedSlots.add(slot);
+    }
+
+    /** True when the signed-in user owns this tree (uid from the listing wire). */
+    private boolean isOwnTree() {
+        return viewerUid != null && tree != null
+                && viewerUid.equals(tree.getOwnerUid());
     }
 
     private void renderSlots(List<Slot> slots) {
@@ -250,6 +481,14 @@ public class TreeDetailActivity extends AppCompatActivity {
                             refreshSlotRow(updated, when, detail, claim);
                             Toast.makeText(TreeDetailActivity.this,
                                     "Slot claimed", Toast.LENGTH_SHORT).show();
+                            // Claim responses carry no caller annotation; the
+                            // claim is the caller's by definition. Track it
+                            // among the caller's claims and re-pick the
+                            // visit target (earliest unconfirmed wins).
+                            upsertClaim(updated.isClaimedByMe()
+                                    ? updated : updated.withClaimedByMe());
+                            mySlot = chooseVisitTarget(myClaimedSlots);
+                            refreshVisitSection();
                         }
 
                         @Override

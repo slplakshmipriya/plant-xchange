@@ -23,6 +23,7 @@ public final class TreeListing {
     private final String pickupRules;
     private final String sprayDisclosure;
     private final String ownerDisplayName;
+    private final String ownerUid;
     private final boolean addressUnlocked;
     private final boolean ripeAlertsSubscribed;
 
@@ -35,6 +36,7 @@ public final class TreeListing {
         this.pickupRules = builder.pickupRules;
         this.sprayDisclosure = builder.sprayDisclosure;
         this.ownerDisplayName = builder.ownerDisplayName;
+        this.ownerUid = builder.ownerUid;
         this.addressUnlocked = builder.addressUnlocked;
         this.ripeAlertsSubscribed = builder.ripeAlertsSubscribed;
     }
@@ -71,6 +73,11 @@ public final class TreeListing {
         return ownerDisplayName;
     }
 
+    /** Owner's uid from the wire ({@code owner_uid}); null when absent. */
+    public String getOwnerUid() {
+        return ownerUid;
+    }
+
     /** True only after a confirmed exchange — otherwise the address stays hidden. */
     public boolean isAddressUnlocked() {
         return addressUnlocked;
@@ -88,6 +95,7 @@ public final class TreeListing {
                 .pickupRules(pickupRules)
                 .sprayDisclosure(sprayDisclosure)
                 .ownerDisplayName(ownerDisplayName)
+                .ownerUid(ownerUid)
                 .addressUnlocked(addressUnlocked)
                 .ripeAlertsSubscribed(ripeAlertsSubscribed);
     }
@@ -105,6 +113,7 @@ public final class TreeListing {
         private String pickupRules;
         private String sprayDisclosure;
         private String ownerDisplayName;
+        private String ownerUid;
         private boolean addressUnlocked;
         private boolean ripeAlertsSubscribed;
 
@@ -143,6 +152,11 @@ public final class TreeListing {
 
         public Builder ownerDisplayName(String ownerDisplayName) {
             this.ownerDisplayName = ownerDisplayName;
+            return this;
+        }
+
+        public Builder ownerUid(String ownerUid) {
+            this.ownerUid = ownerUid;
             return this;
         }
 

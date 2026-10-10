@@ -274,6 +274,7 @@ public final class JsonParsers {
                 .pickupRules(JsonParsers.nullableString(o, "visit_rules"))
                 .sprayDisclosure(JsonParsers.nullableString(o, "spray_disclosure"))
                 .ownerDisplayName(ownerDisplayName)
+                .ownerUid(JsonParsers.nullableString(o, "owner_uid"))
                 .addressUnlocked(false)
                 .ripeAlertsSubscribed(false)
                 .build();
@@ -597,12 +598,24 @@ public final class JsonParsers {
 
     /** Parse a pick-your-own slot. {@code creditCost} defaults to 1. */
     public static Slot parseSlot(JSONObject o) throws JSONException {
-        // Backend slots.py emits camelCase keys.
+        // Backend slots.py emits camelCase keys for the slot itself; the
+        // caller-claim annotations are snake_case (claimed_by_me etc.) and
+        // only present on slots the caller has claimed. Both spellings are
+        // tolerated; absent annotations parse as false/null.
+        Double lbsPicked = null;
+        if (!o.isNull("lbs_picked")) {
+            lbsPicked = o.optDouble("lbs_picked");
+        } else if (!o.isNull("lbsPicked")) {
+            lbsPicked = o.optDouble("lbsPicked");
+        }
         return new Slot(o.getString("id"), o.optString("treeId", ""),
                 o.optLong("dayMs", 0), o.optLong("startMs", 0),
                 o.optLong("endMs", 0), o.optInt("maxPickers", 1),
                 o.optInt("claimedCount", 0), o.optInt("creditCost", 1),
-                o.isNull("cashCents") ? null : o.optInt("cashCents"));
+                o.isNull("cashCents") ? null : o.optInt("cashCents"),
+                o.optBoolean("claimed_by_me", o.optBoolean("claimedByMe", false)),
+                o.optBoolean("visit_confirmed", o.optBoolean("visitConfirmed", false)),
+                lbsPicked);
     }
 
     /** Parse {@code GET /v1/trees/{id}/slots} ({@code {"slots": [...]}}). */

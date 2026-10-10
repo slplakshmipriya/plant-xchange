@@ -7,6 +7,11 @@ package com.gardenswap.test.api;
  * to 1 when the wire omits it (PRD §5: free listings ride the 1-credit
  * floor); {@code cashCents} is the optional fiat price when the sitter/owner
  * charges cash instead, null when unset.
+ *
+ * <p>The caller-relative annotations ({@code claimedByMe},
+ * {@code visitConfirmed}, {@code lbsPicked}) are only present on the wire
+ * for slots the signed-in user has claimed; everyone else gets the plain
+ * public shape. Absent annotations parse as false/null.
  */
 public final class Slot {
 
@@ -19,9 +24,20 @@ public final class Slot {
     private final int claimedCount;
     private final int creditCost;
     private final Integer cashCents;
+    private final boolean claimedByMe;
+    private final boolean visitConfirmed;
+    private final Double lbsPicked;
 
     public Slot(String id, String treeId, long dayMs, long startMs, long endMs,
                 int maxPickers, int claimedCount, int creditCost, Integer cashCents) {
+        this(id, treeId, dayMs, startMs, endMs, maxPickers, claimedCount,
+                creditCost, cashCents, false, false, null);
+    }
+
+    /** Full constructor, including the caller-relative claim annotations. */
+    public Slot(String id, String treeId, long dayMs, long startMs, long endMs,
+                int maxPickers, int claimedCount, int creditCost, Integer cashCents,
+                boolean claimedByMe, boolean visitConfirmed, Double lbsPicked) {
         this.id = id;
         this.treeId = treeId;
         this.dayMs = dayMs;
@@ -31,6 +47,9 @@ public final class Slot {
         this.claimedCount = claimedCount;
         this.creditCost = creditCost;
         this.cashCents = cashCents;
+        this.claimedByMe = claimedByMe;
+        this.visitConfirmed = visitConfirmed;
+        this.lbsPicked = lbsPicked;
     }
 
     public String getId() {
@@ -71,6 +90,21 @@ public final class Slot {
         return cashCents;
     }
 
+    /** True when the signed-in user holds a claim on this slot. */
+    public boolean isClaimedByMe() {
+        return claimedByMe;
+    }
+
+    /** True once the signed-in user has confirmed their visit on this slot. */
+    public boolean isVisitConfirmed() {
+        return visitConfirmed;
+    }
+
+    /** Pounds the signed-in user logged at their visit; null until confirmed. */
+    public Double getLbsPicked() {
+        return lbsPicked;
+    }
+
     /** Remaining capacity; never negative even on a racy wire value. */
     public int getRemainingCount() {
         return Math.max(0, maxPickers - claimedCount);
@@ -79,6 +113,21 @@ public final class Slot {
     /** Immutable copy with a new claimed count (claim flow). */
     public Slot withClaimedCount(int claimedCount) {
         return new Slot(id, treeId, dayMs, startMs, endMs, maxPickers,
-                claimedCount, creditCost, cashCents);
+                claimedCount, creditCost, cashCents,
+                claimedByMe, visitConfirmed, lbsPicked);
+    }
+
+    /** Immutable copy marked as claimed by the signed-in user. */
+    public Slot withClaimedByMe() {
+        return new Slot(id, treeId, dayMs, startMs, endMs, maxPickers,
+                claimedCount, creditCost, cashCents,
+                true, visitConfirmed, lbsPicked);
+    }
+
+    /** Immutable copy after a visit confirmation (visited, amount logged). */
+    public Slot withVisitConfirmed(double lbs) {
+        return new Slot(id, treeId, dayMs, startMs, endMs, maxPickers,
+                claimedCount, creditCost, cashCents,
+                true, true, lbs);
     }
 }
