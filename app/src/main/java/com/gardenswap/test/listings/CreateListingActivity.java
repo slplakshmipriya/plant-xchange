@@ -89,6 +89,8 @@ public class CreateListingActivity extends AppCompatActivity {
     private LinearLayout creditRow;
     private EditText pickupStartInput;
     private EditText pickupEndInput;
+    private TextView pickupWindowEyebrow;
+    private TextView ripeWindowCaption;
     private EditText expiryDaysInput;
     private TextView sprayNoneChip;
     private TextView sprayUsedChip;
@@ -252,8 +254,16 @@ public class CreateListingActivity extends AppCompatActivity {
         this.creditRow = stepperRow;
         Ui.gap(root, this, 12);
 
-        // ---- Pickup window ----
-        root.addView(Ui.eyebrow(this, "Pickup window · optional"));
+        // ---- Pickup window (a tree's "ripe window") ----
+        // Trees call this what pickers see: the ripe window. The eyebrow
+        // and caption swap with the selected type (selectType); other
+        // types keep the plain optional pickup window.
+        pickupWindowEyebrow = Ui.eyebrow(this, "Pickup window · optional");
+        root.addView(pickupWindowEyebrow);
+        Ui.gap(root, this, 4);
+        ripeWindowCaption = Ui.caption(this,
+                "Pickers see this as the ripe window; slots you post should fall inside it.");
+        root.addView(ripeWindowCaption);
         Ui.gap(root, this, 4);
         pickupStartInput = Ui.input(this, "Start, e.g. 2026-10-05 09:00", InputType.TYPE_CLASS_TEXT);
         pickupEndInput = Ui.input(this, "End, e.g. 2026-10-05 12:00", InputType.TYPE_CLASS_TEXT);
@@ -362,6 +372,17 @@ public class CreateListingActivity extends AppCompatActivity {
         if (potAgeSection != null) {
             potAgeSection.setVisibility(
                     type == ListingType.SEEDLING ? android.view.View.VISIBLE : android.view.View.GONE);
+        }
+        // For trees the "pickup window" is the ripe window; name it so.
+        if (pickupWindowEyebrow != null) {
+            boolean tree = type == ListingType.TREE;
+            pickupWindowEyebrow.setText((tree
+                    ? "Ripe window · when the fruit is ready to pick"
+                    : "Pickup window · optional").toUpperCase(Locale.US));
+            if (ripeWindowCaption != null) {
+                ripeWindowCaption.setVisibility(tree
+                        ? android.view.View.VISIBLE : android.view.View.GONE);
+            }
         }
     }
 
@@ -548,6 +569,8 @@ public class CreateListingActivity extends AppCompatActivity {
     /**
      * Pickup window default (AND-126): when both fields are blank, pre-fill a
      * 4-day window starting now so the user sees (and can edit) the default.
+     * Skipped for trees: a blank ripe window must publish unset rather than
+     * silently inventing a now→now+4d window for fruit that ripens later.
      */
     private void applyPickupWindowDefault() {
         boolean startBlank = pickupStartInput.getText().toString().trim().isEmpty();
@@ -577,7 +600,11 @@ public class CreateListingActivity extends AppCompatActivity {
             statusView.setText("Still uploading your photos — wait a moment, then tap Publish again.");
             return;
         }
-        applyPickupWindowDefault();
+        // Trees never get the invented now→+4d window (see
+        // applyPickupWindowDefault); a blank ripe window publishes unset.
+        if (selectedType != ListingType.TREE) {
+            applyPickupWindowDefault();
+        }
         applyExpiryDefault();
         CreateListingValidator.Draft draft = collectDraft();
         List<String> errors = CreateListingValidator.validate(draft, System.currentTimeMillis());
@@ -610,12 +637,35 @@ public class CreateListingActivity extends AppCompatActivity {
             statusView.setText("Quantity must be a number.");
             return;
         }
+        // A one-sided ripe window counts as unset — the API only sends a
+        // window when both ends are present, so it publishes without one.
+        // Say that up front instead of letting it pass silently (or leaning
+        // on the post-publish reminder below, which stays for the
+        // both-blank case).
+        boolean startFilled = !pickupStartInput.getText().toString().trim().isEmpty();
+        boolean endFilled = !pickupEndInput.getText().toString().trim().isEmpty();
+        final boolean oneSidedWindow = selectedType == ListingType.TREE
+                && (startFilled != endFilled);
+        if (oneSidedWindow) {
+            Toast.makeText(this, "Set both ripe-window dates, or leave both blank.",
+                    Toast.LENGTH_LONG).show();
+        }
+        // A tree published with no ripe window gets a reminder toast
+        // instead of the plain confirmation.
+        final boolean publishedWithoutWindow = selectedType == ListingType.TREE
+                && !oneSidedWindow
+                && (draft.pickupStartMs == null || draft.pickupEndMs == null);
         GardenSwapApi.Callback<Listing> callback = new GardenSwapApi.Callback<Listing>() {
             @Override
             public void onSuccess(Listing result) {
                 clearDraft();
                 Toast.makeText(CreateListingActivity.this,
-                        "Listing published", Toast.LENGTH_SHORT).show();
+                        publishedWithoutWindow
+                                ? "Published without a ripe window — set one when "
+                                        + "the fruit is close."
+                                : "Listing published",
+                        publishedWithoutWindow
+                                ? Toast.LENGTH_LONG : Toast.LENGTH_SHORT).show();
                 setResult(RESULT_OK);
                 finish();
             }

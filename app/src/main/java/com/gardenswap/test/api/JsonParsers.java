@@ -261,15 +261,33 @@ public final class JsonParsers {
     }
 
     /**
-     * Parse a tree listing. The backend stores no ripe window, per-picker
-     * limit, or address-unlock state — those stay at their unset defaults
-     * (documented in docs/api-contract.md).
+     * Parse a tree listing. The ripe window rides under two key names
+     * depending on the payload: tree cards ({@code GET /v1/trees}) call it
+     * {@code ripe_window}, the listing detail ({@code GET /v1/listings/{id}},
+     * public_listing) {@code pickup_window}. Both are
+     * {@code {"start": <iso>, "end": <iso>}} with ISO-8601 UTC strings and
+     * either may be null/absent — a windowless tree parses to the (0, 0)
+     * sentinel the ripe gating treats as "no window". (Per-picker limit
+     * and address-unlock state still have no wire source and stay at
+     * their unset defaults — see docs/api-contract.md.)
      */
     public static TreeListing parseTreeListing(JSONObject o, String ownerDisplayName)
             throws JSONException {
+        // Tolerant of either window key; a one-sided range keeps whichever
+        // bound is present (0 = unbounded on that side).
+        long ripeStartMs = 0;
+        long ripeEndMs = 0;
+        JSONObject window = o.optJSONObject("ripe_window");
+        if (window == null) {
+            window = o.optJSONObject("pickup_window");
+        }
+        if (window != null) {
+            ripeStartMs = parseIsoMs(JsonParsers.nullableString(window, "start"));
+            ripeEndMs = parseIsoMs(JsonParsers.nullableString(window, "end"));
+        }
         return TreeListing.builder(o.getString("id"))
                 .variety(o.optString("variety", ""))
-                .ripeWindow(0, 0)
+                .ripeWindow(ripeStartMs, ripeEndMs)
                 .perPickerLimit(null)
                 .pickupRules(JsonParsers.nullableString(o, "visit_rules"))
                 .sprayDisclosure(JsonParsers.nullableString(o, "spray_disclosure"))
