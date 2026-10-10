@@ -847,6 +847,44 @@ public class MockGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void createTreeSlot(String treeId, long dayMs, long startMs, long endMs,
+            int maxPickers, int creditCost, Callback<Slot> callback) {
+        // Mock: mirror the backend gates, then append to the tree's slots.
+        if (endMs <= startMs) {
+            emitError(callback, new ApiException("invalid_window",
+                    "startMs must be before endMs"));
+            return;
+        }
+        if (maxPickers < 1) {
+            emitError(callback, new ApiException("invalid_max_pickers",
+                    "maxPickers must be at least 1"));
+            return;
+        }
+        if (creditCost < 0 || creditCost > 100) {
+            emitError(callback, new ApiException("invalid_credit_cost",
+                    "creditCost must be between 0 and 100"));
+            return;
+        }
+        // Owner gate, like the backend's ensure_owner: when the tree's
+        // owner is known (a listing this user created, or a seeded owner),
+        // only that owner may post slots. Seeded sample trees carry no
+        // owner uid, so demo slots can be posted on them. Null-safe: an
+        // unknown treeId simply has no owner gate to trip.
+        Listing listing = treeId != null ? listings.get(treeId) : null;
+        String ownerUid = listing != null ? listing.getOwnerUid() : null;
+        String myUid = profile != null ? profile.getUserId() : null;
+        if (ownerUid != null && !ownerUid.equals(myUid)) {
+            emitError(callback, new ApiException("forbidden",
+                    "You do not own this resource"));
+            return;
+        }
+        Slot slot = new Slot("slot-" + treeId + "-" + System.currentTimeMillis(),
+                treeId, dayMs, startMs, endMs, maxPickers, 0, creditCost, null);
+        slotsForTree(treeId).add(slot);
+        emit(callback, slot);
+    }
+
+    @Override
     public void uploadFileKey(byte[] bytes, String contentType, Callback<String> callback) {
         // Mock: pretend the upload succeeded and return a fake storage key.
         emit(callback, "u/mock-user/mock-key.jpg");

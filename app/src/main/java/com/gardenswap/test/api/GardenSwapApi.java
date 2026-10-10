@@ -286,6 +286,19 @@ public interface GardenSwapApi {
             Callback<Slot> callback);
 
     /**
+     * Post a pick-your-own slot on a tree the caller owns
+     * ({@code POST /v1/trees/{treeId}/slots} with
+     * {@code {dayMs, startMs, endMs, maxPickers, creditCost}}). Owner only
+     * (403 {@code forbidden} otherwise); {@code startMs} must precede
+     * {@code endMs} (422 {@code invalid_window}); {@code creditCost} is
+     * 0–100, and a priced slot is rejected outright (422
+     * {@code credits_disabled}) where the community runs free. Returns the
+     * created slot.
+     */
+    void createTreeSlot(String treeId, long dayMs, long startMs, long endMs,
+            int maxPickers, int creditCost, Callback<Slot> callback);
+
+    /**
      * Upload raw file bytes via the /v1/uploads flow (sign → PUT → finalize).
      * Returns the storage <b>key</b> (e.g. {@code u/&lt;uid&gt;/&lt;id&gt;.jpg}),
      * not the public URL. Use the key with {@link #sendAttachment}.
