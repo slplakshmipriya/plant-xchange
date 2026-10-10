@@ -1,5 +1,7 @@
 package com.gardenswap.test.trees;
 
+import android.app.DatePickerDialog;
+import android.app.TimePickerDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.InputType;
@@ -28,6 +30,7 @@ import com.google.firebase.auth.FirebaseUser;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Locale;
 
@@ -64,6 +67,14 @@ public class TreeDetailActivity extends AppCompatActivity {
     private EditText visitLbsInput;
     private Button visitConfirmButton;
     private String viewerUid;
+
+    // Slots section state: the last list rendered (re-rendered once the
+    // tree loads so the owner's variant can replace the picker variant),
+    // the inline post-a-slot form while it is open, and its in-flight flag.
+    private List<Slot> lastSlots;
+    private boolean slotsLoadFailed;
+    private LinearLayout slotForm;
+    private boolean slotPostInFlight;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -167,6 +178,16 @@ public class TreeDetailActivity extends AppCompatActivity {
         }
         Ui.gap(content, this, 12);
         renderVisitSection();
+        // Slots may have loaded before the tree (owner unknown then, so
+        // they rendered in the picker variant); re-render now that
+        // ownership is known so the owner gets their management section.
+        if (lastSlots != null) {
+            renderSlots(lastSlots);
+        } else if (slotsLoadFailed) {
+            // The load failed before ownership was known; re-render the
+            // failure state so the owner still gets their posting controls.
+            renderSlotsError(treeId);
+        }
     }
 
     /**
@@ -353,16 +374,18 @@ public class TreeDetailActivity extends AppCompatActivity {
     }
 
     /**
-     * Pick-your-own slots (r2 contract: {@code GET /v1/trees/{id}/slots},
-     * {@code POST /v1/trees/{treeId}/slots/{slotId}/claim}). Endpoints may 404
-     * until the backend lands — the error path shows a one-line note and
-     * never crashes.
+     * Pick-your-own slots ({@code GET /v1/trees/{id}/slots},
+     * {@code POST /v1/trees/{treeId}/slots/{slotId}/claim}). The three
+     * section states stay distinguishable: slots listed, an explicit
+     * empty state (owner vs picker wording), and a load failure with
+     * tap-to-retry — the failure is never dressed up as "no slots".
      */
     private void loadSlots(String id) {
         slotsSection.removeAllViews();
         ApiProvider.get().listTreeSlots(id, new GardenSwapApi.Callback<List<Slot>>() {
             @Override
             public void onSuccess(List<Slot> result) {
+                slotsLoadFailed = false;
                 renderSlots(result);
                 // The slot list annotates the caller's own claims; collect
                 // them so the visit section can target the right one (with
@@ -382,11 +405,35 @@ public class TreeDetailActivity extends AppCompatActivity {
 
             @Override
             public void onError(ApiException e) {
-                slotsSection.removeAllViews();
-                slotsSection.addView(Ui.caption(TreeDetailActivity.this,
-                        "Slots not available yet"));
+                slotsLoadFailed = true;
+                renderSlotsError(id);
             }
         });
+    }
+
+    /**
+     * Load-failure state for the slots section: tap-to-retry for everyone.
+     * A load failure must not hostage the OWNER's management controls, so
+     * once the viewer is known to own the tree they also get their section
+     * header + Post a slot button (posting re-fetches the list on success).
+     * Picker-facing behavior is unchanged: just the retry button.
+     */
+    private void renderSlotsError(String id) {
+        slotForm = null;
+        slotsSection.removeAllViews();
+        if (isOwnTree()) {
+            TextView title = Ui.label(this, "Your picking slots");
+            title.setTextSize(14);
+            slotsSection.addView(title);
+            Ui.gap(slotsSection, this, 8);
+            Button post = Ui.button(this, "Post a slot");
+            post.setOnClickListener(v -> showSlotForm());
+            slotsSection.addView(post);
+            Ui.gap(slotsSection, this, 8);
+        }
+        Button retry = Ui.button(this, "Couldn't load slots — tap to retry");
+        retry.setOnClickListener(v -> loadSlots(id));
+        slotsSection.addView(retry);
     }
 
     /**
@@ -437,19 +484,247 @@ public class TreeDetailActivity extends AppCompatActivity {
     }
 
     private void renderSlots(List<Slot> slots) {
+        lastSlots = slots;
+        slotForm = null;
         slotsSection.removeAllViews();
-        TextView title = Ui.label(this, "Pick-your-own slots");
+        boolean own = isOwnTree();
+        TextView title = Ui.label(this, own ? "Your picking slots" : "Pick-your-own slots");
         title.setTextSize(14);
         slotsSection.addView(title);
         Ui.gap(slotsSection, this, 4);
         if (slots == null || slots.isEmpty()) {
-            slotsSection.addView(Ui.caption(this, "No slots posted for this tree."));
+            // Prominent on purpose: a small caption here read as "no
+            // information", which owners mistook for a missing feature.
+            slotsSection.addView(Ui.label(this, own
+                    ? "You haven't posted any slots yet — post your first below."
+                    : "No picking slots yet — the owner hasn't posted times "
+                            + "for this tree."));
+        } else {
+            for (Slot slot : slots) {
+                addSlotRow(slotsSection, slot);
+                Ui.gap(slotsSection, this, 8);
+            }
+        }
+        if (own) {
+            Ui.gap(slotsSection, this, 8);
+            Button post = Ui.button(this, "Post a slot");
+            post.setOnClickListener(v -> showSlotForm());
+            slotsSection.addView(post);
+        }
+    }
+
+    /**
+     * Owner slot-posting form, expanded inline under the slot list:
+     * date + start/end times, spots (pickers), and a credit cost. Posts
+     * through {@link GardenSwapApi#createTreeSlot}; on success the list
+     * reloads (which collapses the form), on failure the server's
+     * plain-language message is toasted and the form stays open.
+     */
+    private void showSlotForm() {
+        if (slotForm != null) {
             return;
         }
-        for (Slot slot : slots) {
-            addSlotRow(slotsSection, slot);
-            Ui.gap(slotsSection, this, 8);
+        LinearLayout form = Ui.card(this);
+        slotForm = form;
+
+        TextView heading = Ui.label(this, "New slot");
+        heading.setTextSize(14);
+        form.addView(heading);
+        Ui.gap(form, this, 8);
+
+        // Sensible defaults: tomorrow, 9 AM–12 PM. Local wall-clock; the
+        // wire carries epoch ms (dayMs = that date at local midnight).
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+        Calendar tomorrow = Calendar.getInstance();
+        tomorrow.add(Calendar.DAY_OF_MONTH, 1);
+
+        form.addView(Ui.caption(this, "Date"));
+        EditText dateInput = Ui.input(this, "e.g. 2026-10-12", InputType.TYPE_CLASS_TEXT);
+        dateInput.setText(dateFormat.format(tomorrow.getTime()));
+        form.addView(pickRow(dateInput, true));
+        Ui.gap(form, this, 8);
+
+        form.addView(Ui.caption(this, "Start time"));
+        EditText startInput = Ui.input(this, "e.g. 09:00", InputType.TYPE_CLASS_TEXT);
+        startInput.setText("09:00");
+        form.addView(pickRow(startInput, false));
+        Ui.gap(form, this, 8);
+
+        form.addView(Ui.caption(this, "End time"));
+        EditText endInput = Ui.input(this, "e.g. 12:00", InputType.TYPE_CLASS_TEXT);
+        endInput.setText("12:00");
+        form.addView(pickRow(endInput, false));
+        Ui.gap(form, this, 8);
+
+        form.addView(Ui.caption(this, "Spots (pickers)"));
+        EditText spotsInput = Ui.input(this, "e.g. 6",
+                InputType.TYPE_CLASS_NUMBER);
+        spotsInput.setText("6");
+        form.addView(spotsInput);
+        Ui.gap(form, this, 8);
+
+        form.addView(Ui.caption(this, "Credit cost (0 = free)"));
+        EditText costInput = Ui.input(this, "0", InputType.TYPE_CLASS_NUMBER);
+        costInput.setText("0");
+        form.addView(costInput);
+        Ui.gap(form, this, 12);
+
+        Button submit = Ui.primaryButton(this, "Post slot");
+        Button cancel = Ui.secondaryButton(this, "Cancel");
+        cancel.setOnClickListener(v -> {
+            slotsSection.removeView(form);
+            slotForm = null;
+        });
+        submit.setOnClickListener(v -> submitSlotForm(
+                submit, dateInput, startInput, endInput, spotsInput, costInput));
+        form.addView(submit);
+        Ui.gap(form, this, 4);
+        form.addView(cancel);
+
+        slotsSection.addView(form);
+    }
+
+    /** Text field + "Pick" button (date picker for dates, time otherwise). */
+    private LinearLayout pickRow(EditText field, boolean date) {
+        field.setLayoutParams(new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button pick = Ui.rowButton(this, "Pick", false);
+        pick.setOnClickListener(v -> {
+            if (date) {
+                showSlotDatePicker(field);
+            } else {
+                showSlotTimePicker(field);
+            }
+        });
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.addView(field);
+        row.addView(pick);
+        return row;
+    }
+
+    private void showSlotDatePicker(EditText target) {
+        Calendar cal = Calendar.getInstance();
+        java.util.Date parsed = parseSlotDateTime(target.getText().toString().trim() + " 00:00");
+        if (parsed != null) {
+            cal.setTime(parsed);
         }
+        new DatePickerDialog(this,
+                (view, year, month, day) -> {
+                    Calendar picked = Calendar.getInstance();
+                    picked.set(year, month, day);
+                    target.setText(new SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                            .format(picked.getTime()));
+                },
+                cal.get(Calendar.YEAR), cal.get(Calendar.MONTH),
+                cal.get(Calendar.DAY_OF_MONTH)).show();
+    }
+
+    private void showSlotTimePicker(EditText target) {
+        int hour = 9;
+        int minute = 0;
+        try {
+            String[] parts = target.getText().toString().trim().split(":");
+            hour = Integer.parseInt(parts[0]);
+            minute = Integer.parseInt(parts[1]);
+        } catch (Exception ignored) {
+            // Unparseable text — fall back to 09:00.
+        }
+        new TimePickerDialog(this,
+                (view, h, m) -> target.setText(
+                        String.format(Locale.US, "%02d:%02d", h, m)),
+                hour, minute, true).show();
+    }
+
+    /** Parses "yyyy-MM-dd HH:mm" to a Date; null when unparseable. */
+    private static java.util.Date parseSlotDateTime(String text) {
+        try {
+            SimpleDateFormat format =
+                    new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
+            format.setLenient(false);
+            return format.parse(text);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Validates the slot form and posts it; all errors are friendly toasts. */
+    private void submitSlotForm(Button submit, EditText dateInput, EditText startInput,
+            EditText endInput, EditText spotsInput, EditText costInput) {
+        String dateText = dateInput.getText().toString().trim();
+        java.util.Date start = parseSlotDateTime(
+                dateText + " " + startInput.getText().toString().trim());
+        java.util.Date end = parseSlotDateTime(
+                dateText + " " + endInput.getText().toString().trim());
+        java.util.Date day = parseSlotDateTime(dateText + " 00:00");
+        if (start == null || end == null || day == null) {
+            Toast.makeText(this, "Pick a date and start/end times first.",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (end.getTime() <= start.getTime()) {
+            Toast.makeText(this, "End time must be after the start time.",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // Client-side only (the server has no past-slot guard yet): a slot
+        // starting in the past can never be picked. Checked against the
+        // submit-time clock, so the form's defaults (tomorrow 9 AM–12 PM)
+        // are just prefill — an owner who edits the date back to today with
+        // an already-past start hits this, not the server.
+        if (start.getTime() <= System.currentTimeMillis()) {
+            Toast.makeText(this, "That start time has passed — pick a future time.",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final int spots;
+        try {
+            spots = Integer.parseInt(spotsInput.getText().toString().trim());
+        } catch (NumberFormatException e) {
+            Toast.makeText(this, "Enter spots (1–50).", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (spots < 1 || spots > 50) {
+            Toast.makeText(this, "Enter spots (1–50).", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final int cost;
+        String costText = costInput.getText().toString().trim();
+        try {
+            cost = costText.isEmpty() ? 0 : Integer.parseInt(costText);
+        } catch (NumberFormatException e) {
+            Toast.makeText(this, "Credit cost must be 0–100.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (cost < 0 || cost > 100) {
+            Toast.makeText(this, "Credit cost must be 0–100.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (slotPostInFlight) {
+            return;
+        }
+        slotPostInFlight = true;
+        submit.setEnabled(false);
+        ApiProvider.get().createTreeSlot(treeId, day.getTime(), start.getTime(),
+                end.getTime(), spots, cost, new GardenSwapApi.Callback<Slot>() {
+                    @Override
+                    public void onSuccess(Slot created) {
+                        slotPostInFlight = false;
+                        Toast.makeText(TreeDetailActivity.this, "Slot posted",
+                                Toast.LENGTH_SHORT).show();
+                        // Reloading re-renders the section, collapsing the form.
+                        loadSlots(treeId);
+                    }
+
+                    @Override
+                    public void onError(ApiException e) {
+                        slotPostInFlight = false;
+                        submit.setEnabled(true);
+                        Toast.makeText(TreeDetailActivity.this,
+                                friendlyMessage(e), Toast.LENGTH_LONG).show();
+                    }
+                });
     }
 
     private void addSlotRow(LinearLayout parent, Slot slot) {
