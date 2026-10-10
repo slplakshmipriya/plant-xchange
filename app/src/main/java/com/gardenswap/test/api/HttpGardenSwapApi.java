@@ -1094,6 +1094,25 @@ public class HttpGardenSwapApi implements GardenSwapApi {
     }
 
     @Override
+    public void createTreeSlot(String treeId, long dayMs, long startMs, long endMs,
+            int maxPickers, int creditCost, Callback<Slot> callback) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("dayMs", dayMs);
+            body.put("startMs", startMs);
+            body.put("endMs", endMs);
+            body.put("maxPickers", maxPickers);
+            body.put("creditCost", creditCost);
+            authed("POST", "/v1/trees/" + enc(treeId) + "/slots", body,
+                    (status, json) -> callback.onSuccess(
+                            JsonParsers.parseSlot(JsonParsers.unwrap(json, "slot"))),
+                    callback);
+        } catch (Exception e) {
+            fail(callback, new ApiException("encode_error", "Couldn't encode the slot."));
+        }
+    }
+
+    @Override
     public void sendAttachment(String threadId, String uploadKey,
             Callback<ChatMessage> callback) {
         String trimmed = uploadKey == null ? "" : uploadKey.trim();
